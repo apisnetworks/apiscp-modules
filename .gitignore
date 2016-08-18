@@ -1,0 +1,5 @@
+.svn
+.idea
+*.sw?
+modules/*/*
+modules/test.php
