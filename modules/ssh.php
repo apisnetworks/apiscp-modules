@@ -1,62 +1,82 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Provides common functionality associated with SSH
+	 *
 	 * @package core
 	 */
-	class Ssh_Module extends Module_Skeleton {
+	class Ssh_Module extends Module_Skeleton
+	{
 		/**
 		 * {{{ void __construct(void)
+		 *
 		 * @ignore
 		 */
 
-		public function __construct() {
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'*' => PRIVILEGE_SITE,
-				'enabled' => PRIVILEGE_SITE|PRIVILEGE_USER
+				'*'       => PRIVILEGE_SITE,
+				'enabled' => PRIVILEGE_SITE | PRIVILEGE_USER
 			);
 		}
 
-		public function deny_user($user) {
+		public function deny_user($user)
+		{
 			return Util_Pam::remove_entry($user, 'ssh');
 		}
 
-		public function permit_user($user) {
+		public function permit_user($user)
+		{
 			if ($this->auth_is_demo()) {
 				return error("SSH disabled for demo account");
 			}
 			return Util_Pam::add_entry($user, 'ssh');
 		}
 
-		public function user_enabled($user) {
-			if (!$this->get_config('ssh','enabled'))
+		public function user_enabled($user)
+		{
+			if (!$this->get_config('ssh', 'enabled'))
 				return warn("ssh not enabled on account");
 
 			return Util_Pam::check_entry($user, 'ssh');
 		}
-        
-        public function enabled() {
-	        $check = (bool)$this->get_service_value('ssh','enabled');
-            if ($this->permission_level & PRIVILEGE_USER) {
+
+		public function enabled()
+		{
+			$check = (bool)$this->get_service_value('ssh', 'enabled');
+			if ($this->permission_level & PRIVILEGE_USER) {
 				$check = $check && $this->user_enabled($this->username);
-            }
-	        return $check;
-        }
+			}
+			return $check;
+		}
 
 
-        public function _edit_user($user, $usernew)
-        {
-            if (!$this->enabled() || !$this->user_enabled($user)) {
-                return true;
-            }
+		public function _edit_user($user, $usernew)
+		{
+			if (!$this->enabled() || !$this->user_enabled($user)) {
+				return true;
+			}
 
-            // @TODO nuke active ssh sessions?
-            mute_warn();
-            $this->deny_user($user);
-            $this->permit_user($usernew);
-            unmute_warn();
-            return true;
-        }
+			// @TODO nuke active ssh sessions?
+			mute_warn();
+			$this->deny_user($user);
+			$this->permit_user($usernew);
+			unmute_warn();
+			return true;
+		}
 
 		public function _housekeeping()
 		{
@@ -66,7 +86,8 @@
 
 		}
 
-		public function _create() {
+		public function _create()
+		{
 			// stupid thor...
 			$conf = Auth::profile()->conf->new;
 			$admin = $conf['siteinfo']['admin_user'];
@@ -75,4 +96,5 @@
 			}
 		}
 	}
+
 ?>

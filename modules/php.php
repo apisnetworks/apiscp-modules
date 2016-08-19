@@ -1,38 +1,52 @@
 <?php
-    /**
-     * 
-     * 
-     * @author Matt Saladna <matt@apisnetworks.com>
-     */
-    class Php_Module extends Module_Skeleton {
-	    const COMPOSER_LOCATION = '/usr/bin/composer.phar';
 
-        public $exportedFunctions = array(
-            '*' => PRIVILEGE_SITE,
-            'version' => PRIVILEGE_ALL
-        );
-        
-        /**
+	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+
+	/**
+	 * Class Php_Module
+	 * @package core
+	 */
+	class Php_Module extends Module_Skeleton
+	{
+		const COMPOSER_LOCATION = '/usr/bin/composer.phar';
+
+		public $exportedFunctions = array(
+			'*'       => PRIVILEGE_SITE,
+			'version' => PRIVILEGE_ALL
+		);
+
+		/**
 		 * Install PEAR package
 		 *
 		 * @param  string $module
 		 * @return bool
 		 */
-		public function install_package($module) {
-			if (!IS_CLI) return $this->query('php_install_package',$module);
-			
-			
-	        if (!preg_match('!^[a-zA-Z0-9_-]+$!', $module))
-				return error($module.": invalid package name");
-			
-			$args    = '-d display_errors=0 -d track_errors=1 -d include_path=/usr/local/share/pear:/usr/share/pear';
+		public function install_package($module)
+		{
+			if (!IS_CLI) return $this->query('php_install_package', $module);
+
+
+			if (!preg_match('!^[a-zA-Z0-9_-]+$!', $module))
+				return error($module . ": invalid package name");
+
+			$args = '-d display_errors=0 -d track_errors=1 -d include_path=/usr/local/share/pear:/usr/share/pear';
 			if (version_compare(PLATFORM_VERSION, '4.5', '<')) {
-				$args .= ' -d disable_functions=ini_set'; 
+				$args .= ' -d disable_functions=ini_set';
 			}
-			$pearcmd = '/usr/share/pear/pearcmd.php'; 
+			$pearcmd = '/usr/share/pear/pearcmd.php';
 			$proc = Util_Process_Tee::watch(new Util_Process_Sudo);
-			$proc->log("Installing ".$module);
-			if (file_exists($this->domain_fs_path().'/usr/local/share/pear/pearcmd.php')) {
+			$proc->log("Installing " . $module);
+			if (file_exists($this->domain_fs_path() . '/usr/local/share/pear/pearcmd.php')) {
 				$this->_unsetPearIni();
 				$pearcmd = '/usr/local/share/pear/pearcmd.php';
 			}
@@ -44,18 +58,20 @@
 			);
 			return $status['success'];
 		}
-		
-		private function _unsetPearIni() {
+
+		private function _unsetPearIni()
+		{
 			$pearfile = $this->domain_fs_path() . '/usr/local/share/pear/PEAR.php';
 			if (!file_exists($pearfile)) return false;
 			$content = file_get_contents($pearfile, 0, null, 0, 1024);
 			$changed = false;
-			$pos = strpos($content,'ini_set');
+			$pos = strpos($content, 'ini_set');
 			if ($pos === false) return false;
 			$content = file_get_contents($pearfile);
-			file_put_contents($pearfile, str_replace('@ini_set','// @ini_set', $content));
+			file_put_contents($pearfile, str_replace('@ini_set', '// @ini_set', $content));
 			return true;
 		}
+
 		/**
 		 * List PEAR packages installed for account
 		 *
@@ -98,14 +114,16 @@
 		 * array list_remote_packages (void)
 		 * Queries PEAR for all available PEAR packages, analogous to
 		 * running pear list-all from the command line.
+		 *
 		 * @return array Listing of PEAR modules with the following indexes:
 		 * versions, description.  :KLUDGE: versions only contains one version
 		 * number, the most current on PEAR at this time.  This index is kept for
 		 * consistency with the "Package Manager" component of the control panel
 		 */
-		public function list_remote_packages() {
-			if (file_exists(TEMP_DIR.'/pear-cache') && ( (time() - filemtime(TEMP_DIR.'/pear-cache')) < 86400) ) {
-				$data = unserialize(file_get_contents(TEMP_DIR.'/pear-cache'));
+		public function list_remote_packages()
+		{
+			if (file_exists(TEMP_DIR . '/pear-cache') && ((time() - filemtime(TEMP_DIR . '/pear-cache')) < 86400)) {
+				$data = unserialize(file_get_contents(TEMP_DIR . '/pear-cache'));
 				return $data;
 			}
 			$status = Util_Process::exec("/usr/bin/pear list-all");
@@ -116,27 +134,29 @@
 
 			for ($i = 0; $i < $pearCount; $i++) {
 				$pear[$pearTmp[1][$i]] = array('versions'    => array(trim($pearTmp[2][$i])),
-											 'description' => $pearTmp[4][$i]);
+				                               'description' => $pearTmp[4][$i]);
 			}
-			file_put_contents(TEMP_DIR.'/pear-cache',serialize($pear));
+			file_put_contents(TEMP_DIR . '/pear-cache', serialize($pear));
 			return $pear;
 		}
 
 		/**
 		 * string get_pear_description (string)
 		 * Fetches the description for a PEAR package
+		 *
 		 * @param  string $mModule package name
 		 * @return string description of the package
 		 */
 
-		public function package_description($mModule) {
+		public function package_description($mModule)
+		{
 			$packages = $this->list_remote_packages();
 			if (!isset($packages[$mModule]))
 				return false;
 			return $packages[$mModule]['description'];
 		}
-        
-        /**
+
+		/**
 		 * Add PHP channel to PEAR package manager
 		 *
 		 * @param  string $xml URL reference to package.xml
@@ -144,7 +164,7 @@
 		 */
 		public function add_pear_channel($xml)
 		{
-			if (substr($xml,-4) != '.xml')
+			if (substr($xml, -4) != '.xml')
 				return error("channel `$xml' must refer to .xml");
 			$status = Util_Process_Sudo::exec('pear add-channel %s', $xml);
 			return $status['success'];
@@ -168,17 +188,17 @@
 		 *
 		 * Sample response-
 		 * array(2) {
-		 *	  [0]=>
-		 *	  array(5) {
-		 *	    ["channel"]=>    string(12) "pear.php.net"
-		 *	    ["summary"]=>    string(40) "PHP Extension and Application Repository"
-		 *	  }
-		 *	  [1]=>
-		 *	  array(5) {
-		 *	    ["channel"]=>    string(12) "pecl.php.net"
-		 *	    ["summary"]=>    string(31) "PHP Extension Community Library"
-		 *	  }
-		 *	}
+		 *      [0]=>
+		 *      array(5) {
+		 *        ["channel"]=>    string(12) "pear.php.net"
+		 *        ["summary"]=>    string(40) "PHP Extension and Application Repository"
+		 *      }
+		 *      [1]=>
+		 *      array(5) {
+		 *        ["channel"]=>    string(12) "pecl.php.net"
+		 *        ["summary"]=>    string(31) "PHP Extension Community Library"
+		 *      }
+		 *    }
 		 *
 		 * @return array
 		 */
@@ -206,14 +226,14 @@
 		 * Basic wrapper to pear channel-info <channel> command
 		 * Sample response-
 		 * array(4) {
-		 *	  ["server"]=>
-		 *	  string(12) "pear.php.net"
-		 *	  ["alias"]=>
-		 *	  string(4) "pear"
-		 *	  ["summary"]=>
-		 *	  string(40) "PHP Extension and Application Repository"
-		 *	  ["version"]=>
-		 *	  NULL
+		 *      ["server"]=>
+		 *      string(12) "pear.php.net"
+		 *      ["alias"]=>
+		 *      string(4) "pear"
+		 *      ["summary"]=>
+		 *      string(40) "PHP Extension and Application Repository"
+		 *      ["version"]=>
+		 *      NULL
 		 * }
 		 *
 		 * @param string $channel
@@ -224,11 +244,10 @@
 			$info = array();
 			$status = Util_Process_Sudo::exec('pear channel-info %s', $channel);
 			if (!$status['success']) return false;
-			$line = strtok($status['output'],"=");
+			$line = strtok($status['output'], "=");
 			$parse = false;
 
-			for ($idx = null ;$line !== false; $line=strtok("\n"))
-			{
+			for ($idx = null; $line !== false; $line = strtok("\n")) {
 				// delimiter ===
 				if (!$parse) {
 					if ($line[0] != '=') continue;
@@ -240,7 +259,8 @@
 
 				$lookup = strtok(" \n");
 				if ($lookup == "Name") {
-					strtok(" ");strtok(" ");
+					strtok(" ");
+					strtok(" ");
 					$idx = 'server';
 				} else if ($lookup == "Alias") {
 					$idx = 'alias';
@@ -250,7 +270,7 @@
 					// Special case if Version field is null
 					$version = null;
 					$line = strtok("\n");
-					if (!strstr($line,"SERVER CAPABILITIES"))
+					if (!strstr($line, "SERVER CAPABILITIES"))
 						$version = trim($line);
 					$info['version'] = $version;
 				} else if ($lookup[0] == "=") {
@@ -260,52 +280,57 @@
 			return $info;
 		}
 
-        /**
-         * string get_php_version()
-         * Returns the available PHP interpreter version on the server
-         *
-         * @cache yes
-         * @privilege PRIVILEGE_ALL
-         *
-         * @return string
-         */
-        public function version() {
-            $key = 'php.version';
-            $ver = apc_fetch($key);
-            if ($ver) return $ver;
-            $cmd = Util_Process::exec('/usr/bin/php -v 2> /dev/null');
-            preg_match('/^PHP ([0-9]+\.[0-9]+\.[0-9]+)/m', $cmd['output'], $match);
-            $ver = $match[1];
-            apc_add($key,$ver,86400);
-            return $ver;
-        }
+		/**
+		 * string get_php_version()
+		 * Returns the available PHP interpreter version on the server
+		 *
+		 * @cache     yes
+		 * @privilege PRIVILEGE_ALL
+		 *
+		 * @return string
+		 */
+		public function version()
+		{
+			$key = 'php.version';
+			$ver = apc_fetch($key);
+			if ($ver) return $ver;
+			$cmd = Util_Process::exec('/usr/bin/php -v 2> /dev/null');
+			preg_match('/^PHP ([0-9]+\.[0-9]+\.[0-9]+)/m', $cmd['output'], $match);
+			$ver = $match[1];
+			apc_add($key, $ver, 86400);
+			return $ver;
+		}
 
-	    public function composer_exists() {
-		    return file_exists(self::COMPOSER_LOCATION);
-	    }
-	    public function _housekeeping() {
-		    // composer.phar seems standard nowadays..
-		    if ($this->composer_exists()) {
-			    return true;
-		    } else if (version_compare(platform_version(), '4.5', '<')) {
-			    return false;
-		    }
+		public function composer_exists()
+		{
+			return file_exists(self::COMPOSER_LOCATION);
+		}
 
-		    $versions = file_get_contents('https://getcomposer.org/versions');
-		    if (!$versions) {
-			    return false;
-		    }
-		    $versions = json_decode($versions, true);
+		public function _housekeeping()
+		{
+			// composer.phar seems standard nowadays..
+			if ($this->composer_exists()) {
+				return true;
+			} else if (version_compare(platform_version(), '4.5', '<')) {
+				return false;
+			}
+
+			$versions = file_get_contents('https://getcomposer.org/versions');
+			if (!$versions) {
+				return false;
+			}
+			$versions = json_decode($versions, true);
 			$url = 'https://getcomposer.org/' . $versions['stable'][0]['path'];
-		    $res = Util_HTTP::download($url, self::COMPOSER_LOCATION);
-		    if (!$res) {
-			    return error("failed to download composer");
-		    }
-		    chmod(self::COMPOSER_LOCATION, 0755);
-		    copy(self::COMPOSER_LOCATION, $this->service_template_path("siteinfo") . self::COMPOSER_LOCATION);
+			$res = Util_HTTP::download($url, self::COMPOSER_LOCATION);
+			if (!$res) {
+				return error("failed to download composer");
+			}
+			chmod(self::COMPOSER_LOCATION, 0755);
+			copy(self::COMPOSER_LOCATION, $this->service_template_path("siteinfo") . self::COMPOSER_LOCATION);
 
-		    info("installed %s!", basename(self::COMPOSER_LOCATION));
-		    return true;
-	    }
-    }
+			info("installed %s!", basename(self::COMPOSER_LOCATION));
+			return true;
+		}
+	}
+
 ?>

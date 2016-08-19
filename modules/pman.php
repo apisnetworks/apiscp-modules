@@ -1,11 +1,25 @@
 <?php
 
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+
+	/**
 	 * Class Pman_Module
 	 *
 	 * Process management
+	 * @package core
 	 */
-	class Pman_Module extends Module_Skeleton {
+	class Pman_Module extends Module_Skeleton
+	{
 		const PROC_PATH = '/proc';
 		const PROC_CACHE_KEY = 'pman.all';
 		const MAX_WAIT_TIME = 300;
@@ -13,7 +27,7 @@
 		const _NSIG = 65;
 
 		public $exportedFunctions = array(
-			'*' => PRIVILEGE_ALL,
+			'*'                      => PRIVILEGE_ALL,
 			'schedule_api_cmd_admin' => PRIVILEGE_ADMIN
 		);
 
@@ -24,10 +38,12 @@
 
 		/**
 		 * Terminal a process with SIGKILL
+		 *
 		 * @param int $pid process
 		 * @return bool
 		 */
-		public function kill($pid) {
+		public function kill($pid)
+		{
 			// SIGKILL isn't defined in ISAPI?
 			return $this->signal($pid, 9);
 		}
@@ -67,38 +83,38 @@
 		 *
 		 * Sample response:
 		 * Array
-			* (
-			* [pid] => 8849
-			* [comm] => bash
-			* [stat] => S
-			* [ppid] => 8848
-			* [pgrp] => 8849
-			* [session] => 5185
-			* [tty_nr] => 34816
-			* [tpgid] => 27992
-			* [flags] => 4219136
-			* [minflt] => 47250071
-			* [cminflt] => 154934160
-			* [majflt] => 0
-			* [cmajflt] => 0
-			* [utime] => 101.48
-			* [stime] => 403.61
-			* [cutime] => 0
-			* [cstime] => 0
-			* [priority] => 39
-			* [nice] => 19
-			* [num_threads] => 1
-			* [itrealvalue] => 0
-			* [starttime] => 50639.3
-			* [vsize] => 4988
-			* [rss] => 2516
-			* [rsslim] => 524288
-			* [user] => 514
-			* [cwd] => /
-			* [startutime] => 1430844663
-			* [args] => Array
-			* (
-			* )
+		 * (
+		 * [pid] => 8849
+		 * [comm] => bash
+		 * [stat] => S
+		 * [ppid] => 8848
+		 * [pgrp] => 8849
+		 * [session] => 5185
+		 * [tty_nr] => 34816
+		 * [tpgid] => 27992
+		 * [flags] => 4219136
+		 * [minflt] => 47250071
+		 * [cminflt] => 154934160
+		 * [majflt] => 0
+		 * [cmajflt] => 0
+		 * [utime] => 101.48
+		 * [stime] => 403.61
+		 * [cutime] => 0
+		 * [cstime] => 0
+		 * [priority] => 39
+		 * [nice] => 19
+		 * [num_threads] => 1
+		 * [itrealvalue] => 0
+		 * [starttime] => 50639.3
+		 * [vsize] => 4988
+		 * [rss] => 2516
+		 * [rsslim] => 524288
+		 * [user] => 514
+		 * [cwd] => /
+		 * [startutime] => 1430844663
+		 * [args] => Array
+		 * (
+		 * )
 		 *
 		 * pid: process id
 		 * comm: raw command name
@@ -130,7 +146,7 @@
 		 * user: user id of the process (translate w/ user_get_username_from_uid)
 		 *
 		 */
-		public function stat ($pid)
+		public function stat($pid)
 		{
 			if (!IS_CLI) {
 				return $this->query('pman_stat', $pid);
@@ -140,19 +156,6 @@
 				return $procs[$pid];
 			}
 			return array();
-		}
-
-		/**
-		 * Get active process count
-		 *
-		 * Count is fetched from cache. {@see flush} may be necessary
-		 *
-		 * @return int
-		 */
-		public function pcount()
-		{
-			$count = count($this->_processAccumulator());
-			return $count;
 		}
 
 		/**
@@ -205,11 +208,11 @@
 				'rsslim'
 			);
 			$pids = $this->_collectPids();
-			$func = function ()  use ($that, $pids, $scanspec, $stathash) {
+			$func = function () use ($that, $pids, $scanspec, $stathash) {
 				$procs = array();
 				$uptime = file_get_contents('/proc/uptime');
 				$now = time();
-				list($uptime) = explode(" ", $uptime,1);
+				list($uptime) = explode(" ", $uptime, 1);
 				foreach ($pids as $pid) {
 					$path = '/proc/' . $pid;
 					$user = fileowner($path);
@@ -229,7 +232,7 @@
 					);
 					$stat['user'] = $user;
 					$stat['cwd'] = $cwd;
-					$stat['comm'] = substr($stat['comm'],1,-1);
+					$stat['comm'] = substr($stat['comm'], 1, -1);
 
 					$stat['utime'] /= CPU_CLK_TCK;
 					$stat['stime'] /= CPU_CLK_TCK;
@@ -259,13 +262,14 @@
 		 *
 		 * @return array
 		 */
-		private function _collectPids() {
+		private function _collectPids()
+		{
 			$controllers = $this->cgroup_get_controllers();
 			// memory + cpu proc lists are balanced
 			$cgroupprocs = Cgroup_Module::CGROUP_LOCATION . '/' .
 				array_pop($controllers) . '/' . $this->cgroup_get_cgroup() . '/cgroup.procs';
-			if (version_compare(platform_version(), '6', '>=') && file_exists($cgroupprocs))  {
-				return file($cgroupprocs, FILE_SKIP_EMPTY_LINES|FILE_IGNORE_NEW_LINES);
+			if (version_compare(platform_version(), '6', '>=') && file_exists($cgroupprocs)) {
+				return file($cgroupprocs, FILE_SKIP_EMPTY_LINES | FILE_IGNORE_NEW_LINES);
 			}
 			$procpath = self::PROC_PATH;
 			$dir = opendir($procpath);
@@ -282,6 +286,19 @@
 			}
 			closedir($dir);
 			return $procs;
+		}
+
+		/**
+		 * Get active process count
+		 *
+		 * Count is fetched from cache. {@see flush} may be necessary
+		 *
+		 * @return int
+		 */
+		public function pcount()
+		{
+			$count = count($this->_processAccumulator());
+			return $count;
 		}
 
 		/**
@@ -313,27 +330,27 @@
 		 *
 		 * Sample response:
 		 *
-			Array
-			(
-			[stdin] =>
-			[stdout] => Hello World!!!
-			[0] => Hello World!!!
-			[stderr] =>
-			[1] =>
-			[output] => Hello World!!!
-			[errno] => 0
-			[return] => 0
-			[error] =>
-			[success] => 1
-			)
+		 * Array
+		 * (
+		 * [stdin] =>
+		 * [stdout] => Hello World!!!
+		 * [0] => Hello World!!!
+		 * [stderr] =>
+		 * [1] =>
+		 * [output] => Hello World!!!
+		 * [errno] => 0
+		 * [return] => 0
+		 * [error] =>
+		 * [success] => 1
+		 * )
 		 *
-		 * @param string $proc process name, format specifiers allowed
-		 * @param array $args optional arguments to supply to format
-		 * @param array $env optional environment vars to set
-		 * @param array $options optional options, tee: set tee output to file
+		 * @param string $proc    process name, format specifiers allowed
+		 * @param array  $args    optional arguments to supply to format
+		 * @param array  $env     optional environment vars to set
+		 * @param array  $options optional options, tee: set tee output to file
 		 * @return array
 		 */
-		public function run ($cmd, $args = null, $env = null, $options = array())
+		public function run($cmd, $args = null, $env = null, $options = array())
 		{
 			if (!IS_CLI) {
 				if ($this->auth_is_demo()) {
@@ -379,13 +396,28 @@
 			}
 			// capture & extract the safe command, then sudo
 			$proc->setOption('umask', 0022)->
-				setOption('timeout', self::MAX_WAIT_TIME)->
-				setOption('user', $this->username);
+			setOption('timeout', self::MAX_WAIT_TIME)->
+			setOption('user', $this->username);
 			// temp fix, last arg is checked for user/domain substitution,
 			// wordpress sets user for example
 			$ret = $proc->run($cmd, $args);
 
 			return $ret;
+		}
+
+		/**
+		 * Background an apnscp function with an optional delay
+		 *
+		 * @param            $realcmd
+		 * @param array|null $args
+		 * @param string     $when
+		 */
+		public function schedule_api_cmd($cmd, $args = array(), $when = 'now')
+		{
+			if (!IS_CLI) {
+				return $this->query('pman_schedule_api_cmd', $cmd, $args, $when);
+			}
+			return $this->schedule_api_cmd_admin($this->site, $this->username, $cmd, $args, $when);
 		}
 
 		/**
@@ -398,7 +430,8 @@
 		 * @param array|null $args
 		 * @param string     $when
 		 */
-		public function schedule_api_cmd_admin($site, $user = null, $cmd, $args = array(), $when = 'now') {
+		public function schedule_api_cmd_admin($site, $user = null, $cmd, $args = array(), $when = 'now')
+		{
 			if (!IS_CLI) {
 				return $this->query('pman_schedule_api_cmd_admin', $site, $user, $cmd, $args, $when);
 			}
@@ -406,7 +439,7 @@
 			$realcmd = INCLUDE_PATH . '/bin/cmd ';
 			if ($site) {
 				$realcmd .= '-d ' . escapeshellarg($site) . ' ';
- 			}
+			}
 			if ($user) {
 				$realcmd .= '-u ' . escapeshellarg($user) . ' ';
 			}
@@ -417,7 +450,7 @@
 				// [site, user, [[cmd1, [args]], [cmd2, [args]]], when]
 				$when = $args;
 			}
-			
+
 			// avoid fatals
 			$timespec = new DateTime($when);
 			if (!$timespec) {
@@ -442,7 +475,9 @@
 							$a = array_map('escapeshellarg', $a);
 						} else {
 							// hash
-							array_walk($a, function (&$v, $k) { $v = escapeshellarg($k) . ':' . escapeshellarg($v); });
+							array_walk($a, function (&$v, $k) {
+								$v = escapeshellarg($k) . ':' . escapeshellarg($v);
+							});
 						}
 						$a = '[' . join(",", $a) . ']';
 					}
@@ -458,19 +493,5 @@
 				return error("failed to schedule task `%s': %s", $cmd, $ret['error']);
 			}
 			return true;
-		}
-
-		/**
-		 * Background an apnscp function with an optional delay
-		 *
-		 * @param            $realcmd
-		 * @param array|null $args
-		 * @param string     $when
-		 */
-		public function schedule_api_cmd($cmd, $args = array(), $when = 'now') {
-			if (!IS_CLI) {
-				return $this->query('pman_schedule_api_cmd', $cmd, $args, $when);
-			}
-			return $this->schedule_api_cmd_admin($this->site, $this->username, $cmd, $args, $when);
 		}
 	}

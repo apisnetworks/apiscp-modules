@@ -1,28 +1,41 @@
 <?php
 	/**
-	 * User tracking, trouble tickets
-	 * @package core
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
 	 */
 
-	class Crm_Module extends Module_Skeleton {
+	/**
+	 * User tracking, trouble tickets
+	 *
+	 * @package core
+	 */
+	class Crm_Module extends Module_Skeleton
+	{
 		protected $_db;
 
 		// @ignore
 		const FROM_ADDRESS = 'help@apisnetworks.com';
-		const REPLY_ADDRESS     = 'help+tickets@apisnetworks.com';
-		const FROM_NAME    = 'Apis Networks Support';
+		const REPLY_ADDRESS = 'help+tickets@apisnetworks.com';
+		const FROM_NAME = 'Apis Networks Support';
 		const FROM_NO_REPLY_ADDRESS = 'noreply@apisnetworks.com';
-		const TICKET_STCLOSE  = 'close';
+		const TICKET_STCLOSE = 'close';
 		const TICKET_STAPPEND = 'append';
 		const TICKET_STOPEN = 'open';
 		const MAX_SMS_LENGTH = 150;
-		private $_priorities = array('normal','high','outage');
+		private $_priorities = array('normal', 'high', 'outage');
 		// lowercase list of ticket subject priorities that cannot change
 		private $_lowPrioritySubjects = array('billing');
 
 		// @var string
 		// @ignore
-		const COPY_ADMIN   = 'help@apisnetworks.com';
+		const COPY_ADMIN = 'help@apisnetworks.com';
 
 		// @ignore
 		const SHORT_COPY_ADMIN = CRM_SHORT_COPY_ADMIN;
@@ -40,17 +53,20 @@
 
 		/**
 		 * void __construct(void)
+		 *
 		 * @ignore
 		 */
-		public function __construct() {
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'*' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
+				'*'                       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'append_ticket_via_email' => PRIVILEGE_ADMIN
 			);
 		}
 
-		private function _connect() {
+		private function _connect()
+		{
 			if ($this->_db instanceof PDO)
 				return $this->_db;
 			Error_Reporter::suppress_php_error('PDO::.*');
@@ -58,7 +74,7 @@
 			$host = self::$CRM_SERVER_HOST;
 			$user = self::$CRM_SERVER_USER;
 			$password = self::$CRM_SERVER_PASSWORD;
-			$dsn = 'mysql:dbname=' . $db .';host=' . $host;
+			$dsn = 'mysql:dbname=' . $db . ';host=' . $host;
 			try {
 				$this->_db = new PDO($dsn, $user, $password);
 			} catch (PDOException $e) {
@@ -72,7 +88,8 @@
 
 		}
 
-		public function __destruct() {
+		public function __destruct()
+		{
 			$this->_db = null;
 		}
 
@@ -85,26 +102,29 @@
 		/**
 		 * array get_troubleticket_subjects (void)
 		 */
-		public function get_trouble_ticket_subjects() {
+		public function get_trouble_ticket_subjects()
+		{
 			$subjects = array();
 			$db = $this->_connect();
 			if (!$db) return $subjects;
 			$q = "SELECT `subject_id`, `subject` FROM `ticket_subjects`
 				WHERE (" . $this->permission_level . " & `permissions` ) = " .
-				$this->permission_level." ORDER BY subject";
+				$this->permission_level . " ORDER BY subject";
 			$subjects = $db->query($q)->
-				fetchAll(PDO::FETCH_GROUP|PDO::FETCH_COLUMN|PDO::FETCH_UNIQUE);
+			fetchAll(PDO::FETCH_GROUP | PDO::FETCH_COLUMN | PDO::FETCH_UNIQUE);
 			return $subjects;
 		}
 
 		/**
 		 * string get subject_by_id(int)
+		 *
 		 * @param $id integer id number to lookup
 		 * @return string
 		 */
-		public function get_subject_by_id($subject_id) {
+		public function get_subject_by_id($subject_id)
+		{
 			if (intval($subject_id) != $subject_id)
-				return error($subject_id.": parameter must be integer");
+				return error($subject_id . ": parameter must be integer");
 			$db = $this->_connect();
 			if (!$db) return null;
 
@@ -130,11 +150,13 @@
 
 		/**
 		 * array search_trouble_tickets (string, integer)
+		 *
 		 * @param $mQuery string
-		 * @param $mMode int 0 = last filing date, 1 = relevancy
+		 * @param $mMode  int 0 = last filing date, 1 = relevancy
 		 * @return array
 		 */
-		public function search_trouble_tickets($mQuery, $mMode) {
+		public function search_trouble_tickets($mQuery, $mMode)
+		{
 			if ($mMode != 1 && $mMode != 0) {
 				return error("Invalid search mode");
 			}
@@ -145,7 +167,7 @@
 			$sort = 'last_modification DESC';
 			if ($mMode == 1)
 				$sort = 'strength DESC';
-			$q  = "SELECT
+			$q = "SELECT
 				subject,
 				tickets.ticket_id,
 				UNIX_TIMESTAMP(open_ts) AS open_ts,
@@ -171,7 +193,7 @@
 				AND trd.response_id = tr.response_id
 				GROUP BY (tickets.ticket_id)
 				HAVING (MIN(tr.response_ts) AND strength > 0)
-				ORDER BY " . $sort ;
+				ORDER BY " . $sort;
 			$rs = $db->prepare($q);
 			$params = array('search' => $mQuery);
 			if (!$rs->execute($params)) {
@@ -179,15 +201,15 @@
 			}
 			while (false !== ($row = $rs->fetchObject())) {
 				$ticket = array(
-					'subject'     => $row->subject,
-					'id'          => $row->ticket_id,
-					'ctime'       => $row->open_ts,
-					'mtime'       => $row->last_modification,
-					'status'      => intval($row->status),
-					'sender'      => $row->sender,
-					'reference'   => $row->reference,
-					'priority'    => $row->priority,
-					'strength'    => $row->strength);
+					'subject'   => $row->subject,
+					'id'        => $row->ticket_id,
+					'ctime'     => $row->open_ts,
+					'mtime'     => $row->last_modification,
+					'status'    => intval($row->status),
+					'sender'    => $row->sender,
+					'reference' => $row->reference,
+					'priority'  => $row->priority,
+					'strength'  => $row->strength);
 				$meta = $this->_get_meta_by_id($row->ticket_id);
 				$ticket = array_merge($ticket, $meta);
 				$tickets[] = $ticket;
@@ -196,7 +218,8 @@
 			return $tickets;
 		}
 
-		public function get_trouble_tickets($mStatus, $maxAge = 0, $minAge = 0) {
+		public function get_trouble_tickets($mStatus, $maxAge = 0, $minAge = 0)
+		{
 			if ((int)($mStatus) !== 0 && (int)($mStatus) !== 1)
 				return error("unknown status flag `$mStatus'");
 			$tickets = array();
@@ -212,17 +235,17 @@
 			// HAVING restrictor
 			$having = '';
 			if ($maxAge > 0)
-				$having .= " AND last_modification > UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL " . intval($maxAge) ." DAY))";
+				$having .= " AND last_modification > UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL " . intval($maxAge) . " DAY))";
 			if ($minAge > 0) {
 				$having .= " AND last_modification < UNIX_TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL " . intval($minAge) . " DAY))";
 			}
 			$sort = 'last_modification DESC, open_ts DESC';
 			if ($mStatus) {
 				$sort = 'priority DESC, ' . $sort;
-				if ($this->permission_level&PRIVILEGE_ADMIN)
+				if ($this->permission_level & PRIVILEGE_ADMIN)
 					$sort = 'elapsed DESC, ' . $sort;
 			}
-			$q  = "SELECT
+			$q = "SELECT
 				subject,
 				tickets.ticket_id,
 				tickets.site_id AS site_id,
@@ -256,7 +279,7 @@
 				LEFT JOIN ticket_metadata_data tmd ON (tickets.ticket_id = tmd.ticket_id AND tmd.key = 'reference')
 				WHERE " . $restrictor . "
 				GROUP BY (tickets.ticket_id)
-				HAVING (MIN(tr.response_ts) AND MAX(tr2.response_ts) " . $having .")
+				HAVING (MIN(tr.response_ts) AND MAX(tr2.response_ts) " . $having . ")
 				ORDER BY " . $sort;
 			if (!($rs = $db->query($q))) {
 				return $tickets;
@@ -264,19 +287,19 @@
 
 			while (false !== ($row = $rs->fetchObject())) {
 				$ticket = array(
-					'subject'     => $row->subject,
-					'email'       => $row->email,
-					'id'          => $row->ticket_id,
-					'site'        => $row->site_id,
-					'ctime'       => (int)$row->open_ts,
-					'domain'      => $row->domain,
-					'mtime'       => (int)$row->last_modification,
-					'status'      => intval($row->status),
-					'sender'      => $row->sender,
-					'reference'   => $row->reference,
-					'priority'    => $row->priority,
-					'elapsed'	  => $row->elapsed,
-					'intro'       => $row->response
+					'subject'   => $row->subject,
+					'email'     => $row->email,
+					'id'        => $row->ticket_id,
+					'site'      => $row->site_id,
+					'ctime'     => (int)$row->open_ts,
+					'domain'    => $row->domain,
+					'mtime'     => (int)$row->last_modification,
+					'status'    => intval($row->status),
+					'sender'    => $row->sender,
+					'reference' => $row->reference,
+					'priority'  => $row->priority,
+					'elapsed'   => $row->elapsed,
+					'intro'     => $row->response
 				);
 				$meta = $this->_get_meta_by_id($row->ticket_id);
 				$ticket = array_merge($ticket, $meta);
@@ -287,23 +310,27 @@
 
 		/**
 		 * array get_trouble_tickets_unrestricted(bool)
+		 *
 		 * @throws PermissionError insufficient permissions to access method
 		 */
-		public function get_trouble_tickets_unrestricted($mStatus) {
+		public function get_trouble_tickets_unrestricted($mStatus)
+		{
 			return $this->get_trouble_tickets($mStatus);
 		}
 
 		/**
 		 * get_ticket_type_as_id(string)
+		 *
 		 * @param $mSubject string
 		 * @return int
 		 */
-		public function get_id_by_subject($mSubject) {
+		public function get_id_by_subject($mSubject)
+		{
 			$db = $this->_connect();
 			if (!$db) return -1;
 			$q = "SELECT subject_id FROM ticket_subjects WHERE CONVERT(subject USING latin1) COLLATE latin1_swedish_ci LIKE ?";
 			$rs = $db->prepare($q);
-			if (!$rs->execute(array('%'.$mSubject.'%')) || $rs->rowCount() < 1) {
+			if (!$rs->execute(array('%' . $mSubject . '%')) || $rs->rowCount() < 1) {
 				return null;
 			}
 			return intval($rs->fetchObject()->subject_id);
@@ -312,7 +339,8 @@
 		/**
 		 * array get_trouble_ticket(integer)
 		 */
-		public function get_trouble_ticket($mID) {
+		public function get_trouble_ticket($mID)
+		{
 			if (intval($mID) != $mID) {
 				Error_Reporter::report($mID);
 
@@ -322,9 +350,10 @@
 			if (!$db) return array();
 			$restrictor = 'tickets.ticket_id = ' . intval($mID);
 			// evaluate whether removing site_id is the best idea...
-			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER))
-				$restrictor .=  /*" AND tickets.site_id = ".$this->site_id .*/ " AND invoice = '" . $this->billing_get_invoice() . "'";
-			$q  = "SELECT
+			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER))
+				$restrictor .=  /*" AND tickets.site_id = ".$this->site_id .*/
+					" AND invoice = '" . $this->billing_get_invoice() . "'";
+			$q = "SELECT
 				subject,
 				ticket_id,
 				tickets.site_id AS site_id,
@@ -357,21 +386,21 @@
 				return false;
 			$row = $rs->fetchObject();
 			$ticket = array(
-				'data' => array(),
-				'subject'     => $row->subject,
-				'email'       => $row->email,
-				'id'          => $row->ticket_id,
-				'priority'    => $row->priority,
-				'flags'       => $row->classifier,
-				'ctime'       => $row->open_ts,
-				'domain'      => $row->domain,
-				'mtime'       => $row->last_modification,
-				'status'      => intval($row->status),
-				'sender'      => $row->sender,
-				'admintime'   => $row->last_admin,
-				'sitetime'    => $row->last_site,
-				'server'      => $row->server,
-				'siteid'      => $row->site_id,
+				'data'      => array(),
+				'subject'   => $row->subject,
+				'email'     => $row->email,
+				'id'        => $row->ticket_id,
+				'priority'  => $row->priority,
+				'flags'     => $row->classifier,
+				'ctime'     => $row->open_ts,
+				'domain'    => $row->domain,
+				'mtime'     => $row->last_modification,
+				'status'    => intval($row->status),
+				'sender'    => $row->sender,
+				'admintime' => $row->last_admin,
+				'sitetime'  => $row->last_site,
+				'server'    => $row->server,
+				'siteid'    => $row->site_id,
 
 			);
 			$meta = $this->_get_meta_by_id($row->ticket_id);
@@ -388,19 +417,24 @@
 
 		/**
 		 * array get_trouble_tickets_restricted (bool)
+		 *
 		 * @param bool $status true for open, false for closed
 		 */
-		public function get_trouble_tickets_restricted($mStatus) {
+		public function get_trouble_tickets_restricted($mStatus)
+		{
 			return $this->get_trouble_tickets($mStatus);
 
 
 		}
+
 		/**
 		 *  bool reopen_trouble_ticket(int)
-		 *  @param $mID int
-		 *  @return int
+		 *
+		 * @param $mID int
+		 * @return int
 		 */
-		public function reopen_trouble_ticket($mID) {
+		public function reopen_trouble_ticket($mID)
+		{
 
 			if (intval($mID) != $mID)
 				error("invalid ticket ID `$mID'");
@@ -411,18 +445,19 @@
 			$q = "UPDATE `ticket_metadata_cache`, tickets SET open_ts = NOW() WHERE tickets.ticket_id = " . $mID . ' AND ' .
 				'tickets.ticket_id = ticket_metadata_cache.ticket_id AND ' . $restrictor;
 			$success = $db->exec($q) > 0;
-			$this->_add_ticket_metadata($mID, NULL, 'state', 'open');
+			$this->_add_ticket_metadata($mID, null, 'state', 'open');
 			if (!$success) return false;
 
 			$priority = $db->query("SELECT priority FROM ticket_metadata_cache WHERE ticket_id = " . intval($mID))->fetchObject()->priority;
 			$priorities = $this->get_priorities();
-			if (Crm_Module::SHORT_COPY_ADMIN && $this->permission_level&~PRIVILEGE_ADMIN &&
-				$priority != $priorities[0]) {
+			if (Crm_Module::SHORT_COPY_ADMIN && $this->permission_level & ~PRIVILEGE_ADMIN &&
+				$priority != $priorities[0]
+			) {
 				Mail::send(
 					Crm_Module::SHORT_COPY_ADMIN,
-					"Ticket Reopened (".$this->domain.")",
+					"Ticket Reopened (" . $this->domain . ")",
 					"",
-					"From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">\r\nReply-To: ".Crm_Module::REPLY_ADDRESS
+					"From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS
 				);
 			}
 
@@ -437,7 +472,8 @@
 		 * @param  string $mPriority ticket priority
 		 * @return int               insert id of the ticket; call {@link append_trouble_ticket} with this value
 		 */
-		public function file_new_trouble_ticket($mContact, $mSubject, $mPriority = null) {
+		public function file_new_trouble_ticket($mContact, $mSubject, $mPriority = null)
+		{
 			if ($this->auth_is_inactive()) {
 				return error("account is deactivated and cannot use ticket interface");
 			}
@@ -451,7 +487,7 @@
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				$domain = $mContact;
 				$mContact = $this->admin_get_address_from_domain($domain);
-				$site_id  = $this->admin_get_site_id_from_domain($domain);
+				$site_id = $this->admin_get_site_id_from_domain($domain);
 				$username = $this->admin_get_meta_from_domain($domain, 'siteinfo', 'admin_user');
 				$invoice = $this->admin_get_meta_from_domain($domain, 'billing', 'invoice');
 				// reseller domain
@@ -461,7 +497,7 @@
 				$domain = $this->domain;
 				$username = $this->username;
 				$site_id = $this->site_id;
-				if ($this->get_service_value('billing','parent_invoice'))
+				if ($this->get_service_value('billing', 'parent_invoice'))
 					return error("cannot open tickets from reseller account");
 				$invoice = $this->billing_get_invoice();
 			}
@@ -474,14 +510,14 @@
 			if (!$db) return false;
 			$sender = self::_role_as_string($this->permission_level);
 			$id = $db->query("SELECT MAX(ticket_id) AS id FROM tickets")->fetchObject()->id;
-			$id = mt_rand(1,5) + $id;
+			$id = mt_rand(1, 5) + $id;
 			$stmt = $db->prepare("INSERT INTO `tickets` " .
 				"(ticket_id, server, site_id, invoice, sender) " .
 				"VALUES (:ticket_id, :server, :site, :invoice, :sender)");
 
 			$server = null;
 
-			if ($this->permission_level&PRIVILEGE_ADMIN) {
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				$server = $this->dns_get_server_from_domain($domain);
 			}
 
@@ -493,16 +529,16 @@
 			// assume server is posting ticket for recently-added domains
 			//$server = substr($server, strpos($server, '.'));
 			$stmt->execute(array(
-				'server' => $server,
-				'site' => $site_id,
-				'invoice' => $invoice,
-				'sender' => $sender,
+				'server'    => $server,
+				'site'      => $site_id,
+				'invoice'   => $invoice,
+				'sender'    => $sender,
 				'ticket_id' => (float)$id,
 			));
-			if ($stmt->rowCount() < 1)  {
+			if ($stmt->rowCount() < 1) {
 				report("%s %s %s",
 					var_export(func_get_args(), true),
-					var_export($stmt->errorInfo(),true),
+					var_export($stmt->errorInfo(), true),
 					var_export($db->errorInfo(), true)
 				);
 				return error('ticket post failed');
@@ -517,14 +553,14 @@
 
 			$subject = $this->get_subject_by_id($mSubject);
 
-			$meta = array('domain' => $domain,
-			              'username' => $username,
-			              'priority' => $mPriority,
-			              'subject' => $subject,
+			$meta = array('domain'     => $domain,
+			              'username'   => $username,
+			              'priority'   => $mPriority,
+			              'subject'    => $subject,
 			              'subject_id' => $mSubject,
 			              'reference'  => dechex(crc32($id . " " . $username)),
-			              'server' => $server,
-			              'state' => 'open',
+			              'server'     => $server,
+			              'state'      => 'open',
 			);
 			$success = $this->_add_ticket_metadata($id, null, $meta);
 			if (!$success) {
@@ -571,7 +607,7 @@
 			if (!$db) return false;
 			if (count($cids) < 1) return false;
 			$q = "INSERT INTO ticket_contacts (ticket_id, email_id) VALUES " .
-				'(' . $tid . ',' . join(",(" . $tid .",", array_fill(0, count($cids), '?)'));
+				'(' . $tid . ',' . join(",(" . $tid . ",", array_fill(0, count($cids), '?)'));
 			$stmt = $db->prepare($q);
 			if (!$stmt->execute($cids))
 				return report("_attach_contacts_to_ticket FAIL: " . array_pop($stmt->errorInfo()));
@@ -587,7 +623,7 @@
 			$frag = '';
 			$q = "DELETE FROM ticket_contacts WHERE ticket_id = ?";
 			if (count($cids) > 0) {
-				$q .= ' AND email_id IN (' . join(array_fill(0, count($cids), '?'), ',') .')';
+				$q .= ' AND email_id IN (' . join(array_fill(0, count($cids), '?'), ',') . ')';
 			} else {
 				$cids = array();
 			}
@@ -632,9 +668,11 @@
 
 		/**
 		 * Convert email addresses into ids
+		 *
 		 * @param string|array $email
 		 */
-		private function _get_ids_from_contacts($email) {
+		private function _get_ids_from_contacts($email)
+		{
 			$ids = array();
 			if (!is_array($email)) {
 				$str = $email;
@@ -671,7 +709,8 @@
 		}
 
 
-		private function _get_contacts_from_ids(array $ids) {
+		private function _get_contacts_from_ids(array $ids)
+		{
 			foreach ($ids as $id) {
 				if (intval($id) != $id) {
 					return error("invalid id `$id'");
@@ -713,12 +752,14 @@
 		 * Wrapper for {@link append_trouble_ticket} with the state of "close"
 		 */
 
-		public function close_trouble_ticket($mTicketID, $mData) {
+		public function close_trouble_ticket($mTicketID, $mData)
+		{
 			$status = $this->append_trouble_ticket($mTicketID, $mData, array('state' => self::TICKET_STCLOSE));
 			if (!$status) return $status;
 			$this->_add_ticket_metadata($mTicketID, $status, 'state', 'close');
 			return $status > 0;
 		}
+
 		/**
 		 * Attach notes to an open ticket
 		 *
@@ -728,13 +769,14 @@
 		 *
 		 * @return int response id
 		 */
-		public function append_trouble_ticket($id, $data, array $options = array(), array $attachments = array()) {
+		public function append_trouble_ticket($id, $data, array $options = array(), array $attachments = array())
+		{
 			$priorities = $this->get_priorities();
 			$default = array(
-				'state' => self::TICKET_STAPPEND,
+				'state'    => self::TICKET_STAPPEND,
 				'priority' => $priorities[0],
-				'sender' => 'admin',
-				'email' => true,
+				'sender'   => 'admin',
+				'email'    => true,
 			);
 			$options = array_merge($default, $options);
 			if (is_debug()) {
@@ -744,7 +786,8 @@
 				return error("No data");
 			$id = intval($id);
 			if ($options['state'] != "append" && $options['state'] != "new"
-				&& $options['state'] != self::TICKET_STCLOSE) {
+				&& $options['state'] != self::TICKET_STCLOSE
+			) {
 				return error("Invalid state `%s'", $options['state']);
 			}
 
@@ -798,7 +841,7 @@
 			//var_dump($html);
 
 			// escape all unsafe HTML
-			$html = str_replace(array('<','>'), array('&lt;','&gt;'), $html);
+			$html = str_replace(array('<', '>'), array('&lt;', '&gt;'), $html);
 			//print "<hr /><hr />RD 2:";
 			//var_dump($html);
 			// convert BBcode back to HTML
@@ -853,7 +896,7 @@
 			switch ($state) {
 				/** new ticket */
 				case "new":
-					$subject  = "Confirmation:";
+					$subject = "Confirmation:";
 					$template['html'] = $this->_get_ticket_common_template_html();
 					$template['plain'] = $this->_get_ticket_created_template();
 					break;
@@ -861,7 +904,7 @@
 				case "append":
 					$template['html'] = $this->_get_ticket_common_template_html();
 					$template['plain'] = $this->_get_ticket_append_template();
-					$subject  = "Re:";
+					$subject = "Re:";
 					break;
 				/** closing ticket */
 				case "close":
@@ -883,10 +926,10 @@
 			} else {
 				$extdesc = $meta['subject'];
 			}
-			$subject = $subject . " " . $extdesc . " [".$meta['reference']."]";
+			$subject = $subject . " " . $extdesc . " [" . $meta['reference'] . "]";
 			$initiator = $this->_get_sender_by_rid($rid);
 			if (is_null($initiator)) {
-				if ($this->permission_level&PRIVILEGE_ADMIN)
+				if ($this->permission_level & PRIVILEGE_ADMIN)
 					$initiator = 'admin';
 				else
 					$initiator = 'site';
@@ -910,15 +953,15 @@
 				if ($this->permission_level & PRIVILEGE_ADMIN) {
 					$invoice = $this->admin_get_meta_from_domain($domain, 'billing', 'invoice');
 					$package = $this->billing_get_package_by_invoice($invoice);
-					$site_id  = $this->admin_get_site_id_from_domain($domain);
+					$site_id = $this->admin_get_site_id_from_domain($domain);
 					$username = $meta['username'];
 					$group_name = $this->admin_get_meta_from_domain($domain, 'siteinfo', 'admin');
 				} else {
-					$invoice    = $this->billing_get_invoice();
-					$group_name = $this->get_service_value('siteinfo','admin');
-					$username   = $this->get_service_value('siteinfo','admin_user');
-					$site_id    = $this->site_id;
-					$package    = $this->billing_get_package_type();
+					$invoice = $this->billing_get_invoice();
+					$group_name = $this->get_service_value('siteinfo', 'admin');
+					$username = $this->get_service_value('siteinfo', 'admin_user');
+					$site_id = $this->site_id;
+					$package = $this->billing_get_package_type();
 				}
 			}
 
@@ -950,11 +993,11 @@
 				$inreplyto = null;
 			}
 			$re = array();
-			foreach($strip as $s) {
-				$re[] = '/<!--(?=' . $s .')[^-]+-->.+?<!--END-->/sm';
+			foreach ($strip as $s) {
+				$re[] = '/<!--(?=' . $s . ')[^-]+-->.+?<!--END-->/sm';
 			}
-			$template['plain'] = preg_replace($re, array('',''), $template['plain']);
-			$template['html']  = preg_replace($re, array('',''), $template['html']);
+			$template['plain'] = preg_replace($re, array('', ''), $template['plain']);
+			$template['html'] = preg_replace($re, array('', ''), $template['html']);
 
 			foreach (array_keys($template) as $k) {
 				if ($k == 'html')
@@ -981,7 +1024,7 @@
 					'%group%',
 					'%domain%',
 					'%invoice%'
-				),array(
+				), array(
 					$meta['subject'],
 					date('Y-m-d H:i (O \G\M\T)'),
 					$this->get_contact_by_id($id),
@@ -989,7 +1032,7 @@
 					$inreplyto,
 					$meta['priority'],
 					$meta['reference'],
-					"https://cp.apisnetworks.com/apps/troubleticket?view&id=".$id,
+					"https://cp.apisnetworks.com/apps/troubleticket?view&id=" . $id,
 					$meta['server'] . ".apisnetworks.com",
 					SERVER_NAME_SHORT,
 					$meta['username'],
@@ -1008,8 +1051,8 @@
 
 			$headers = array(
 				'Reply-To' => $replyto,
-				'Sender' => Crm_Module::FROM_NAME . ' <' . Crm_Module::FROM_ADDRESS . '>',
-				'From' => $from
+				'Sender'   => Crm_Module::FROM_NAME . ' <' . Crm_Module::FROM_ADDRESS . '>',
+				'From'     => $from
 			);
 			$mailopts = array(
 				'html_charset' => 'utf-8',
@@ -1033,7 +1076,7 @@
 			$ids = $this->_get_response_ids($id);
 			$lastID = null;
 			$references = array_map(function ($a) use ($ref) {
-				return '<' . $ref . '-' . $a .'@apisnetworks.com>';
+				return '<' . $ref . '-' . $a . '@apisnetworks.com>';
 			}, $ids);
 
 			array_pop($ids);
@@ -1083,7 +1126,7 @@
 					$subject,
 					$sitetemplate,
 					$siteheaders,
-					"-f ".Crm_Module::FROM_ADDRESS." -F'".Crm_Module::FROM_NAME."'"
+					"-f " . Crm_Module::FROM_ADDRESS . " -F'" . Crm_Module::FROM_NAME . "'"
 				);
 				// restore Subject: line
 				$subject = $tmp;
@@ -1100,7 +1143,7 @@
 					$subject,
 					$admintemplate,
 					$adminheaders,
-					"-f ".Crm_Module::FROM_ADDRESS." -F'".Crm_Module::FROM_NAME."'"
+					"-f " . Crm_Module::FROM_ADDRESS . " -F'" . Crm_Module::FROM_NAME . "'"
 				);
 				// dispatch sms notification if priority suggests
 				if ($state == 'new') {
@@ -1111,19 +1154,23 @@
 			return true;
 		}
 
-		private function _strip($who, $initiator, $template) {
+		private function _strip($who, $initiator, $template)
+		{
 			foreach ($template as $k => $v) {
-				$template[$k] = preg_replace('/<!--(?:(?=STRIP' . strtoupper($who) .')[^-]+|[^-]+(?<!' . strtoupper($initiator) . ')INITIATE)-->.+?<!--END-->/sm', '', $v);
+				$template[$k] = preg_replace('/<!--(?:(?=STRIP' . strtoupper($who) . ')[^-]+|[^-]+(?<!' . strtoupper($initiator) . ')INITIATE)-->.+?<!--END-->/sm', '', $v);
 			}
 
 			return $template;
 		}
+
 		/**
 		 * string get_contact_by_id(int)
+		 *
 		 * @param $mID int
 		 * @return string
 		 */
-		public function get_contact_by_id($mID) {
+		public function get_contact_by_id($mID)
+		{
 			$db = $this->_connect();
 			if (!$db) return false;
 			$restrictor = $this->_getRestrictor();
@@ -1134,7 +1181,8 @@
 			return $rs->fetchObject()->email;
 		}
 
-		public function get_contacts() {
+		public function get_contacts()
+		{
 			$db = $this->_connect();
 			if (!$db) return false;
 			/*if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER))
@@ -1152,10 +1200,12 @@
 			}
 			return $emails;
 		}
+
 		/**
 		 * array get_priorities()
 		 *
 		 * Get acceptable priorities
+		 *
 		 * @return array
 		 */
 		public function get_priorities()
@@ -1167,7 +1217,7 @@
 		private function _getRestrictor()
 		{
 			$restrictor = '1 = 1';
-			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER)) {
+			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				// @xxx nix site_id because cross-server moves may alter the site id
 				$restrictor = " invoice = '" . $this->billing_get_invoice() . "'";
 			}
@@ -1202,7 +1252,7 @@
 		{
 			$rid = $this->get_last_response_id_by_ticket_id($ticket);
 			$subject = $this->_get_meta_by_id($ticket, 'subject');
-			$domain  = $this->_get_meta_by_id($ticket, 'domain');
+			$domain = $this->_get_meta_by_id($ticket, 'domain');
 			$oldpriority = $this->_get_meta_by_id($ticket, 'priority');
 			$priorities = $this->get_priorities();
 			$posoldp = array_search($oldpriority, $priorities);
@@ -1220,22 +1270,22 @@
 			// no priority escalation, priorities ordered low -> high
 			if ($posoldp && ($posnewp <= $posoldp) ||
 				!$posoldp && !$posnewp ||
-				($this->permission_level & PRIVILEGE_ADMIN))
-			{
+				($this->permission_level & PRIVILEGE_ADMIN)
+			) {
 				return false;
 			}
 
 			$response = $this->_get_response_by_rid($rid);
 			$response = Util_HTML_BBCode::stripHTML($response);
-			$header = $domain.": ".$subject."\r\n";
-			$maxlen = self::MAX_SMS_LENGTH-strlen($header);
+			$header = $domain . ": " . $subject . "\r\n";
+			$maxlen = self::MAX_SMS_LENGTH - strlen($header);
 			Mail::send(
 				Crm_Module::SHORT_COPY_ADMIN,
 				"",
 				/*$subject.": ".$domain,*/
-				$header.substr($response,0,$maxlen),
-				"From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">",
-				"-f ".Crm_Module::FROM_ADDRESS." -F '".Crm_Module::FROM_NAME."'"
+				$header . substr($response, 0, $maxlen),
+				"From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">",
+				"-f " . Crm_Module::FROM_ADDRESS . " -F '" . Crm_Module::FROM_NAME . "'"
 			);
 		}
 
@@ -1254,7 +1304,7 @@
 			$response = $this->get_last_response_id_by_ticket_id($ticket);
 			$this->_add_ticket_metadata($ticket, $response, array(
 					'subject_id' => $newsubject,
-					'subject' => $this->get_subject_by_id($newsubject))
+					'subject'    => $this->get_subject_by_id($newsubject))
 			);
 			return true;
 
@@ -1290,7 +1340,10 @@
 
 		}
 
-		public function get_domain_by_id($id) { return $this->_get_domain_by_id($id); }
+		public function get_domain_by_id($id)
+		{
+			return $this->_get_domain_by_id($id);
+		}
 
 		private function _get_domain_by_id($id)
 		{
@@ -1349,7 +1402,7 @@
 
 			$invoice = $this->billing_get_invoice();
 			$rs = $db->query("SELECT 1 FROM tickets WHERE ticket_id = " .
-				intval($ticket) ." AND invoice = '" . $invoice . "'");
+				intval($ticket) . " AND invoice = '" . $invoice . "'");
 			return $rs->rowCount() > 0;
 		}
 
@@ -1357,7 +1410,8 @@
 		{
 			$db = $this->_connect();
 			if (!$db) return false;
-			$id = intval($id); $rid = intval($rid);
+			$id = intval($id);
+			$rid = intval($rid);
 			$rs = $db->query("SELECT 1 FROM tickets JOIN ticket_responses USING (ticket_id) WHERE " .
 				"ticket_id = " . $id . " AND response_id = " . $rid);
 			return $rs && $rs->rowCount() > 0;
@@ -1384,6 +1438,7 @@
 			if ($rs->rowCount() < 1) return null;
 			return $rs->fetchObject()->user;
 		}
+
 		private function _get_response_by_rid($rid)
 		{
 			$db = $this->_connect();
@@ -1408,8 +1463,8 @@
 		/**
 		 * Get last response posted for a ticket
 		 *
-		 * @param  int|array $ticket_id ticket id
-		 * @param  int $last_response optional last response
+		 * @param  int|array $ticket_id     ticket id
+		 * @param  int       $last_response optional last response
 		 * @return int last response id, -1 indicates current, 0 error
 		 */
 		public function get_last_response_id_by_ticket_id($ticket_id, $last_response = null)
@@ -1417,7 +1472,7 @@
 			if (!is_array($ticket_id)) {
 				$ticket_id = array($ticket_id);
 			}
-			for ($i=0, $n=sizeof($ticket_id); $i < $n; $i++) {
+			for ($i = 0, $n = sizeof($ticket_id); $i < $n; $i++) {
 				$tid = $ticket_id[$i];
 				if (intval($tid) != $tid || $tid < 1) {
 					return error("invalid ticket id `%s'", $tid);
@@ -1466,7 +1521,7 @@
 			if (!$db) return $responses;
 			$responses = array();
 
-			$restrictor   = array("ticket_id = " . intval($ticket_id));
+			$restrictor = array("ticket_id = " . intval($ticket_id));
 			$restrictor[] = $this->_getRestrictor();
 
 			if ($min > 0) {
@@ -1495,17 +1550,18 @@
 			$rs = $db->query($q);
 			while (false !== ($row = $rs->fetchObject())) {
 				$responses[] = array(
-					'body' => $row->response,
-					'time' => $row->response_ts,
-					'sender' => $row->user,
+					'body'        => $row->response,
+					'time'        => $row->response_ts,
+					'sender'      => $row->user,
 					'attachments' => explode(",", $row->attachments),
-					'id' => $row->response_id
+					'id'          => $row->response_id
 				);
 			}
 			return $responses;
 		}
 
-		private static function _role_as_string($mPermID) {
+		private static function _role_as_string($mPermID)
+		{
 			switch (true) {
 				case ($mPermID & PRIVILEGE_ADMIN):
 					return 'admin';
@@ -1518,7 +1574,8 @@
 			}
 		}
 
-		private function _get_ticket_by_rid($rid) {
+		private function _get_ticket_by_rid($rid)
+		{
 			$db = $this->_connect();
 			if (!$db) return false;
 			$rid = intval($rid);
@@ -1569,7 +1626,7 @@
 		}
 
 		/**
-		 * @param int $ticket
+		 * @param int    $ticket
 		 * @param string $key
 		 * @param string $data
 		 */
@@ -1598,7 +1655,7 @@
 				`data`
 			) VALUES ";
 			$params = array(
-				'ticket_id'=> $ticket,
+				'ticket_id'   => $ticket,
 				'response_id' => $responseid,
 			);
 
@@ -1608,7 +1665,7 @@
 			}
 			$frag = array();
 
-			for ($i=0; $i<sizeof($key); $i++) {
+			for ($i = 0; $i < sizeof($key); $i++) {
 				$k = key($key);
 				$v = current($key);
 				$this->_metadata_is_cached($k);
@@ -1667,7 +1724,8 @@
 			return in_array($priority, $this->get_priorities());
 		}
 
-		private function _htmlHeader() {
+		private function _htmlHeader()
+		{
 			return '<!doctype html><html><head><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Type" content="text/html; charset=UTF-8"><title>Ticket - %subject%</title><style>*{margin:0;padding:0;font-family:Verdana,Geneva,sans-serif;box-sizing:border-box;font-size:14px}img{max-width:100%}body{-webkit-font-smoothing:antialiased;-webkit-text-size-adjust:none;width:100% !important;height:100%;line-height:1.66}table td{vertical-align:top}body{background-color:#f6f6f6}.body-wrap{background-color:#f6f6f6;width:100%}.container{display:block !important;max-width:600px !important;margin:0 auto !important;clear:both !important}.content{max-width:600px;margin:0 auto;display:block;padding:20px}.main{background:#fff;border:1px solid #e9e9e9;border-radius:3px}.content-wrap{padding:20px}.content-block{}.header{width:100%;margin-bottom:20px}.footer a{color:#999;}.footer p, .footer a, .footer unsubscribe, .footer td{font-size:12px}.column-left{float:left;width:50%}.column-right{float:left;width:50%}h1,h2,h3{font-family:Verdana,Geneva,sans-serif;color:#000;margin:0 0 10px;line-height:1.66;font-weight:400}h1{font-size:32px;font-weight:500}h2{font-size:24px}h3{font-size:18px}h4{font-size:14px;font-weight:600}p,ul,ol{margin-bottom:10px;font-weight:normal}p li, ul li, ol li{margin-left:5px;list-style-position:inside}a{color:#348eda;text-decoration:underline}.last{margin-bottom:0}.first{margin-top:0}.padding{padding:10px 0}.aligncenter{text-align:center}.alignright{text-align:right}.alignleft{text-align:left}.clear{clear:both}.invoice{margin:40px auto;text-align:left;width:80%}.invoice td{padding:5px 0}.invoice .invoice-items{width:100%}.invoice .invoice-items td{border-top:#eee 1px solid}.invoice .invoice-items .total td{border-top:2px solid #333;border-bottom:2px solid #333;font-weight:700}@media only screen and (max-width: 640px){h1,h2,h3,h4{font-weight:600 !important;margin:20px 0 5px !important}h1{font-size:22px !important}h2{font-size:18px !important}h3{font-size:16px !important}.container{width:100% !important}.content,.content-wrapper{padding:10px !important}.invoice{width:100% !important}}ul.inline{list-style-type:none}ul.inline li{display:inline-block;padding:0.2em 1em;margin-left:-1em;}</style></head><body>';
 		}
 
@@ -1682,34 +1740,34 @@
 				return $this->_get_ticket_common_template_html();
 			}
 			$response =
-				"The support ticket has been closed.".
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				($html ? '<h3>Ticket Info</h3>' : 'INFO:' ) .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
+				"The support ticket has been closed." .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				($html ? '<h3>Ticket Info</h3>' : 'INFO:') .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				($html ? '<span class="meta">' : '') . "URL:" .
-				($html ? '</span>' : '' ) . " " .
-				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n".
+				($html ? '</span>' : '') . " " .
+				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n" .
 				($html ? '<span class="meta">' : '') . "Reference ID:" .
-				($html ? '</span>' : '' ) . " %ticket_id%"."\n".
+				($html ? '</span>' : '') . " %ticket_id%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Domain:" .
-				($html ? '</span>' : '' ) . " %domain% "."\n".
+				($html ? '</span>' : '') . " %domain% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Category:" .
-				($html ? '</span>' : '' ) . " %category% "."\n".
+				($html ? '</span>' : '') . " %category% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Priority:" .
-				($html ? '</span>' : '' ) . " %priority% "."\n".
+				($html ? '</span>' : '') . " %priority% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Date Filed:" .
-				($html ? '</span>' : '' ) . " %date% "."\n".
+				($html ? '</span>' : '') . " %date% " . "\n" .
 				($html ? '<span class="meta">' : '') . "E-mail:" .
-				($html ? '</span>' : '' ) . " %email%"."\n".
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
+				($html ? '</span>' : '') . " %email%" . "\n" .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				($html ? '<h3>Ticket Data</h3>' : "DATA:") .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				"%data%"."\n\n".
-				"This ticket may be re-opened during the next 4 weeks.  ".
-				"Access the ticket from the " . ($html ? "<a href='%url%'>control panel</a>" : "control panel" ) . ", then change the state to \"Reopen\" to add additional notes."."\n\n".
-				"Thank you for choosing Apis Networks!"."\n".
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '' ) .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') .">";
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				"%data%" . "\n\n" .
+				"This ticket may be re-opened during the next 4 weeks.  " .
+				"Access the ticket from the " . ($html ? "<a href='%url%'>control panel</a>" : "control panel") . ", then change the state to \"Reopen\" to add additional notes." . "\n\n" .
+				"Thank you for choosing Apis Networks!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
+				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
 			}
@@ -1717,13 +1775,15 @@
 			return $response;
 		}
 
-		private function _get_ticket_common_template_html() {
+		private function _get_ticket_common_template_html()
+		{
 			return $this->_htmlHeader() .
-				$this->_get_ticket_body_template_html() .
-				$this->_htmlFooter();
+			$this->_get_ticket_body_template_html() .
+			$this->_htmlFooter();
 		}
 
-		private function _get_ticket_body_template_html() {
+		private function _get_ticket_body_template_html()
+		{
 			return <<<EOF
 <table class="body-wrap" style="color:#000!important;">
     <tr>
@@ -1886,56 +1946,58 @@ EOF;
 
 		}
 
-		private function _get_ticket_closed_template_html() {
+		private function _get_ticket_closed_template_html()
+		{
 
 		}
+
 		private function _get_ticket_created_template($html = false)
 		{
 			if ($html) {
 				return $this->_get_ticket_created_template_html();
 			}
 			$response =
-				"A new support ticket has been opened with Apis Networks.".
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				($html ? '<h3>Ticket Info</h3>' : "INFO:" ) .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
+				"A new support ticket has been opened with Apis Networks." .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				($html ? '<h3>Ticket Info</h3>' : "INFO:") .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 
 				($html ? '<span class="meta">' : '') . "URL:" .
-				($html ? '</span>' : '' ) . " " .
-				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n".
+				($html ? '</span>' : '') . " " .
+				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n" .
 				($html ? '<span class="meta">' : '') . "Reference ID:" .
-				($html ? '</span>' : '' ) . " %ticket_id%"."\n".
+				($html ? '</span>' : '') . " %ticket_id%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Domain:" .
-				($html ? '</span>' : '' ) . " %domain% "."\n".
+				($html ? '</span>' : '') . " %domain% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Category:" .
-				($html ? '</span>' : '' ) . " %category% "."\n".
+				($html ? '</span>' : '') . " %category% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Priority:" .
-				($html ? '</span>' : '' ) . " %priority% "."\n".
+				($html ? '</span>' : '') . " %priority% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Date Filed:" .
-				($html ? '</span>' : '' ) . " %date% "."\n".
+				($html ? '</span>' : '') . " %date% " . "\n" .
 				($html ? '<span class="meta">' : '') . "E-mail:" .
-				($html ? '</span>' : '' ) . " %email%" ."\n".
-				'<!--ADMIN-->'.
+				($html ? '</span>' : '') . " %email%" . "\n" .
+				'<!--ADMIN-->' .
 				($html ? '<span class="meta">' : '') . "Admin: " .
-				($html ? '</span>' : '' ) . " %username%" . "\n" .
+				($html ? '</span>' : '') . " %username%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Site ID: " .
-				($html ? '</span>' : '' ) . " %siteid%" . "\n" .
+				($html ? '</span>' : '') . " %siteid%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Group: " .
-				($html ? '</span>' : '' ) . " %group%" . "\n" .
+				($html ? '</span>' : '') . " %group%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Package: " .
-				($html ? '</span>' : '' ) . " %package%" . "\n" .
+				($html ? '</span>' : '') . " %package%" . "\n" .
 				($html ? '<span class="meta">' : '') . "Invoice: " .
-				($html ? '</span>' : '' ) . " %invoice%" . "\n" .
-				'<!--END-->'.
-				($html ? '<hr />' :  "--------------------------------------------"."\n").
+				($html ? '</span>' : '') . " %invoice%" . "\n" .
+				'<!--END-->' .
+				($html ? '<hr />' : "--------------------------------------------" . "\n") .
 				($html ? '<h3>Ticket Data</h3>' : "DATA:") .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				"%data%"."\n\n".
-				"You may log into apnscp to view and update this ticket."."\n\n".
-				"Thank you for choosing Apis Networks!"."\n".
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '' ) .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') .">" . "\n\n" .
-				($html ? '<a href="http://twitter.com/apisnetworks">' : '' ) . "@apisnetworks" .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				"%data%" . "\n\n" .
+				"You may log into apnscp to view and update this ticket." . "\n\n" .
+				"Thank you for choosing Apis Networks!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
+				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
+				($html ? '<a href="http://twitter.com/apisnetworks">' : '') . "@apisnetworks" .
 				($html ? '</a>' : '') . " - follow us on Twitter for outage notifications";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
@@ -1943,7 +2005,8 @@ EOF;
 			return $response;
 		}
 
-		private function _get_ticket_created_template_html() {
+		private function _get_ticket_created_template_html()
+		{
 
 		}
 
@@ -1953,27 +2016,27 @@ EOF;
 				return $this->_get_ticket_append_template_html();
 			}
 			$response =
-				"The support ticket has been modified.  The follow notes have been made to the ticket:".
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				($html ? '<h3>Ticket Info</h3>' : "\nINFO:" ) .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
+				"The support ticket has been modified.  The follow notes have been made to the ticket:" .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				($html ? '<h3>Ticket Info</h3>' : "\nINFO:") .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				($html ? '<span class="meta">' : '') . "URL:" .
-				($html ? '</span>' : '' ) . " " .
-				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n".
+				($html ? '</span>' : '') . " " .
+				($html ? '<a href="%url%">%urlpretty%</a>' : '%url%') . "\n" .
 				($html ? '<span class="meta">' : '') . "Domain:" .
-				($html ? '</span>' : '' ) . " %domain% "."\n".
+				($html ? '</span>' : '') . " %domain% " . "\n" .
 				($html ? '<span class="meta">' : '') . "Date Modified:" .
-				($html ? '</span>' : '' ) . " %date%"."".
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
+				($html ? '</span>' : '') . " %date%" . "" .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				($html ? '<h3>Ticket Data</h3>' : "DATA:") .
-				($html ? '<hr />' : "\n" . "--------------------------------------------"."\n").
-				"%data%".
-				"\n\n".
-				"You may log into apnscp to view and update this ticket."."\n\n".
-				"Thank you for choosing Apis Networks!"."\n".
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '' ) .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') .">" ."\n\n" .
-				($html ? '<a href="http://twitter.com/apisnetworks">' : '' ) . "@apisnetworks" .
+				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
+				"%data%" .
+				"\n\n" .
+				"You may log into apnscp to view and update this ticket." . "\n\n" .
+				"Thank you for choosing Apis Networks!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
+				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
+				($html ? '<a href="http://twitter.com/apisnetworks">' : '') . "@apisnetworks" .
 				($html ? '</a>' : '') . " - follow us on Twitter for outage notifications";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
@@ -1981,7 +2044,8 @@ EOF;
 			return $response;
 		}
 
-		private function _get_ticket_append_template_html() {
+		private function _get_ticket_append_template_html()
+		{
 
 		}
 
@@ -2018,14 +2082,14 @@ EOF;
 			if ($rs->rowCount() < 1) return $attachments;
 			while (false !== ($row = $rs->fetchObject())) {
 				$attachments[] = array(
-					'id' => $row->id,
-					'rid' => $row->rid,
-					'name' => $row->name,
-					'size' => $row->size,
-					'owner' => $row->owner,
-					'ctime' => $row->ctime,
-					'ext' => $row->ext,
-					'mime' => $row->mime,
+					'id'      => $row->id,
+					'rid'     => $row->rid,
+					'name'    => $row->name,
+					'size'    => $row->size,
+					'owner'   => $row->owner,
+					'ctime'   => $row->ctime,
+					'ext'     => $row->ext,
+					'mime'    => $row->mime,
 					'charset' => $row->charset,
 				);
 			}
@@ -2062,12 +2126,12 @@ EOF;
 			$sender = $this->_get_sender_by_rid($rid);
 			$pos = strrpos($filename, '.');
 			$ext = substr($filename, $pos);
-			$ext = strtolower(ltrim($ext,'.'));
+			$ext = strtolower(ltrim($ext, '.'));
 			if (!$this->_attachmentExtensionAllowed($ext))
 				return error("file `%s' contains disallowed extension", $filename);
 			$size = strlen($data);
-			if ($size > 10*1024*1024) {
-				return error("max attachment size 10 MB, file size is `%.2f MB'", ($size/1024/1024));
+			if ($size > 10 * 1024 * 1024) {
+				return error("max attachment size 10 MB, file size is `%.2f MB'", ($size / 1024 / 1024));
 			}
 			if (!$ticket) return error("unknown ticket for response `%d'", $rid);
 			$q = "INSERT INTO ticket_attachments (attachment_size,
@@ -2083,15 +2147,15 @@ EOF;
 			$charset = null;
 			if (strstr($mime, ';')) {
 				list($mime, $charset) = explode("; ", $mime);
-				list($tmp,$charset) = explode('=',$charset);
+				list($tmp, $charset) = explode('=', $charset);
 			}
-			$params = array('size' => $size,
-			                'name' => $filename,
-			                'owner' => $sender,
-			                'ext' => $ext,
-			                'mime' => $mime,
+			$params = array('size'    => $size,
+			                'name'    => $filename,
+			                'owner'   => $sender,
+			                'ext'     => $ext,
+			                'mime'    => $mime,
 			                'charset' => $charset,
-			                'id' => $rid);
+			                'id'      => $rid);
 			$rs = $stmt->execute($params);
 			if (!$rs) {
 				return error("unable to add attachment for `%s'", $filename);
@@ -2102,7 +2166,7 @@ EOF;
 			$stmt = $db->prepare($q);
 			$stmt->bindParam(':aid', $aid, PDO::PARAM_INT);
 			$stmt->bindParam(':data', $data, PDO::PARAM_LOB);
-			$msg = sprintf("\r\n* file: %s (%.2f KB)", $filename, $size/1024);
+			$msg = sprintf("\r\n* file: %s (%.2f KB)", $filename, $size / 1024);
 			if (!$stmt->execute()) {
 				return false;
 			}
@@ -2121,7 +2185,8 @@ EOF;
 			return array('exe', 'scr', 'com', 'bat');
 		}
 
-		public function append_ticket_via_email($hash, $response, $sender, array $attachments = array()) {
+		public function append_ticket_via_email($hash, $response, $sender, array $attachments = array())
+		{
 			if ($sender != 'site' && $sender != 'admin')
 				return error("unknown sender `%s'", $sender);
 			$db = $this->_connect();
@@ -2152,12 +2217,13 @@ EOF;
 			return true;
 		}
 
-		private function _append_ticket_message_raw($ticket, $response, $appended) {
+		private function _append_ticket_message_raw($ticket, $response, $appended)
+		{
 			$db = $this->_connect();
 			if (!$db) return false;
 			$rs = $db->query("UPDATE ticket_response_data, ticket_responses SET response = " .
 				"CONCAT(response, " . $db->quote($appended) . ") WHERE ticket_response_data.response_id = " .
-				intval($response) ." AND ticket_id = " . intval($ticket) . " AND ticket_response_data.response_id = " .
+				intval($response) . " AND ticket_id = " . intval($ticket) . " AND ticket_response_data.response_id = " .
 				"ticket_responses.response_id");
 			return $rs->rowCount() > 0;
 		}

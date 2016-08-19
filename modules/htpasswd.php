@@ -1,46 +1,41 @@
 <?php
-
+	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
 	/**
 	 *  htaccess/htpasswd
-	 *  @package core
+	 *
+	 * @package core
 	 */
-
-	class Htpasswd_Module extends Module_Skeleton {
+	class Htpasswd_Module extends Module_Skeleton
+	{
 		const HTPASSWD_DIR = '/var/www/.htfiles';
 		const DEF_REALM_NAME = 'Restricted Area';
+
 		/**
 		 * {{{ void __construct(void)
+		 *
 		 * @ignore
 		 */
-		public function __construct() {
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'is_protected' => PRIVILEGE_SITE,
-				'get_locations'=> PRIVILEGE_SITE,
+				'is_protected'    => PRIVILEGE_SITE,
+				'get_locations'   => PRIVILEGE_SITE,
 				'delete_location' => PRIVILEGE_SITE,
-				'edit_location' => PRIVILEGE_SITE,
-				'location_info' => PRIVILEGE_SITE
+				'edit_location'   => PRIVILEGE_SITE,
+				'location_info'   => PRIVILEGE_SITE
 			);
-		}
-
-		/**
-		 * Load .htpasswd
-		 *
-		 * @param string $host host
-		 * @return string .htpasswd contents
-		 */
-		private function _load_htpasswd($host)
-		{
-			if (!preg_match(Regex::HTTP_HOST)) return error($host.": invalid host");
-			$htpasswd = $this->domain_fs_path().self::HTPASSWD_DIR.'/'.$host;
-			if (!file_exists($htpasswd))
-				return error(self::HTPASSWD_DIR."/".$host.": htpasswd does not exist");
-			return file_get_contents($htpasswd);
-		}
-
-		private function _load_htaccess($host, $path = '/')
-		{
-
 		}
 
 		public function is_protected($host, $path = '/')
@@ -49,7 +44,7 @@
 		}
 
 		public function protect_location($host, $path = '/',
-			$realm = self::DEF_REALM_NAME, $type = 'digest')
+		                                 $realm = self::DEF_REALM_NAME, $type = 'digest')
 		{
 
 		}
@@ -143,5 +138,26 @@
 		{
 
 		}
+
+		/**
+		 * Load .htpasswd
+		 *
+		 * @param string $host host
+		 * @return string .htpasswd contents
+		 */
+		private function _load_htpasswd($host)
+		{
+			if (!preg_match(Regex::HTTP_HOST)) return error($host . ": invalid host");
+			$htpasswd = $this->domain_fs_path() . self::HTPASSWD_DIR . '/' . $host;
+			if (!file_exists($htpasswd))
+				return error(self::HTPASSWD_DIR . "/" . $host . ": htpasswd does not exist");
+			return file_get_contents($htpasswd);
+		}
+
+		private function _load_htaccess($host, $path = '/')
+		{
+
+		}
 	}
+
 ?>

@@ -1,15 +1,30 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Statistics/hardware information
+	 *
 	 * @package core
 	 */
-
-	class Stats_Module extends Module_Skeleton {
+	class Stats_Module extends Module_Skeleton
+	{
 		/**
 		 * {{{ void __construct(void)
+		 *
 		 * @ignore
 		 */
-		public function __construct() {
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = array(
 				'*' => PRIVILEGE_ALL
@@ -18,9 +33,11 @@
 
 		/**
 		 * array get_partition_information
+		 *
 		 * @return array
 		 */
-		public function get_partition_information() {
+		public function get_partition_information()
+		{
 			$fstype = array();
 			$fsoptions = array();
 
@@ -31,24 +48,30 @@
 			$buffer = explode("\n", $buffer['output']);
 
 			$j = 0;
-			foreach($buffer as $line) {
+			foreach ($buffer as $line) {
 				if (strncmp($line, "/dev/", 5)) {
 					continue;
 				}
 				preg_match("/(.*) on (.*) type (.*) \((.*)\)/", $line, $result);
 				if (count($result) == 5) {
-					$dev = $result[1]; $mpoint = $result[2]; $type = $result[3]; $options = $result[4];
-					$fstype[$mpoint] = $type; $fsdev[$dev] = $type; $fsoptions[$mpoint] = $options;
+					$dev = $result[1];
+					$mpoint = $result[2];
+					$type = $result[3];
+					$options = $result[4];
+					$fstype[$mpoint] = $type;
+					$fsdev[$dev] = $type;
+					$fsoptions[$mpoint] = $options;
 
 					foreach ($mounts as $line2) {
-						if (preg_match("!^" . preg_quote($result[1],'!') . "!", $line2)) {
-							$line2 = preg_replace("!^" . preg_quote($result[1],'!') . "!", "", $line2);
+						if (preg_match("!^" . preg_quote($result[1], '!') . "!", $line2)) {
+							$line2 = preg_replace("!^" . preg_quote($result[1], '!') . "!", "", $line2);
 							$ar_buf = preg_split("/(\s+)/", $line2, 6);
 							if (sizeof($ar_buf) < 6) continue;
 							$ar_buf[0] = $result[1];
 							$mount = $ar_buf[5];
 							if ($mount == "/dev/shm" || $ar_buf[0] == "" ||
-								!isset($fsoptions[$mount]) || strstr($fsoptions[$mount], "bind")) {
+								!isset($fsoptions[$mount]) || strstr($fsoptions[$mount], "bind")
+							) {
 								continue;
 							}
 
@@ -69,34 +92,36 @@
 			return $results;
 		}
 
-		public function get_spamassassin_stats() {
+		public function get_spamassassin_stats()
+		{
 			$sastats = array();
 			if (!file_exists('/tmp/sa-stats'))
 				return $sastats;
-			$fp = fopen('/tmp/sa-stats','r');
+			$fp = fopen('/tmp/sa-stats', 'r');
 			while (false !== ($line = fgets($fp))) {
 				$buffer = '  ';
-				if (strstr($line,'Period Beginning')) {
-					$data = explode(':',$line);
-					$sastats['begin_date'] = trim(join(array_slice($data,1),':'));
-				} else if (strstr($line,'Period Ending')) {
-					$data = explode(':',$line);
-					$sastats['end_date'] = trim(join(array_slice($data,1),':'));
-				} else if (strstr($line,'Reporting Period')) {
+				if (strstr($line, 'Period Beginning')) {
+					$data = explode(':', $line);
+					$sastats['begin_date'] = trim(join(array_slice($data, 1), ':'));
+				} else if (strstr($line, 'Period Ending')) {
+					$data = explode(':', $line);
+					$sastats['end_date'] = trim(join(array_slice($data, 1), ':'));
+				} else if (strstr($line, 'Reporting Period')) {
 					/** Get the whole section of reporting period... */
-					$line = fgets($fp); fgets($fp); // remove --------- line
+					$line = fgets($fp);
+					fgets($fp); // remove --------- line
 					while (false !== ($line = fgets($fp))) {
-						if ($buffer[strlen($buffer)-2] == "\n" && $buffer[strlen($buffer)-1] == "\n" && $line == "\n") {
+						if ($buffer[strlen($buffer) - 2] == "\n" && $buffer[strlen($buffer) - 1] == "\n" && $line == "\n") {
 							break;
 						}
 						$buffer .= $line;
 					}
 					$sastats['reporting_information'] = trim($buffer);
-				} else if (strstr($line,'Statistics by Hour')) {
+				} else if (strstr($line, 'Statistics by Hour')) {
 					$line = fgets($fp); // remove --------- line
 					while (false !== ($line = fgets($fp))) {
 
-						if ($buffer[strlen($buffer)-2] == "\n" && $buffer[strlen($buffer)-1] == "\n" && $line == "\n")
+						if ($buffer[strlen($buffer) - 2] == "\n" && $buffer[strlen($buffer) - 1] == "\n" && $line == "\n")
 							break;
 						$buffer .= $line;
 					}
@@ -107,7 +132,7 @@
 						 * nasty hack, we shouldn't assume TOP [SPAM, HAM]
 						 * RULES FIRED is coming next
 						 */
-						if (strstr($line,'TOP')) {
+						if (strstr($line, 'TOP')) {
 							$bufftmp = $buffer;
 							$buffer = $line;
 							while (false !== ($line = fgets($fp))) {
@@ -119,7 +144,7 @@
 						}
 						$buffer .= $line;
 					}
-					$sastats['reporting_information'] .= "\n\n".trim($buffer);
+					$sastats['reporting_information'] .= "\n\n" . trim($buffer);
 				} else if (strstr($line, "TOP")) {
 
 				}
@@ -130,16 +155,18 @@
 
 		/**
 		 * array get_memory_information()
+		 *
 		 * @return array
 		 */
-		public function get_memory_information() {
+		public function get_memory_information()
+		{
 			if (false === ($fd = fopen('/proc/meminfo', 'r')))
 				return new FileError("/proc/meminfo does not exist");
 
 			$results['ram'] = array();
 			$results['swap'] = array(
-				'total' => 0,
-				'used' => 0,
+				'total'   => 0,
+				'used'    => 0,
 				'percent' => 0
 			);
 			$results['devswap'] = array();
@@ -176,7 +203,7 @@
 				$results['ram']['cached_percent'] = round(($results['ram']['cached'] * 100) / $results['ram']['total']);
 			}
 
-			$swaps = file ('/proc/swaps');
+			$swaps = file('/proc/swaps');
 			for ($i = 1, $n = sizeof($swaps); $i < $n; $i++) {
 				$ar_buf = preg_split('/\s+/', $swaps[$i], 6);
 				$results['devswap'][$ar_buf[0]] = array();
@@ -191,11 +218,13 @@
 
 		/**
 		 * array get_network_device_information
+		 *
 		 * @return array key, device name, values:
 		 *              [tx,rx]_bytes, [tx,rx]_packets,
 		 *              [tx,rx]_errs, [tx,rx]_drop
 		 */
-		public function get_network_device_information() {
+		public function get_network_device_information()
+		{
 			$results = array();
 
 			if (false === ($fd = fopen('/proc/net/dev', 'r')))

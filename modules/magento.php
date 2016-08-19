@@ -1,12 +1,23 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+
+	/**
 	 * Magento management
 	 *
 	 * An interface to wp-cli
 	 *
 	 * @package core
 	 */
-
 	class Magento_Module extends Module_Support_Webapps
 	{
 		const APP_NAME = 'Magento';
@@ -37,18 +48,19 @@
 
 			parent::__construct();
 			$this->exportedFunctions = array(
-					'*' => PRIVILEGE_SITE | PRIVILEGE_USER
+				'*' => PRIVILEGE_SITE | PRIVILEGE_USER
 			);
 		}
 
 		/**
 		 * Install Magento into a pre-existing location
 		 *
-         * @param string $hostname domain or subdomain to install Magento
-		 * @param string $path optional path under hostname
-		 * @param array  $opts additional install options
+		 * @param string $hostname domain or subdomain to install Magento
+		 * @param string $path     optional path under hostname
+		 * @param array  $opts     additional install options
 		 */
-		public function install($hostname, $path = '', array $opts = array()) {
+		public function install($hostname, $path = '', array $opts = array())
+		{
 			if (version_compare(platform_version(), '4.5', '<=')) {
 				return error("platform is too old");
 			}
@@ -137,8 +149,7 @@
 			$args['dbhost'] = 'localhost';
 			$args['docroot'] = $docroot;
 			$magerunver = 1;
-			if (version_compare(platform_version(), '6', '>=') && $args['version'][0] == 2)
-			{
+			if (version_compare(platform_version(), '6', '>=') && $args['version'][0] == 2) {
 				$magerunver = 2;
 			}
 
@@ -150,7 +161,7 @@
 				'--dbUser=%(dbuser)s --dbPass=%(dbpass)s --installSampleData=no --dbName=%(dbname)s --magentoVersionByName=' .
 				'%(vername)s';
 			$ret = $this->_exec($docroot, $cmd, $args, $magerunver);
-			if ($magerunconf  && $this->file_file_exists($magerunconf)) {
+			if ($magerunconf && $this->file_file_exists($magerunconf)) {
 				$this->file_delete($magerunconf);
 			}
 			if (!$ret['success']) {
@@ -187,8 +198,8 @@
 			}
 
 			$args = array(
-				'email' => $opts['email'],
-				'user'  => $opts['user'],
+				'email'    => $opts['email'],
+				'user'     => $opts['user'],
 				'password' => $opts['password']
 			);
 
@@ -203,7 +214,7 @@
 
 			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . $f;
 			}, $this->_aclList['min']);
 			$this->file_touch($docroot . '/.htaccess');
@@ -213,16 +224,16 @@
 				array($this->username => 'drwx'),
 				array(Web_Module::WEB_USERNAME => 'drwx'),
 			);
-			if (!$this->file_set_acls($files,$users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
+			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
 				warn("failed to set ACLs on `%s'", $docroot);
 			}
 			// simple confirmation
 			$version = $this->get_version($hostname, $path);
 			$params = array(
-				'version' => $version,
-				'hostname' => $hostname,
+				'version'    => $version,
+				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify' => 'min'
+				'fortify'    => 'min'
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -235,7 +246,7 @@
 				$url = 'https://' . $hostname . '/' . $path;
 				$args = array(
 					'path' => "/web/secure/base_url",
-					'url' => $url
+					'url'  => $url
 				);
 				$this->_exec($docroot, 'config:set %(path)s %(url)s', $args);
 				$this->_exec($docroot, 'cache:flush');
@@ -243,21 +254,218 @@
 			if ($magerunver === 1) {
 				$this->_fixModelPHP7($docroot);
 			}
-			
-			$msg = "Hello!" ."\r\n" .
+
+			$msg = "Hello!" . "\r\n" .
 				"This is a confirmation that Magento has been installed under " . $docroot .
-				". You may access Magento via " . $url .". Access the administrative " .
-				"panel at " . rtrim($url, "/") . self::ADMIN_URL . " using the following details:" ."\r\n\r\n" .
-				"Username: " . $opts['user'] ."\r\n" .
+				". You may access Magento via " . $url . ". Access the administrative " .
+				"panel at " . rtrim($url, "/") . self::ADMIN_URL . " using the following details:" . "\r\n\r\n" .
+				"Username: " . $opts['user'] . "\r\n" .
 				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
 			$msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
 				"control panel password!";
-			$hdrs = "From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">\r\nReply-To: ".Crm_Module::REPLY_ADDRESS;
+			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Magento Installed", $msg, $hdrs);
 			return true;
 		}
 
-		private function _fixModelPHP7($docroot) {
+		/**
+		 * Requested version is known by magerun
+		 *
+		 * @param string $version
+		 * @return bool
+		 */
+		private function _versionValid($version)
+		{
+			$versions = $this->_getVersions();
+			return in_array($version, $versions);
+		}
+
+		/**
+		 * Get all current major versions
+		 *
+		 * @return array
+		 */
+		private function _getVersions()
+		{
+			$key = 'magento.versions';
+			$cache = Cache_Super_Global::spawn();
+			// @TODO
+			if (false !== ($vers = $cache->get($key))) {
+				return $vers;
+			}
+
+			$req = file_get_contents(self::VERSION_CHECK_URL . '?all');
+			if (!$req) {
+				return array();
+			}
+			$req = json_decode($req);
+			$cache->set($key, $req, 43200);
+			return $req;
+		}
+
+		/**
+		 * Get latest WP release
+		 *
+		 * @return string
+		 */
+		private function _getLastestVersion($branch = null)
+		{
+			$versions = $this->_getVersions();
+			if (!$versions) {
+				return null;
+			}
+			if (!$branch) {
+				return array_pop($versions);
+			}
+			do {
+				$version = array_pop($versions);
+				if ($version[0] === $branch) {
+					return $version;
+				}
+			} while (true);
+			return null;
+		}
+
+		/**
+		 * Get Magento key for use with Magento Connect
+		 *
+		 * @return mixed
+		 */
+		public function get_key()
+		{
+			$file = $this->_keyAuthFile();
+			if (!$this->file_file_exists($file)) {
+				return null;
+			}
+			$contents = json_decode($this->file_get_file_contents($file), true);
+			if (!isset($contents['http-basic']) || !isset($contents['http-basic']['repo.magento.com'])) {
+				return null;
+			}
+			$tmp = $contents['http-basic']['repo.magento.com'];
+			return array($tmp['username'], $tmp['password']);
+		}
+
+		private function _keyAuthFile()
+		{
+			$home = $this->user_get_home();
+			$file = $home . '/.composer/auth.json';
+			return $file;
+		}
+
+		private function _copyMagerunConfig($version = 1)
+		{
+			$f = INCLUDE_PATH . '/opt/magento' . $version . '.yaml';
+			if (!file_exists($f)) {
+				return false;
+			}
+			$filename = '.n98-magerun' . ($version > 1 ? $version : '') . '.yaml';
+			copy($f, $this->domain_fs_path() . '/tmp/' . $filename);
+			$dest = $this->user_get_home() . '/' . $filename;
+			$this->file_copy('/tmp/' . $filename, $dest);
+			unlink($this->domain_fs_path() . '/tmp/' . $filename);
+			return $dest;
+		}
+
+		private function _exec($path = null, $cmd, $args = array(), $ver = null)
+		{
+			if (is_null($ver)) {
+				$ver = $this->_whichMajor($path);
+			}
+
+			$magerun = $ver == 1 ? self::MAGENTO_CLI : self::MAGENTO2_CLI;
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . $magerun . '';
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
+			}
+			if ($path) {
+				$cli = 'cd %(path)s && ' . $cli;
+				$args['path'] = $path;
+			}
+			$cmd = $cli . ' ' . $cmd;
+			$ret = $this->pman_run($cmd, $args);
+			if (!$ret['success'] && $ret['stderr']) {
+				$ret['stderr'] = $ret['stdout'];
+			}
+			return $ret;
+		}
+
+		/**
+		 * Get Magento major version
+		 *
+		 * @param $path
+		 * @return int
+		 */
+		private function _whichMajor($path)
+		{
+			static $pathCache = array();
+			if (isset($pathCache[$path])) {
+				return $pathCache[$path];
+			}
+
+			// found in 2.0.0 and not in 1.9.2.4
+			if ($this->file_file_exists($path . '/app/autoload.php')) {
+				$ver = 2;
+			} else {
+				$ver = 1;
+			}
+			$pathCache[$path] = $ver;
+			return $ver;
+		}
+
+		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return null|string version number
+		 */
+		public function get_version($hostname, $path = '')
+		{
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$docroot = $this->_normalizePath($hostname, $path);
+			$ret = $this->_exec($docroot, 'sys:info --format=json');
+			if (!$ret['success']) {
+				return null;
+			}
+			$info = json_decode($ret['stdout'], true);
+			foreach ($info as $el) {
+				if (strtolower($el['name']) === "version") {
+					return $el['value'];
+				}
+			}
+			return null;
+
+		}
+
+		/**
+		 * Location is a valid WP install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid($hostname, $path = '')
+		{
+			if ($hostname[0] == '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->_normalizePath($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_file_exists($docroot . '/lib/Magento');
+		}
+
+		private function _fixModelPHP7($docroot)
+		{
 			// PHP7 fix
 			// @see https://www.atwix.com/magento/magento-and-php-7/
 			if (version_compare(platform_version(), '6.5', '<')) {
@@ -271,10 +479,33 @@
 			return $this->file_put_file_contents($f, $replacement);
 		}
 
-		private function _checkSSL($hostname) {
+		private function _fixConnectConfig($docroot)
+		{
+			$file = $docroot . '/downloader/connect.cfg';
+			$preamble = "::ConnectConfig::v::1.0::";
+			if ($this->file_file_exists($file)) {
+				$raw = $this->file_get_file_contents($file);
+				if (!preg_match('/^((?:::[[[:alnum:].]*]*)+?)([sibNaO]:.*)$/mi', $raw, $preamble)) {
+					return error("cannot set Magento Connect FTP login information, " .
+						"config is malformed: %s", $raw);
+				}
+				$contents = unserialize($preamble[2]);
+				$preamble = $preamble[1];
+			} else {
+				$contents = array();
+			}
+			$contents['remote_config'] = 'ftp://' . $this->username . '@' . $this->domain . ':debug@localhost';
+			$contents['downloader_path'] = $this->domain_fs_path() . $docroot . '/downloader';
+			$contents['magento_root'] = $this->domain_fs_path() . $docroot;
+			$newdata = $preamble . serialize($contents);
+			return $this->file_put_file_contents($file, $newdata);
+		}
+
+		private function _checkSSL($hostname)
+		{
 			if (!$this->ssl_cert_exists()) {
 				if (!$this->letsencrypt_permitted()) {
-					return warn("no ssl found and platform too old for let's encrypt support - ".
+					return warn("no ssl found and platform too old for let's encrypt support - " .
 						"install a certificate manually (Web > SSL Certificates)");
 				} else if ($this->letsencrypt_request(array($hostname))) {
 					// easy, make let's encrypt
@@ -313,7 +544,7 @@
 				warn("failed to generate new Let's Encrypt certificate with hostname `%s' added, "
 					. "reverting to old certificate setup", $hostname);
 				if (!$this->ssl_install($key, $crt, $chain)) {
-					$msg = SERVER_NAME_SHORT . " :: " . $this->site. "\r\n\r\n" . var_export(array($key, $crt, $chain, $certinfo), true);
+					$msg = SERVER_NAME_SHORT . " :: " . $this->site . "\r\n\r\n" . var_export(array($key, $crt, $chain, $certinfo), true);
 					Mail::send(Crm_Module::COPY_ADMIN, "WE FUCKED UP CAPTAIN", $msg);
 					return error("something went terribly wrong, site is now without SSL - emailing support staff...");
 				}
@@ -321,60 +552,17 @@
 			return true;
 		}
 
-		private function _fixConnectConfig($docroot) {
-			$file = $docroot . '/downloader/connect.cfg';
-			$preamble = "::ConnectConfig::v::1.0::";
-			if ($this->file_file_exists($file)) {
-				$raw = $this->file_get_file_contents($file);
-				if (!preg_match('/^((?:::[[[:alnum:].]*]*)+?)([sibNaO]:.*)$/mi', $raw, $preamble)) {
-					return error("cannot set Magento Connect FTP login information, ".
-						"config is malformed: %s", $raw);
-				}
-				$contents = unserialize($preamble[2]);
-				$preamble = $preamble[1];
-			} else {
-				$contents = array();
-			}
-			$contents['remote_config'] = 'ftp://' . $this->username . '@' . $this->domain . ':debug@localhost';
-			$contents['downloader_path'] = $this->domain_fs_path() . $docroot . '/downloader';
-			$contents['magento_root'] = $this->domain_fs_path() . $docroot;
-			$newdata = $preamble . serialize($contents);
-			return $this->file_put_file_contents($file, $newdata);
-		}
-		private function _copyMagerunConfig($version = 1) {
-			$f = INCLUDE_PATH . '/opt/magento' . $version . '.yaml';
-			if (!file_exists($f)) {
-				return false;
-			}
-			$filename = '.n98-magerun' . ($version > 1 ? $version : '') . '.yaml';
-			copy($f, $this->domain_fs_path() . '/tmp/' . $filename);
-			$dest = $this->user_get_home() . '/' . $filename;
-			$this->file_copy('/tmp/' . $filename, $dest);
-			unlink($this->domain_fs_path() . '/tmp/' . $filename);
-			return $dest;
-		}
-
-		/**
-		 * Requested version is known by magerun
-		 *
-		 * @param string $version
-		 * @return bool
-		 */
-		private function _versionValid($version) {
-			$versions = $this->_getVersions();
-			return in_array($version, $versions);
-		}
-
 		/**
 		 * Install and activate plugin
 		 *
 		 * @param string $hostnaem domain or subdomain of wp install
-		 * @param string $path optional path component of wp install
-		 * @param string $plugin plugin name
-		 * @param string $version optional plugin version
+		 * @param string $path     optional path component of wp install
+		 * @param string $plugin   plugin name
+		 * @param string $version  optional plugin version
 		 * @return bool
 		 */
-		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable') {
+		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid WP location");
@@ -384,16 +572,16 @@
 			return true;
 		}
 
-
 		/**
 		 * Uninstall a plugin
 		 *
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $plugin plugin name
-		 * @param string $force delete even if plugin activated
+		 * @param string $force  delete even if plugin activated
 		 */
-		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false) {
+		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid WP location");
@@ -407,10 +595,11 @@
 		 * Recovery mode to disable all plugins
 		 *
 		 * @param string $hostname subdomain or domain of WP
-		 * @param string $path optional path
+		 * @param string $path     optional path
 		 * @return bool
 		 */
-		public function disable_all_plugins($hostname, $path = '') {
+		public function disable_all_plugins($hostname, $path = '')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to determine path");
@@ -421,26 +610,6 @@
 		}
 
 		/**
-		 * Location is a valid WP install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid($hostname, $path = '') {
-			if ($hostname[0] == '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->_normalizePath($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
-			}
-
-			return $this->file_file_exists($docroot . '/lib/Magento');
-		}
-
-		/**
 		 * Uninstall WP from a location
 		 *
 		 * @param        $hostname
@@ -448,7 +617,8 @@
 		 * @param string $delete "all", "db", or "files"
 		 * @return bool
 		 */
-		public function uninstall($hostname, $path = '', $delete = 'all') {
+		public function uninstall($hostname, $path = '', $delete = 'all')
+		{
 			return parent::uninstall($hostname, $path, $delete);
 		}
 
@@ -456,7 +626,7 @@
 		 * Get database configuration for a blog
 		 *
 		 * @param string $hostname domain or subdomain of wp blog
-		 * @param string $path optional path
+		 * @param string $path     optional path
 		 * @return array
 		 */
 		public function db_config($hostname, $path = '')
@@ -473,21 +643,22 @@
 			}
 			$conn = array_pop($conn);
 			return array(
-				'user' => (string)$conn->username,
-				'host' => (string)$conn->host,
-				'db' => (string)$conn->dbname,
+				'user'     => (string)$conn->username,
+				'host'     => (string)$conn->host,
+				'db'       => (string)$conn->dbname,
 				'password' => (string)$conn->password,
-				'prefix' => (string)$conn->prefix
+				'prefix'   => (string)$conn->prefix
 			);
 		}
 
 		/**
 		 * Check if version is latest or get latest version
-		 * 
+		 *
 		 * @param null $version
-		 * @return int|string 
+		 * @return int|string
 		 */
-		public function is_current($version = null) {
+		public function is_current($version = null)
+		{
 			$latest = $this->_getLastestVersion();
 			if (!$version) {
 				return $version;
@@ -502,57 +673,13 @@
 		}
 
 		/**
-		 * Get latest WP release
-		 *
-		 * @return string
-		 */
-		private function _getLastestVersion($branch = null) {
-			$versions = $this->_getVersions();
-			if (!$versions) {
-				return null;
-			}
-			if (!$branch) {
-				return array_pop($versions);
-			}
-			do {
-				$version = array_pop($versions);
-				if ($version[0] === $branch) {
-					return $version;
-				}
-			} while (true);
-			return null;
-		}
-		
-		/**
-		 * Get all current major versions
-		 *
-		 * @return array
-		 */
-		private function _getVersions() {
-			$key = 'magento.versions';
-			$cache = Cache_Super_Global::spawn();
-			// @TODO
-			if (false !== ($vers = $cache->get($key))) {
-				return $vers;
-			}
-
-			$req = file_get_contents(self::VERSION_CHECK_URL . '?all');
-			if (!$req) {
-				return array();
-			}
-			$req = json_decode($req);
-			$cache->set($key, $req, 43200);
-			return $req;
-		}
-
-		/**
 		 * Change Magento admin credentials
 		 *
 		 * $fields is a hash whose indices match password
 		 *
 		 * @param string $domain
 		 * @param string $path
-		 * @param array $fields
+		 * @param array  $fields
 		 * @return bool
 		 */
 		public function change_admin($domain, $path = null, array $fields)
@@ -585,11 +712,12 @@
 		/**
 		 * Get the primary admin for a Magento instance
 		 *
-		 * @param $domain
+		 * @param      $domain
 		 * @param null $path
 		 * @return bool|string admin or false on failure
 		 */
-		public function get_admin($domain, $path = null) {
+		public function get_admin($domain, $path = null)
+		{
 			$docroot = $this->_normalizePath($domain, $path);
 			$ret = $this->_exec($docroot, 'admin:user:list --format=json');
 			if (!$ret['success']) {
@@ -608,117 +736,6 @@
 		}
 
 		/**
-		 * Update Magento to latest version
-		 *
-		 * @param string $domain domain or subdomain under which WP is installed
-		 * @param string $path optional subdirectory
-		 * @param string $version
-		 * @return bool
-		 */
-		public function update($domain, $path = '', $version = null) {
-			$docroot = $this->_normalizePath($domain, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			return info("to-do");
-
-			return $ret['success'];
-		}
-
-		/**
-		 * Update Magento plugins
-		 *
-		 * @param string $hostname domain or subdomain
-		 * @param string $path optional path within host
-		 * @param array  $plugins
-		 * @return bool|void
-		 */
-		public function update_plugins($hostname, $path = '', $plugins = array()) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			return info("to-do");
-
-			$cmd = 'plugin update';
-			$args = array();
-			if (!$plugins) {
-				$cmd .= ' --all';
-			} else {
-				for($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
-					$plugin = $plugins[$i];
-					$version = null;
-					if (isset($plugin['version'])) {
-						$version = $plugin['version'];
-					}
-					if (isset($plugin['name'])) {
-						$plugin = $plugin['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $plugin;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name .'v)s';
-						$args[$name.'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", $ret['stderr']);
-			}
-			return $ret['success'];
-		}
-
-		/**
-		 * Update Magento themes
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
-		 * @param array  $themes
-		 * @return bool|void
-		 */
-		public function update_themes($hostname, $path = '', $themes = array()) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-			return info("not implemented");
-		}
-
-
-		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return null|string version number
-		 */
-		public function get_version($hostname, $path = '') {
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$docroot = $this->_normalizePath($hostname, $path);
-			$ret = $this->_exec($docroot, 'sys:info --format=json');
-			if (!$ret['success']) {
-				return null;
-			}
-			$info = json_decode($ret['stdout'], true);
-			foreach($info as $el) {
-				if (strtolower($el['name']) === "version") {
-					return $el['value'];
-				}
-			}
-			return null;
-
-		}
-
-		/**
 		 * Web application supports fortification
 		 *
 		 * @param string|null $mode optional mode (min, max)
@@ -726,14 +743,15 @@
 		 */
 		public function has_fortification($mode = null)
 		{
-			return parent::has_fortification($mode); 
+			return parent::has_fortification($mode);
 		}
 
 		/**
 		 * @param        $hostname
 		 * @param string $path
 		 */
-		public function fortify($hostname, $path = '', $mode = 'max') {
+		public function fortify($hostname, $path = '', $mode = 'max')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot || !$this->valid($hostname, $path)) {
 				return error("path `%s' is not a WP install", $docroot);
@@ -741,7 +759,7 @@
 				return error("unknown mode `%s'", $mode);
 			}
 			$prefs = $this->get_map($docroot);
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . $f;
 			}, $this->_aclList[$mode]);
 			$users = array(
@@ -751,7 +769,7 @@
 			);
 			$flags = array(
 				File_Module::ACL_MODE_RECURSIVE => true,
-				File_Module::ACL_MODE_DEFAULT => false
+				File_Module::ACL_MODE_DEFAULT   => false
 			);
 			if (!$this->file_set_acls($files, $users, $flags)) {
 				return warn("fortification failed on `%s/%s'", $hostname, $path);
@@ -768,7 +786,8 @@
 		 * @param string $path
 		 * @return bool
 		 */
-		public function unfortify($hostname, $path = '', $mode = 'max') {
+		public function unfortify($hostname, $path = '', $mode = 'max')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot || !$this->valid($hostname, $path)) {
 				return error("path `%s' is not a WP install", $docroot);
@@ -776,7 +795,7 @@
 				return error("unknown mode `%s'", $mode);
 			}
 			$prefs = $this->_getPrefs($docroot);
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . $f;
 			}, $this->_aclList[$mode]);
 			$users = array(
@@ -796,81 +815,104 @@
 		 * Update core, plugins, and themes atomically
 		 *
 		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
+		 * @param string $path     optional path under hostname
 		 * @return bool
 		 */
-		public function update_all($hostname, $path = '') {
+		public function update_all($hostname, $path = '')
+		{
 			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
-				$this->update_themes($hostname, $path) || error("failed to update all components");
-		}
-
-		private function _exec($path = null, $cmd, $args = array(), $ver = null) {
-			if (is_null($ver)) {
-				$ver = $this->_whichMajor($path);
-			}
-
-			$magerun = $ver == 1 ? self::MAGENTO_CLI : self::MAGENTO2_CLI;
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . $magerun . '';
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			if ($path) {
-				$cli = 'cd %(path)s && ' . $cli;
-				$args['path'] = $path;
-			}
-			$cmd = $cli . ' ' . $cmd;
-			$ret = $this->pman_run($cmd, $args);
-			if (!$ret['success'] && $ret['stderr']) {
-				$ret['stderr'] = $ret['stdout'];
-			}
-			return $ret;
+			$this->update_themes($hostname, $path) || error("failed to update all components");
 		}
 
 		/**
-		 * Get Magento major version
+		 * Update Magento to latest version
 		 *
-		 * @param $path
-		 * @return int
+		 * @param string $domain domain or subdomain under which WP is installed
+		 * @param string $path   optional subdirectory
+		 * @param string $version
+		 * @return bool
 		 */
-		private function _whichMajor($path) {
-			static $pathCache = array();
-			if (isset($pathCache[$path])) {
-				return $pathCache[$path];
+		public function update($domain, $path = '', $version = null)
+		{
+			$docroot = $this->_normalizePath($domain, $path);
+			if (!$docroot) {
+				return error("update failed");
 			}
 
-			// found in 2.0.0 and not in 1.9.2.4
-			if ($this->file_file_exists($path . '/app/autoload.php')) {
-				$ver = 2;
+			return info("to-do");
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Update Magento plugins
+		 *
+		 * @param string $hostname domain or subdomain
+		 * @param string $path     optional path within host
+		 * @param array  $plugins
+		 * @return bool|void
+		 */
+		public function update_plugins($hostname, $path = '', $plugins = array())
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("update failed");
+			}
+
+			return info("to-do");
+
+			$cmd = 'plugin update';
+			$args = array();
+			if (!$plugins) {
+				$cmd .= ' --all';
 			} else {
-				$ver = 1;
+				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
+					$plugin = $plugins[$i];
+					$version = null;
+					if (isset($plugin['version'])) {
+						$version = $plugin['version'];
+					}
+					if (isset($plugin['name'])) {
+						$plugin = $plugin['name'];
+					}
+
+					$name = 'p' . $i;
+
+					$cmd .= ' %(' . $name . ')s';
+					$args[$name] = $plugin;
+					if ($version) {
+						$cmd .= ' --version=%(' . $name . 'v)s';
+						$args[$name . 'v'] = $version;
+					}
+				}
 			}
-			$pathCache[$path] = $ver;
-			return $ver;
+
+			$ret = $this->_exec($docroot, $cmd, $args);
+			if (!$ret['success']) {
+				return error("plugin update failed: `%s'", $ret['stderr']);
+			}
+			return $ret['success'];
 		}
 
 		/**
-		 * Get Magento key for use with Magento Connect
+		 * Update Magento themes
 		 *
-		 * @return mixed
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @param array  $themes
+		 * @return bool|void
 		 */
-		public function get_key() {
-			$file = $this->_keyAuthFile();
-			if (!$this->file_file_exists($file)) {
-				return null;
+		public function update_themes($hostname, $path = '', $themes = array())
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("update failed");
 			}
-			$contents = json_decode($this->file_get_file_contents($file), true);
-			if (!isset($contents['http-basic']) || !isset($contents['http-basic']['repo.magento.com'])) {
-				return null;
-			}
-			$tmp = $contents['http-basic']['repo.magento.com'];
-			return array($tmp['username'], $tmp['password']);
+			return info("not implemented");
 		}
 
-		public function delete_key() {
+		public function delete_key()
+		{
 			$file = $this->_keyAuthFile();
 			if (!$this->file_file_exists($file)) {
 				return error("failed to get Magento key file `%s'", $file);
@@ -883,7 +925,8 @@
 			return $this->file_put_file_contents($file, json_encode($contents));
 		}
 
-		public function set_key($publickey, $privatekey) {
+		public function set_key($publickey, $privatekey)
+		{
 			if (!ctype_alnum($publickey) || !ctype_alnum($privatekey)) {
 				return error("invalid public and/or private magento key");
 			}
@@ -903,12 +946,6 @@
 			return $this->file_put_file_contents($file, json_encode($contents), true);
 		}
 
-		private function _keyAuthFile() {
-			$home = $this->user_get_home();
-			$file = $home . '/.composer/auth.json';
-			return $file;
-		}
-
 		/**
 		 * Install wp-cli if necessary
 		 *
@@ -921,7 +958,7 @@
 				return;
 			}
 			$clis = array(
-				self::MAGENTO_CLI => self::MAGENTO_CLI_URL,
+				self::MAGENTO_CLI  => self::MAGENTO_CLI_URL,
 				self::MAGENTO2_CLI => self::MAGENTO2_CLI_URL
 			);
 			foreach ($clis as $cli => $url) {

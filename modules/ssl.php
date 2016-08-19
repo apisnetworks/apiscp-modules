@@ -1,11 +1,26 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Provides SSL certificate management for Apache
+	 *
 	 * @package core
 	 */
-	class Ssl_Module extends Module_Skeleton {
+	class Ssl_Module extends Module_Skeleton
+	{
 		/**
 		 * {{{ void __construct(void)
+		 *
 		 * @ignore
 		 */
 		const CRT_PATH = '/etc/httpd/conf/ssl.crt';
@@ -14,27 +29,28 @@
 
 		const X509_DAYS = 1095; /* 3 years for self-signed */
 
-		public function __construct() {
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'generate_csr' => PRIVILEGE_ALL,
-				'generate_privatekey' => PRIVILEGE_ALL,
-				'get_alternative_names' => PRIVILEGE_ALL,
-				'get_certificate' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
-				'get_csr' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
-				'get_private_key' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
-				'get_public_key' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
-				'is_self_signed' => PRIVILEGE_ALL,
-				'key_exists' => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
-				'parse_certificate' => PRIVILEGE_ALL,
-				'privkey_info' => PRIVILEGE_ALL,
-				'request_info' => PRIVILEGE_ALL,
-				'resolve_chain' => PRIVILEGE_ALL,
-				'sign_certificate' => PRIVILEGE_ALL,
-				'valid' => PRIVILEGE_ALL,
+				'generate_csr'             => PRIVILEGE_ALL,
+				'generate_privatekey'      => PRIVILEGE_ALL,
+				'get_alternative_names'    => PRIVILEGE_ALL,
+				'get_certificate'          => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_csr'                  => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_private_key'          => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_public_key'           => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'is_self_signed'           => PRIVILEGE_ALL,
+				'key_exists'               => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'parse_certificate'        => PRIVILEGE_ALL,
+				'privkey_info'             => PRIVILEGE_ALL,
+				'request_info'             => PRIVILEGE_ALL,
+				'resolve_chain'            => PRIVILEGE_ALL,
+				'sign_certificate'         => PRIVILEGE_ALL,
+				'valid'                    => PRIVILEGE_ALL,
 				'verify_certificate_chain' => PRIVILEGE_ALL,
-				'verify_key' => PRIVILEGE_ALL,
-				'verify_x509_key' => PRIVILEGE_ALL,
+				'verify_key'               => PRIVILEGE_ALL,
+				'verify_x509_key'          => PRIVILEGE_ALL,
 
 				'*' => PRIVILEGE_SITE,
 			);
@@ -45,7 +61,8 @@
 		 *
 		 * @return bool
 		 */
-		public function cert_exists() {
+		public function cert_exists()
+		{
 			if (!IS_CLI) {
 				return $this->query('ssl_cert_exists');
 			}
@@ -53,9 +70,10 @@
 			return count($conf) > 0;
 		}
 
-		public function key_exists($key = 'server.key') {
+		public function key_exists($key = 'server.key')
+		{
 			if (!IS_CLI) {
-				return $this->query('ssl_key_exists',$key);
+				return $this->query('ssl_key_exists', $key);
 			}
 			// default key name
 			$name = basename($key, ".key");
@@ -73,7 +91,7 @@
 
 		/**
 		 * Verify that the named certificate and key
-         *
+		 *
 		 * @param string $cert x509 certificate
 		 * @param string $pkey private key
 		 * @return bool
@@ -88,7 +106,7 @@
 			if (!IS_CLI) {
 				return $this->query('ssl_install', $key, $cert, $chain);
 			}
-			if ($this->get_service_value('ipinfo','namebased')) {
+			if ($this->get_service_value('ipinfo', 'namebased')) {
 				return error("account requires assigned IP address for SSL");
 			}
 
@@ -166,7 +184,7 @@
 
 			// pre-flight checks done, let's install
 			$cmd = new Util_Account_Editor();
-			$cmd->setConfig('openssl','enabled',1);
+			$cmd->setConfig('openssl', 'enabled', 1);
 
 			// ensure HTTP config is rebuild
 			$cmd->edit();
@@ -185,6 +203,7 @@
 
 		/**
 		 * Resolve a certificate chain, downloading certificates as necessary
+		 *
 		 * @param string $crt initial certificate
 		 * @return bool|string
 		 */
@@ -201,7 +220,7 @@
 			// remove initial cert returning
 			// resulting chain
 			array_pop($chain);
-			return join("\n",$chain);
+			return join("\n", $chain);
 
 		}
 
@@ -247,8 +266,8 @@
 			// in certain situations, OCSP is prefixed with URI, defeating the regex
 			// so a second pass to look for a non-OCSP URL
 			$url = $matches['url'][0];
-			foreach($matches['url'] as $candidate) {
-				if 	(stristr($candidate, "ocsp")) {
+			foreach ($matches['url'] as $candidate) {
+				if (stristr($candidate, "ocsp")) {
 					continue;
 				}
 				$url = $candidate;
@@ -269,13 +288,13 @@
 
 		private function _isDer($cert)
 		{
-			return strncmp($cert, "-----",  5);
+			return strncmp($cert, "-----", 5);
 		}
 
 		private function _convertDer2Pem($data)
 		{
 			$pem = chunk_split(base64_encode($data), 64, "\n");
-			$pem = "-----BEGIN CERTIFICATE-----\n".$pem."-----END CERTIFICATE-----\n";
+			$pem = "-----BEGIN CERTIFICATE-----\n" . $pem . "-----END CERTIFICATE-----\n";
 			return $pem;
 
 		}
@@ -283,8 +302,8 @@
 		private function _convertPem2Der($data)
 		{
 			$begin = "CERTIFICATE-----";
-			$end   = "-----END";
-			$data = substr($data, strpos($data, $begin)+strlen($begin));
+			$end = "-----END";
+			$data = substr($data, strpos($data, $begin) + strlen($begin));
 			$data = substr($data, 0, strpos($data, $end));
 			$der = base64_decode($data);
 			return $der;
@@ -344,7 +363,7 @@
 				return $this->query('ssl_delete', $key, $crt, $chain);
 			}
 			// flipped argument order
-			if (substr($key,-4) == ".crt" && substr($crt,-4) == ".key") {
+			if (substr($key, -4) == ".crt" && substr($crt, -4) == ".key") {
 				$tmp = $crt;
 				$crt = $key;
 				$key = $tmp;
@@ -363,8 +382,7 @@
 				return error("failed to delete certificate `%s'", $crt);
 			}
 
-			if (!$this->_delete_wrapper($key))
-			{
+			if (!$this->_delete_wrapper($key)) {
 				warn("failed to remove ssl key `%s'", $key);
 			}
 
@@ -387,7 +405,7 @@
 			}
 			// reload HTTP server and rebuild config
 			$editor = new Util_Account_Editor();
-			$editor->setConfig('openssl','enabled',0);
+			$editor->setConfig('openssl', 'enabled', 0);
 			$status = $editor->edit();
 			if (!$status) {
 				return error("failed to deactivate openssl on account");
@@ -419,16 +437,18 @@
 			}
 			return unlink($file);
 		}
-		
+
 		/**
 		 * Generate new private key
+		 *
 		 * @param int $bits
-         * @return string
+		 * @return string
 		 */
-		public function generate_privatekey($bits = 2048) {
-            $bits = intval($bits);
-			$pow = log($bits)/log(2);
-			if ($pow-ceil($pow) > 0) 
+		public function generate_privatekey($bits = 2048)
+		{
+			$bits = intval($bits);
+			$pow = log($bits) / log(2);
+			if ($pow - ceil($pow) > 0)
 				return error("pkey bits %d invalid", $bits);
 			else if ($bits < 384)
 				return error("pkey must be at least 384 bits");
@@ -447,59 +467,61 @@
 			}
 
 			$opts = array(
-                'private_key_bits' => $bits,
-                'private_key_type' => OPENSSL_KEYTYPE_RSA,
-                'digest_alg' => $digestalg
-            );
+				'private_key_bits' => $bits,
+				'private_key_type' => OPENSSL_KEYTYPE_RSA,
+				'digest_alg'       => $digestalg
+			);
 			$res = openssl_pkey_new($opts);
 			if (!$res) {
 				return error("private key generation failed! error: %s",
 					$this->_getError());
 			}
 			openssl_pkey_export($res, $key);
-            openssl_pkey_free($res);
+			openssl_pkey_free($res);
 			return $key;
 		}
-		
+
 		/**
 		 * Generate certificate signing request for a CA
-         *
-		 * @param string $privkey private key
-		 * @param string $host common name for which the SSL certificate is valid
-         * @param string $country 2-letter country code
-         * @param string $state state
-         * @param string $locality city/province
-         * @param string $org optional organization
-         * @param string $orgunit optional organizational unit (company section)
-         * @param string $email contact e-mail
+		 *
+		 * @param string $privkey  private key
+		 * @param string $host     common name for which the SSL certificate is valid
+		 * @param string $country  2-letter country code
+		 * @param string $state    state
+		 * @param string $locality city/province
+		 * @param string $org      optional organization
+		 * @param string $orgunit  optional organizational unit (company section)
+		 * @param string $email    contact e-mail
 		 * @return string certificate signing request
 		 */
 		public function generate_csr($privkey, $host, $country = '',
-			$state = '', $locality = '', $org = '', $orgunit = '',
-			$email = '')
+		                             $state = '', $locality = '', $org = '', $orgunit = '',
+		                             $email = '')
 		{
 			$sinfo = array(
-				'countryName' => strtoupper($country),
-				'stateOrProvinceName' => $state,
-				'localityName' => $locality,
-				'organizationName' => $org,
+				'countryName'            => strtoupper($country),
+				'stateOrProvinceName'    => $state,
+				'localityName'           => $locality,
+				'organizationName'       => $org,
 				'organizationalUnitName' => $orgunit,
-				'commonName'=> $host,
-				'emailAddress' => $email
+				'commonName'             => $host,
+				'emailAddress'           => $email
 			);
 			if (!preg_match(Regex::DOMAIN_WC, $host)) {
 				return error("invalid hostname `%s'", $host);
 			} else if ($sinfo['countryName'] && (!ctype_alpha($sinfo['countryName']) ||
-				strlen($sinfo['countryName']) != 2)) {
-					return error("invalid 2-character country `%s'",
-						$sinfo['countryName']);
+					strlen($sinfo['countryName']) != 2)
+			) {
+				return error("invalid 2-character country `%s'",
+					$sinfo['countryName']);
 			} else if (!$sinfo['stateOrProvinceName']) {
 				return error("no state value specified");
 			} else if (!$sinfo['localityName']) {
 				return error("missing state/locality name");
 			} else if (strlen($sinfo['emailAddress']) > 0 &&
-				!preg_match(Regex::EMAIL, $sinfo['emailAddress'])) {
-				return error("invalid e-mail address `%s'", 
+				!preg_match(Regex::EMAIL, $sinfo['emailAddress'])
+			) {
+				return error("invalid e-mail address `%s'",
 					$sinfo['emailAddress']);
 			}
 			foreach ($sinfo as $k => $v) {
@@ -508,9 +530,9 @@
 			$privkey = trim($privkey);
 			if (!openssl_get_privatekey($privkey)) return error("could not get key structure " .
 				"from private key");
-			
+
 			$cnf = array();
-            $res = openssl_pkey_get_private($privkey);
+			$res = openssl_pkey_get_private($privkey);
 			$csr = openssl_csr_new($sinfo, $res, $cnf);
 			if (!$csr) {
 				return error($this->_getError());
@@ -523,28 +545,29 @@
 			return $txt;
 		}
 
-		
+
 		/**
-		 * Copy last OpenSSL error triggered by 
+		 * Copy last OpenSSL error triggered by
 		 * openssl_* function to error buffer
 		 * {@link Error_Reporter::add_error}
-		 * 
+		 *
 		 * @return bool
 		 */
-		private function _getError() {
+		private function _getError()
+		{
 			$err = openssl_error_string();
 			if (!$err) return true;
 			list($class, $code, $loc, $sym, $txt) = explode(':', $err);
 			return sprintf("%s: openssl `%s': %s (%s)",
 				$code, $class, $loc, $txt);
 		}
-		
+
 
 		/**
 		 * Parse certificate and return information
 		 *
 		 * @param mixed $crt resource pointed by openssl_x509_read or string
-         * @return array
+		 * @return array
 		 */
 		public function parse_certificate($crt)
 		{
@@ -558,7 +581,7 @@
 					return $crt;
 				} else {
 					return error("unsupported certificate data type, " .
-							"got array expected: string, resource, or parsed certificate");
+						"got array expected: string, resource, or parsed certificate");
 				}
 			}
 			if (!is_resource($crt)) {
@@ -587,38 +610,38 @@
 			return $info;
 		}
 
-        /**
-         * Get certificate signing request parameters
-         *
-         * Sample response:
-         *   array(7) {
-         *   ["C"]=>
-         *   string(2) "US"
-         *   ["ST"]=>
-         *   string(7) "Georgia"
-         *   ["L"]=>
-         *   string(7) "Lilburn"
-         *   ["O"]=>
-         *   string(13) "Apis Networks"
-         *   ["OU"]=>
-         *   string(4) "Test"
-         *   ["CN"]=>
-         *   string(8) "test.com"
-         *   ["emailAddress"]=>
-         *   string(25) "msaladna@apisnetworks.com"
-         *   }
-         *
-         * @param string $csr
-         * @return array req parameters using shorthand notation
-         */
-        public function request_info($csr)
-        {
-            $res = openssl_csr_get_subject($csr);
-            if (!$res) {
-	            return error($this->_getError());
-            }
-            return $res;
-        }
+		/**
+		 * Get certificate signing request parameters
+		 *
+		 * Sample response:
+		 *   array(7) {
+		 *   ["C"]=>
+		 *   string(2) "US"
+		 *   ["ST"]=>
+		 *   string(7) "Georgia"
+		 *   ["L"]=>
+		 *   string(7) "Lilburn"
+		 *   ["O"]=>
+		 *   string(13) "Apis Networks"
+		 *   ["OU"]=>
+		 *   string(4) "Test"
+		 *   ["CN"]=>
+		 *   string(8) "test.com"
+		 *   ["emailAddress"]=>
+		 *   string(25) "msaladna@apisnetworks.com"
+		 *   }
+		 *
+		 * @param string $csr
+		 * @return array req parameters using shorthand notation
+		 */
+		public function request_info($csr)
+		{
+			$res = openssl_csr_get_subject($csr);
+			if (!$res) {
+				return error($this->_getError());
+			}
+			return $res;
+		}
 
 		/**
 		 * Get raw certificate
@@ -626,7 +649,7 @@
 		 * @param string $name certificate name
 		 * @return bool|string
 		 */
-		public function get_certificate($name) 
+		public function get_certificate($name)
 		{
 			if (!IS_CLI) {
 				return $this->query('ssl_get_certificate', $name);
@@ -643,7 +666,7 @@
 				}
 			}
 
-			if (!file_exists($file)) 
+			if (!file_exists($file))
 				return error("certificate `%s' does not exist", $name);
 			return file_get_contents($file);
 		}
@@ -654,15 +677,16 @@
 		 * Array (
 		 * [bits] => 4096
 		 * [key] => -----BEGIN PUBLIC KEY-----
-		 * 	    ...
+		 *        ...
 		 *      ...
-		 *	[rsa] => Array ( [n] => .., [e] => ..,)
+		 *    [rsa] => Array ( [n] => .., [e] => ..,)
 		 *  [type] => 0
 		 *
 		 * @param string $name certificate name
 		 * @return array|bool
 		 */
-		public function get_public_key($name) {
+		public function get_public_key($name)
+		{
 			if (!IS_CLI) {
 				return $this->query('ssl_get_public_key', $name);
 			}
@@ -678,7 +702,7 @@
 			return $details;
 
 		}
-		
+
 		public function get_private_key($name = 'server.key')
 		{
 			if (!IS_CLI) {
@@ -696,36 +720,36 @@
 				}
 			}
 
-			if (!file_exists($file)) 
+			if (!file_exists($file))
 				return error("private key `%s' does not exist", $name);
-			return file_get_contents($file);			
+			return file_get_contents($file);
 		}
 
-        /**
-         * Get private key details
-         *
-         * @param $privkey
-         * @return array
-         */
-        public function privkey_info($privkey)
-        {
-            $res = openssl_pkey_get_private($privkey);
-            $details = openssl_pkey_get_details($res);
-            return $details;
-        }
+		/**
+		 * Get private key details
+		 *
+		 * @param $privkey
+		 * @return array
+		 */
+		public function privkey_info($privkey)
+		{
+			$res = openssl_pkey_get_private($privkey);
+			$details = openssl_pkey_get_details($res);
+			return $details;
+		}
 
-        /**
-         * Order a mixed arrangement of certificates in ascending order to root
-         *
-         * @param array $certs
-         * @return array
-         */
-        public function order_certificates(array $certs)
-        {
+		/**
+		 * Order a mixed arrangement of certificates in ascending order to root
+		 *
+		 * @param array $certs
+		 * @return array
+		 */
+		public function order_certificates(array $certs)
+		{
 			foreach ($certs as $cert) {
 
 			}
-        }
+		}
 
 		public function get_csr($name)
 		{
@@ -744,12 +768,12 @@
 				}
 			}
 
-			if (!file_exists($file)) 
+			if (!file_exists($file))
 				return error("certificate request `%s' does not exist", $name);
 			return file_get_contents($file);
-			
+
 		}
-		
+
 		public function is_self_signed($crt)
 		{
 			$crt = $this->parse_certificate($crt);
@@ -763,86 +787,88 @@
 				return error("invalid certificate");
 			$a = $crt['issuer'];
 			$b = $crt['subject'];
-			
+
 			foreach ($a as $k => $v) {
-				if (!isset($b[$k]) || 
-					$b[$k] != $v) {
+				if (!isset($b[$k]) ||
+					$b[$k] != $v
+				) {
 					return false;
 				}
 			}
 			return true;
 		}
 
-        /**
-         * Create a self-signed certificate
-         *
-         * @param string $csr certificate signing request {@link generate_csr}
-         * @param string $privkey private key to sign certificate
-         * @param int $days number days valid
-         * @param float $serial serial number
-         * @return string signed certificate
-         */
-        public function sign_certificate($csr, $privkey, $days = 365,
-			$serial = null) 
+		/**
+		 * Create a self-signed certificate
+		 *
+		 * @param string $csr     certificate signing request {@link generate_csr}
+		 * @param string $privkey private key to sign certificate
+		 * @param int    $days    number days valid
+		 * @param float  $serial  serial number
+		 * @return string signed certificate
+		 */
+		public function sign_certificate($csr, $privkey, $days = 365,
+		                                 $serial = null)
 		{
 			$days = intval($days);
-			if ($days > 365*5)
+			if ($days > 365 * 5)
 				return error("max certificate validity 5 years");
-			else if ($days < 1) 
+			else if ($days < 1)
 				return error("invalid certificate validity");
 			$csr = trim($csr);
-			if (!$serial) { 
-				$serial = sprintf("%s",date_format(new DateTime(), 'YmdHis'));
+			if (!$serial) {
+				$serial = sprintf("%s", date_format(new DateTime(), 'YmdHis'));
 			}
-            if (floatval($serial) != $serial) {
-                return error("non-numeric `%s' serial specified", $serial);
-            }
+			if (floatval($serial) != $serial) {
+				return error("non-numeric `%s' serial specified", $serial);
+			}
 			if (!openssl_csr_get_public_key($csr))
 				return error("invalid CSR");
 
-			$crt = openssl_csr_sign($csr, NULL, $privkey, $days, array(), $serial);
+			$crt = openssl_csr_sign($csr, null, $privkey, $days, array(), $serial);
 
-            if (!$crt) {
-	            return error($this->_getError());
-            }
+			if (!$crt) {
+				return error($this->_getError());
+			}
 			if (!openssl_x509_export($crt, $certout)) {
 				return error($this->_getError());
 			}
 			return $certout;
-			
+
 		}
 
-        /**
-         * Verify the given private key matches the self-signed certificate
-         *
-         * @param string $crt
-         * @param string $privkey
-         * @return bool
-         */
-        public function verify_x509_key($crt, $privkey)
-        {
-            return openssl_x509_check_private_key($crt, $privkey);
-        }
+		/**
+		 * Verify the given private key matches the self-signed certificate
+		 *
+		 * @param string $crt
+		 * @param string $privkey
+		 * @return bool
+		 */
+		public function verify_x509_key($crt, $privkey)
+		{
+			return openssl_x509_check_private_key($crt, $privkey);
+		}
 
 		/**
 		 * Verify cert2 is a chain to cert1
 		 *
-         * @param mixed $cert1 ssl certificate
+		 * @param mixed $cert1 ssl certificate
 		 * @param mixed $cert2 ssl certificate
 		 * @return int 1 if cert2 is intermediate of cert1, -1 if cert1 intermediate of cert2, 0 if no match
 		 */
 		public function verify_certificate_chain($cert1, $cert2)
-        {
+		{
 			$resp = $this->_verify_certificate_chain_real($cert1, $cert2);
-	        if ($resp || is_null($resp)) {
-		        return (int)$resp;
-	        }
+			if ($resp || is_null($resp)) {
+				return (int)$resp;
+			}
 
-	        return $this->_verify_certificate_chain_real($cert2, $cert1) ? -1 : 0;
-        }
+			return $this->_verify_certificate_chain_real($cert2, $cert1) ? -1 : 0;
+		}
 
 		/**
 		 * Actual chain verification logic
+		 *
 		 * @param mixed $cert1
 		 * @param mixed $cert2
 		 * @return int|null
@@ -855,7 +881,9 @@
 
 			$icert = $this->parse_certificate($cert1);
 			$ichain = $this->ssl_parse_certificate($cert2);
-			if (!isset($ichain['extensions'])) { return null; }
+			if (!isset($ichain['extensions'])) {
+				return null;
+			}
 			$keyidentifier = $icert['extensions']['authorityKeyIdentifier'];
 			if (!strncmp($keyidentifier, "keyid:", 6)) {
 				$keyidentifier = trim(substr($keyidentifier, 6));
@@ -884,7 +912,8 @@
 		 * @param resource|string $certificate
 		 * @return array
 		 */
-		public function get_alternative_names($certificate) {
+		public function get_alternative_names($certificate)
+		{
 			$certificate = $this->parse_certificate($certificate);
 			if (!is_array($certificate)) {
 				return error("invalid certificate");
@@ -911,129 +940,133 @@
 			return $extensions;
 		}
 
-        /**
-         * Get certificate names installed on account
-         *
-         * @return array
-         */
-        public function get_certificates()
+		/**
+		 * Get certificate names installed on account
+		 *
+		 * @return array
+		 */
+		public function get_certificates()
 		{
 			if (!IS_CLI) {
 				return $this->query('ssl_get_certificates');
 			}
-            // @TODO apache parser, maybe Augeas?
-            $that = $this;
-            $parser = function($config) use ($that) {
-                $conf = array();
-                $token = strtok($config, "\n \t");
-                while ($token !== false) {
-                    switch (strtoupper($token)) {
-                        case 'LISTEN':
-                            $key = 'host';
-                            break;
-                        case 'SSLCERTIFICATEFILE':
-                            $key = 'crt';
-                            break;
-                        case 'SSLCERTIFICATEKEYFILE':
-                            $key = 'key';
-                            break;
-                        case 'SSLCERTIFICATECHAINFILE':
-                            $key = 'chain';
-                            break;
-                        default:
-                            $key = null;
-                            break;
-                    }
-                    if (!is_null($key)) {
-                        $token = trim(strtok("\t \n"));
+			// @TODO apache parser, maybe Augeas?
+			$that = $this;
+			$parser = function ($config) use ($that) {
+				$conf = array();
+				$token = strtok($config, "\n \t");
+				while ($token !== false) {
+					switch (strtoupper($token)) {
+						case 'LISTEN':
+							$key = 'host';
+							break;
+						case 'SSLCERTIFICATEFILE':
+							$key = 'crt';
+							break;
+						case 'SSLCERTIFICATEKEYFILE':
+							$key = 'key';
+							break;
+						case 'SSLCERTIFICATECHAINFILE':
+							$key = 'chain';
+							break;
+						default:
+							$key = null;
+							break;
+					}
+					if (!is_null($key)) {
+						$token = trim(strtok("\t \n"));
 
-	                    $constant = $key === 'chain' ? 'crt' : $key;
-	                    if ($constant == 'key' || $constant == 'crt') {
-		                    // if no matching file, invalidate certificate
-		                    if (!file_exists($token)) return array();
-	                    }
-	                    $token = $that->file_canonicalize_site($token);
-	                    // let's assume everything is organized nicely in /etc/httpd/conf/ssl.x
-                        $conf[$key] = basename($token);
-                    }
-                    $token = strtok(" \t\n");
-                }
-	            if (isset($conf['chain']) && count($conf) === 1) {
-		            // separate config parser
-		            return $conf;
-	            } else if (!isset($conf['host']) || !isset($conf['crt']) || !isset($conf['key'])) {
-		            return array();
-	            }
-                return $conf;
-            };
+						$constant = $key === 'chain' ? 'crt' : $key;
+						if ($constant == 'key' || $constant == 'crt') {
+							// if no matching file, invalidate certificate
+							if (!file_exists($token)) return array();
+						}
+						$token = $that->file_canonicalize_site($token);
+						// let's assume everything is organized nicely in /etc/httpd/conf/ssl.x
+						$conf[$key] = basename($token);
+					}
+					$token = strtok(" \t\n");
+				}
+				if (isset($conf['chain']) && count($conf) === 1) {
+					// separate config parser
+					return $conf;
+				} else if (!isset($conf['host']) || !isset($conf['crt']) || !isset($conf['key'])) {
+					return array();
+				}
+				return $conf;
+			};
 
 			// old format for multiple IP/personalities per account
-            $masterconfig = glob('/etc/httpd/conf/virtual/' . $this->site .'{,.*}', GLOB_BRACE);
-            $sitecerts = array();
+			$masterconfig = glob('/etc/httpd/conf/virtual/' . $this->site . '{,.*}', GLOB_BRACE);
+			$sitecerts = array();
 
-            foreach ($masterconfig as $config) {
-                $cert = array();
-                $site = basename($config);
-                if (!file_exists('/etc/httpd/conf/' . $site . '.ssl'))
-                    return $sitecerts;
-                $file = '/etc/httpd/conf/virtual/' . $site;
-                if (!file_exists($file)) continue;
-                $config = file_get_contents($file);
-	            $newcert = $parser($config);
-	            if (!$newcert) continue;
-                $cert = array_merge($cert, $newcert);
-                $sslextra = '/etc/httpd/conf/' . basename($file) . '.ssl/custom';
-                if (file_exists($sslextra)) {
-                    $config = file_get_contents($sslextra);
-                    $cert = array_merge($cert, $parser($config));
-                }
-                // remove port info
-                if (isset($cert['host'])) {
-                    $tmp = strpos($cert['host'], ":");
-                    if ($tmp) {
-                        $cert['host'] = substr($cert['host'], 0, $tmp);
-                    }
-                }
-                $sitecerts[] = $cert;
-            }
-            return $sitecerts;
+			foreach ($masterconfig as $config) {
+				$cert = array();
+				$site = basename($config);
+				if (!file_exists('/etc/httpd/conf/' . $site . '.ssl'))
+					return $sitecerts;
+				$file = '/etc/httpd/conf/virtual/' . $site;
+				if (!file_exists($file)) continue;
+				$config = file_get_contents($file);
+				$newcert = $parser($config);
+				if (!$newcert) continue;
+				$cert = array_merge($cert, $newcert);
+				$sslextra = '/etc/httpd/conf/' . basename($file) . '.ssl/custom';
+				if (file_exists($sslextra)) {
+					$config = file_get_contents($sslextra);
+					$cert = array_merge($cert, $parser($config));
+				}
+				// remove port info
+				if (isset($cert['host'])) {
+					$tmp = strpos($cert['host'], ":");
+					if ($tmp) {
+						$cert['host'] = substr($cert['host'], 0, $tmp);
+					}
+				}
+				$sitecerts[] = $cert;
+			}
+			return $sitecerts;
 		}
 
-        public function permitted() {
-            return !$this->get_service_value('ipinfo','namebased');
-        }
+		public function permitted()
+		{
+			return !$this->get_service_value('ipinfo', 'namebased');
+		}
 
 		private function _getSSLExtraConfig()
 		{
 			return $this->web_http_config_dir() . '.ssl/custom';
 		}
 
-		public function _create() {
+		public function _create()
+		{
 			$this->_edit();
 		}
 
-		public function _edit() {
+		public function _edit()
+		{
 			$conf_new = Auth::profile()->conf->new;
 			$conf_cur = Auth::profile()->conf->cur;
-			$certdir = $this->domain_fs_path().self::CRT_PATH;
+			$certdir = $this->domain_fs_path() . self::CRT_PATH;
 			if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
-				!$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']) 
-			{
-				foreach (glob($certdir.'/*.crt') as $cert) {
-					rename($cert, $cert.'-disabled');
-					info("disabled certificate ".basename($cert));
+				!$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']
+			) {
+				foreach (glob($certdir . '/*.crt') as $cert) {
+					rename($cert, $cert . '-disabled');
+					info("disabled certificate " . basename($cert));
 				}
 			} else if (!$conf_new['ipinfo']['namebased']) {
 				$ssl = dirname($this->_getSSLExtraConfig());
 				if (!file_exists($ssl)) {
 					mkdir($ssl, 0711);
 				}
-				foreach (glob($certdir.'/*.crt-disabled') as $cert) {
-					rename($cert, substr($cert,0,-9));
-					info("enabled certificate ".substr(basename($cert),0,-9));
+				foreach (glob($certdir . '/*.crt-disabled') as $cert) {
+					rename($cert, substr($cert, 0, -9));
+					info("enabled certificate " . substr(basename($cert), 0, -9));
 				}
 			}
-			
+
 		}
 	}
+
 ?>

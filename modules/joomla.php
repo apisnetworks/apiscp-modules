@@ -1,12 +1,23 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Joomla! management
 	 *
 	 * An interface to wp-cli
 	 *
 	 * @package core
 	 */
-
 	class Joomla_Module extends Module_Support_Webapps
 	{
 
@@ -22,9 +33,6 @@
 		const VERSION_CHECK_URL = 'https://api.joomla.org/core/version-check/1.7/';
 
 		const JOOMLA_MIRROR = 'http://mirror.apisnetworks.com/joomla';
-
-		private $_versionCache = array();
-
 		protected $_aclList = array(
 			'min' => array(
 				'/cache',
@@ -43,6 +51,7 @@
 
 			)
 		);
+		private $_versionCache = array();
 
 		/**
 		 * void __construct(void)
@@ -62,10 +71,11 @@
 		 * Install Joomla! into a pre-existing location
 		 *
 		 * @param string $hostname domain or subdomain to install Joomla!
-		 * @param string $path optional path under hostname
-		 * @param array  $opts additional install options
+		 * @param string $path     optional path under hostname
+		 * @param array  $opts     additional install options
 		 */
-		public function install($hostname, $path = '', array $opts = array()) {
+		public function install($hostname, $path = '', array $opts = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to install Joomla");
@@ -96,10 +106,10 @@
 			}
 
 			$args = array(
-				'mode' => 'site:install',
+				'mode'    => 'site:install',
 				'docroot' => $docroot,
-				'site' => $hostname,
-				'repo' => self::JOOMLA_MIRROR
+				'site'    => $hostname,
+				'repo'    => self::JOOMLA_MIRROR
 			);
 
 			if ($this->ssl_permitted() && $this->ssl_cert_exists()) {
@@ -107,7 +117,7 @@
 			}
 			if (!is_null($version)) {
 				if (strcspn($version, ".0123456789")) {
-					return error("invalid version number, %s",$version);
+					return error("invalid version number, %s", $version);
 				}
 
 			} else {
@@ -118,8 +128,8 @@
 			if (isset($opts['sampledata'])) {
 				$data = $opts['sampledata'];
 				if ($data !== "blog" && $data !== "default" && $data !== "brochure" &&
-					$data !== "learn" && $data !== "testing")
-				{
+					$data !== "learn" && $data !== "testing"
+				) {
 					return error("unknown sample data `%s'", $data);
 				}
 				$args['sampledata'] = '--sampledata=' . $data;
@@ -160,14 +170,14 @@
 			$ret = $this->_exec($docroot, 'site:download --www=%(docroot)s %(version)s --clone=false -- ""', $args);
 			$this->_fixMySQLSchema($docroot);
 			if ($ret['success']) {
-				$ret = $this->_exec($docroot, 'database:install --skip-exists-check --mysql-host=%(dbhost)s --mysql-login=%(dbuser)s:%(dbpass)s '  .
+				$ret = $this->_exec($docroot, 'database:install --skip-exists-check --mysql-host=%(dbhost)s --mysql-login=%(dbuser)s:%(dbpass)s ' .
 					'--mysql-database=%(dbname)s --mysql-driver=%(dbdriver)s %(sampledata)s ' .
 					'--www=%(docroot)s  -- ""', $args);
 				if ($ret['success']) {
 					$file = $this->_generateConfig($docroot, $opts);
 					$args['tmpfile'] = $file;
 
-					$ret = $this->_exec($docroot, 'site:configure --options=%(tmpfile)s --mysql-host=%(dbhost)s --mysql-login=%(dbuser)s:%(dbpass)s '  .
+					$ret = $this->_exec($docroot, 'site:configure --options=%(tmpfile)s --mysql-host=%(dbhost)s --mysql-login=%(dbuser)s:%(dbpass)s ' .
 						'--mysql-database=%(dbname)s --mysql-driver=%(dbdriver)s ' .
 						'--www=%(docroot)s  -- ""', $args);
 					unlink($this->domain_fs_path() . $file);
@@ -208,7 +218,7 @@
 
 			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . $f;
 			}, $this->_aclList['min']);
 			$this->file_touch($docroot . '/.htaccess');
@@ -217,7 +227,7 @@
 				array($this->username => 'drwx'),
 				array(Web_Module::WEB_USERNAME => 'drwx'),
 			);
-			if (!$this->file_set_acls($files,$users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
+			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
 				warn("failed to set ACLs on `%s/'", $docroot);
 			}
 			//$this->file_set_acls(array($docroot . '/'), $users);
@@ -225,76 +235,101 @@
 				$version = $this->_getLastestVersion();
 			}
 			$params = array(
-				'version' => $version,
-				'hostname' => $hostname,
+				'version'    => $version,
+				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify' => 'min'
+				'fortify'    => 'min'
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
 				$hostname = $hostname . '.' . $this->domain;
 			}
 			$url = 'http://' . $hostname . '/' . $path;
-			$msg = "Hello!" ."\r\n" .
+			$msg = "Hello!" . "\r\n" .
 				"This is a confirmation that Joomla! has been installed under " . $docroot .
-				". You may access Joomla! via " . $url .". Access the administrative " .
-				"panel at " . rtrim($url, "/") . '/administrator' . " using the following details:" ."\r\n\r\n" .
-				"Username: " . $opts['user'] ."\r\n" .
+				". You may access Joomla! via " . $url . ". Access the administrative " .
+				"panel at " . rtrim($url, "/") . '/administrator' . " using the following details:" . "\r\n\r\n" .
+				"Username: " . $opts['user'] . "\r\n" .
 				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
 			$msg .= "\r\nWhen installing plugins or themes, be sure to place fortification mode " .
 				"in \"Web App Write Mode\" in the control panel!" . "\r\n" .
 				"See: http://kb.apisnetworks.com/control-panel/understanding-fortification/";
-			$hdrs = "From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">\r\nReply-To: ".Crm_Module::REPLY_ADDRESS;
+			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Joomla! Installed", $msg, $hdrs);
 			info("Joomla! installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;
 		}
 
-		private function _generateConfig($docroot, $opts) {
-			$domainfsprefix = $this->domain_fs_path();
-			$file = tempnam($domainfsprefix . '/' . sys_get_temp_dir(), 'joomla');
-			chmod($file, 644);
-			$tz = 'UTC';
-			//var_dump(date_default_timezone_get());
-			$fullpath = $this->domain_fs_path() . $docroot;
-			$opts = array(
-				'debug' => 0,
-				'ftp_host' => 'localhost',
-				'ftp_user' => $this->username . '@' . $this->domain,
-				'ftp_root' => $docroot,
-				'sitename' => $opts['title'],
-				'offset' => $tz,
-				'tmp_path' => $fullpath . '/tmp',
-				'log_path' => $fullpath . '/logs',
-				/** @todo maybe authenticated SMTP? */
-				'sendmail' => '/usr/sbin/sendmail'
-			);
-			// pure PHP code
-			file_put_contents($file, serialize($opts));
-			return substr($file, strlen($domainfsprefix));
+		/**
+		 * Get latest Joomla release
+		 *
+		 * @return string
+		 */
+		private function _getLastestVersion()
+		{
+			$versions = $this->_getVersions();
+			if (!$versions) {
+				return null;
+			}
+			return array_pop($versions);
 		}
-
 
 		/**
-		 * Generate a Joomla!-compatible salted password
+		 * Get all current major versions
 		 *
-		 * Supposedly compatible with 2.x and 3.x, only tested on 3.x
-		 * 
-		 * @param string $docroot docroot path
-		 * @param string $password
-		 * @return string salted password
+		 * @return array
 		 */
-		private function _saltedPassword($docroot, $password) {
-			$salt = parent::_suggestPassword(32);
-			$hash = md5($password . $salt);
-			return $hash . ':' . $salt;
+		private function _getVersions()
+		{
+			$key = 'joomla.versions';
+			$cache = Cache_Super_Global::spawn();
+			if (false !== ($ver = $cache->get($key))) {
+				return $ver;
+			}
+			$proc = Util_Process::exec(
+				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s versions',
+				array(
+					'repo' => self::JOOMLA_MIRROR
+				)
+			);
+			if (!$proc['success'] || !preg_match_all(Regex::JOOMLA_VERSIONS, $proc['stdout'], $matches)) {
+				return error("failed to fetch Joomla versions: %s", $proc['stderr']);
+			}
+			$versions = $matches[1];
+			$cache->set($key, $versions, 43200);
+			return $versions;
 		}
 
-		public function test() {
-			$this->_setAdminUser('foobarbaz.com', '', 'debug', 'Panthers');
+		private function _exec($path = null, $cmd, array $args = array())
+		{
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::JOOMLA_CLI;
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
+			}
+			if ($path) {
+				$cmd = '--www=%(path)s ' . $cmd;
+				$args['path'] = $path;
+			}
+			$cmd = $cli . ' --no-interaction ' . $cmd;
+			$ret = $this->pman_run($cmd, $args);
+			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
+				// move stdout to stderr on error for consistency
+				$ret['success'] = false;
+				if (!$ret['stderr']) {
+					$ret['stderr'] = $ret['stdout'];
+				}
+			} else if (!$ret['success'] && !$ret['stderr']) {
+				$ret['stderr'] = $ret['stdout'];
+			}
+			return $ret;
 		}
 
-		private function _fixMySQLSchema($docroot) {
+		private function _fixMySQLSchema($docroot)
+		{
 			if ($this->sql_mysql_version() >= 50503) {
 				// utf8mb4 supported
 				return true;
@@ -311,16 +346,193 @@
 			return true;
 		}
 
+		private function _generateConfig($docroot, $opts)
+		{
+			$domainfsprefix = $this->domain_fs_path();
+			$file = tempnam($domainfsprefix . '/' . sys_get_temp_dir(), 'joomla');
+			chmod($file, 644);
+			$tz = 'UTC';
+			//var_dump(date_default_timezone_get());
+			$fullpath = $this->domain_fs_path() . $docroot;
+			$opts = array(
+				'debug'    => 0,
+				'ftp_host' => 'localhost',
+				'ftp_user' => $this->username . '@' . $this->domain,
+				'ftp_root' => $docroot,
+				'sitename' => $opts['title'],
+				'offset'   => $tz,
+				'tmp_path' => $fullpath . '/tmp',
+				'log_path' => $fullpath . '/logs',
+				/** @todo maybe authenticated SMTP? */
+				'sendmail' => '/usr/sbin/sendmail'
+			);
+			// pure PHP code
+			file_put_contents($file, serialize($opts));
+			return substr($file, strlen($domainfsprefix));
+		}
+
+		/**
+		 * Change Joomla admin credentials
+		 *
+		 * common fields include: username, password, name, email
+		 *
+		 * @param string $domain
+		 * @param string $path
+		 * @param array  $fields
+		 * @return bool
+		 */
+		public function change_admin($domain, $path = null, array $fields)
+		{
+			$docroot = $this->_normalizePath($domain, $path);
+			if (!$docroot) {
+				return warn("failed to change administrator information");
+			}
+			$admin = $this->get_admin($domain, $path);
+
+			if (!$admin) {
+				return error("cannot determine admin of Joomla install");
+			}
+			$dbconfig = $this->db_config($domain, $path);
+			$conn = $this->_connectDB($dbconfig);
+			if (!$conn) {
+				return error("unable to connect to Joomla! database `%s'", $dbconfig['db']);
+			}
+			$fields = array_merge(array(
+				'password' => null,
+				'username' => null,
+				'name'     => null,
+				'email'    => null
+			), $fields);
+			if ($fields['password']) {
+				$fields['password'] = $this->_saltedPassword($docroot, $fields['password']);
+			}
+			$filtered = array_filter($fields, function ($f) {
+				return !is_null($f);
+			});
+
+			$args = array();
+			$builtQuery = array();
+			foreach ($filtered as $k => $v) {
+				$builtQuery[] = "$k = ?";
+				$args[] = &$filtered[$k];
+			}
+			//$args = array_map(function($a) { return $a; }, $filtered);
+			// plop admin user as part of WHERE username = ?
+			$args[] = &$admin;
+			$q = "UPDATE " . $dbconfig['prefix'] . "users SET " . join(", ", $builtQuery) . " WHERE username = ?";
+			$stmt = $conn->prepare($q);
+			$types = str_repeat("s", count($args));
+			array_unshift($args, $types);
+			call_user_func_array(array($stmt, 'bind_param'), $args);
+			$rs = $stmt->execute();
+			return $rs && $stmt->affected_rows > 0;
+		}
+
+		/**
+		 * Get the primary admin for a Joomla instance
+		 *
+		 * @param      $domain
+		 * @param null $path
+		 * @return bool|string admin or false on failure
+		 */
+		public function get_admin($domain, $path = null)
+		{
+			$dbconfig = $this->db_config($domain, $path);
+			$mysqli = $this->_connectDB($dbconfig);
+			if (!$mysqli) {
+				return error("cannot get admin user - failed to connect to database");
+			}
+			$q = "select id, username FROM " . $dbconfig['prefix'] . "users ORDER BY registerDate ASC limit 1";
+			$rs = $mysqli->query($q);
+			if (!$rs || $rs->num_rows < 1) {
+				return warn("failed to enumerate Joomla administrative users");
+			}
+			return $rs->fetch_object()->username;
+
+		}
+
+		/**
+		 * Get database configuration for a blog
+		 *
+		 * @param string $hostname domain or subdomain of wp blog
+		 * @param string $path     optional path
+		 * @return array
+		 */
+		public function db_config($hostname, $path = '')
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("failed to determine Joomla");
+			}
+
+			$j = $this->_getConfiguration($docroot);
+			return array(
+				"user"     => $j['user'],
+				"password" => $j['password'],
+				"db"       => $j['db'],
+				"prefix"   => $j['dbprefix'],
+				"host"     => $j['host']
+			);
+		}
+
+		private function _getConfiguration($docroot)
+		{
+
+			$code = 'include("./configuration.php"); $j = new JConfig(); print serialize($j);';
+			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
+			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
+			if (!$ret['success']) {
+				return error("failed to obtain Joomla configuration for `%s'", $docroot);
+			}
+			$data = get_object_vars(unserialize($ret['stdout']));
+			return $data;
+		}
+
+		private function _connectDB($dbconfig)
+		{
+			static $conn;
+			if ($conn) {
+				return $conn;
+			}
+			$conn = new mysqli($dbconfig['host'], $dbconfig['user'], $dbconfig['password'], $dbconfig['db']);
+			if ($conn->connect_error) {
+				return false;
+			}
+			return $conn;
+		}
+
+		/**
+		 * Generate a Joomla!-compatible salted password
+		 *
+		 * Supposedly compatible with 2.x and 3.x, only tested on 3.x
+		 *
+		 * @param string $docroot docroot path
+		 * @param string $password
+		 * @return string salted password
+		 */
+		private function _saltedPassword($docroot, $password)
+		{
+			$salt = parent::_suggestPassword(32);
+			$hash = md5($password . $salt);
+			return $hash . ':' . $salt;
+		}
+
+		public function test()
+		{
+			$this->_setAdminUser('foobarbaz.com', '', 'debug', 'Panthers');
+		}
+
 		/**
 		 * Install and activate plugin
 		 *
 		 * @param string $hostnaem domain or subdomain of wp install
-		 * @param string $path optional path component of wp install
-		 * @param string $plugin plugin name
-		 * @param string $version optional plugin version
+		 * @param string $path     optional path component of wp install
+		 * @param string $plugin   plugin name
+		 * @param string $version  optional plugin version
 		 * @return bool
 		 */
-		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable') {
+		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Joomla location");
@@ -335,16 +547,16 @@
 			return true;
 		}
 
-
 		/**
 		 * Uninstall a plugin
 		 *
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $plugin plugin name
-		 * @param string $force delete even if plugin activated
+		 * @param string $force  delete even if plugin activated
 		 */
-		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false) {
+		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Joomla location");
@@ -368,10 +580,11 @@
 		 * Recovery mode to disable all plugins
 		 *
 		 * @param string $hostname subdomain or domain of Joomla
-		 * @param string $path optional path
+		 * @param string $path     optional path
 		 * @return bool
 		 */
-		public function disable_all_plugins($hostname, $path = '') {
+		public function disable_all_plugins($hostname, $path = '')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to determine path");
@@ -385,26 +598,6 @@
 		}
 
 		/**
-		 * Location is a valid Joomla install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid($hostname, $path = '') {
-			if ($hostname[0] == '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->_normalizePath($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
-			}
-
-			return $this->file_file_exists($docroot . '/libraries/joomla');
-		}
-
-		/**
 		 * Uninstall Joomla from a location
 		 *
 		 * @param        $hostname
@@ -412,43 +605,9 @@
 		 * @param bool   $delete "all", "db", or "files"
 		 * @return bool
 		 */
-		public function uninstall($hostname, $path = '', $delete = 'all') {
-			return parent::uninstall($hostname, $path, $delete);
-		}
-
-		private function _getConfiguration($docroot) {
-
-			$code = 'include("./configuration.php"); $j = new JConfig(); print serialize($j);';
-			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .' -r %(code)s';
-			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
-			if (!$ret['success']) {
-				return error("failed to obtain Joomla configuration for `%s'", $docroot);
-			}
-			$data = get_object_vars(unserialize($ret['stdout']));
-			return $data;
-		}
-		/**
-		 * Get database configuration for a blog
-		 *
-		 * @param string $hostname domain or subdomain of wp blog
-		 * @param string $path optional path
-		 * @return array
-		 */
-		public function db_config($hostname, $path = '')
+		public function uninstall($hostname, $path = '', $delete = 'all')
 		{
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("failed to determine Joomla");
-			}
-
-			$j = $this->_getConfiguration($docroot);
-			return array(
-				"user" => $j['user'],
-			    "password" => $j['password'],
-				"db" => $j['db'],
-				"prefix" => $j['dbprefix'],
-				"host" => $j['host']
-			);
+			return parent::uninstall($hostname, $path, $delete);
 		}
 
 		/**
@@ -457,7 +616,8 @@
 		 * @param null $version
 		 * @return int|string
 		 */
-		public function is_current($version = null) {
+		public function is_current($version = null)
+		{
 			$latest = $this->_getLastestVersion();;
 			if (!$version) {
 				return $version;
@@ -476,270 +636,10 @@
 		 *
 		 * @return array
 		 */
-		public function versions() {
+		public function versions()
+		{
 			return $this->_getVersions();
 		}
-
-		/**
-		 * Get latest Joomla release
-		 *
-		 * @return string
-		 */
-		private function _getLastestVersion() {
-			$versions = $this->_getVersions();
-			if (!$versions) {
-				return null;
-			}
-			return array_pop($versions);
-		}
-
-		/**
-		 * Get all current major versions
-		 *
-		 * @return array
-		 */
-		private function _getVersions() {
-			$key = 'joomla.versions';
-			$cache = Cache_Super_Global::spawn();
-			if (false !== ($ver = $cache->get($key))) {
-				return $ver;
-			}
-			$proc = Util_Process::exec(
-				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s versions',
-				 array(
-					 'repo' => self::JOOMLA_MIRROR
-				 )
-			);
-			if (!$proc['success'] || !preg_match_all(Regex::JOOMLA_VERSIONS, $proc['stdout'], $matches)) {
-				return error("failed to fetch Joomla versions: %s", $proc['stderr']);
-			}
-			$versions = $matches[1];
-			$cache->set($key, $versions, 43200);
-			return $versions;
-		}
-
-		/**
-		 * Change Joomla admin credentials
-		 *
-		 * common fields include: username, password, name, email
-		 *
-		 * @param string $domain
-		 * @param string $path
-		 * @param array $fields
-		 * @return bool
-		 */
-		public function change_admin($domain, $path = null, array $fields)
-		{
-			$docroot = $this->_normalizePath($domain, $path);
-			if (!$docroot) {
-				return warn("failed to change administrator information");
-			}
-			$admin = $this->get_admin($domain, $path);
-
-			if (!$admin) {
-				return error("cannot determine admin of Joomla install");
-			}
-			$dbconfig = $this->db_config($domain, $path);
-			$conn = $this->_connectDB($dbconfig);
-			if (!$conn) {
-				return error("unable to connect to Joomla! database `%s'", $dbconfig['db']);
-			}
-			$fields = array_merge(array(
-				'password' => null,
-				'username' => null,
-				'name' => null,
-				'email' => null
-			), $fields);
-			if ($fields['password']) {
-				$fields['password'] = $this->_saltedPassword($docroot, $fields['password']);
-			}
-			$filtered = array_filter($fields, function($f) { return !is_null($f); });
-
-			$args = array();
-			$builtQuery = array();
-			foreach ($filtered as $k => $v) {
-				$builtQuery[] = "$k = ?";
-				$args[] = &$filtered[$k];
-			}
-			//$args = array_map(function($a) { return $a; }, $filtered);
-			// plop admin user as part of WHERE username = ?
-			$args[] = &$admin;
-			$q = "UPDATE " . $dbconfig['prefix'] ."users SET " . join(", ", $builtQuery) . " WHERE username = ?";
-			$stmt = $conn->prepare($q);
-			$types = str_repeat("s", count($args));
-			array_unshift($args, $types);
-			call_user_func_array(array($stmt, 'bind_param'), $args);
-			$rs = $stmt->execute();
-			return $rs && $stmt->affected_rows > 0;
-		}
-
-		/**
-		 * Get the primary admin for a Joomla instance
-		 *
-		 * @param $domain
-		 * @param null $path
-		 * @return bool|string admin or false on failure
-		 */
-		public function get_admin($domain, $path = null) {
-			$dbconfig = $this->db_config($domain, $path);
-			$mysqli = $this->_connectDB($dbconfig);
-			if (!$mysqli) {
-				return error("cannot get admin user - failed to connect to database");
-			}
-			$q = "select id, username FROM " . $dbconfig['prefix'] ."users ORDER BY registerDate ASC limit 1";
-			$rs = $mysqli->query($q);
-			if (!$rs || $rs->num_rows < 1) {
-				return warn("failed to enumerate Joomla administrative users");
-			}
-			return $rs->fetch_object()->username;
-
-		}
-
-		private function _connectDB($dbconfig) {
-			static $conn;
-			if ($conn) {
-				return $conn;
-			}
-			$conn = new mysqli($dbconfig['host'], $dbconfig['user'], $dbconfig['password'], $dbconfig['db']);
-			if ($conn->connect_error) {
-				return false;
-			}
-			return $conn;
-		}
-
-		/**
-		 * Update Joomla! to latest version
-		 *
-		 * @param string $domain domain or subdomain under which Joomla is installed
-		 * @param string $path optional subdirectory
-		 * @param string $version
-		 * @return bool
-		 */
-		public function update($domain, $path = '', $version = null) {
-			$docroot = $this->_normalizePath($domain, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			$cmd = 'core update';
-			$args = array();
-			if ($version) {
-				if (!is_scalar($version) || strcspn($version, ".0123456789")) {
-					return error("invalid version number, %s",$version);
-				}
-			} else {
-				$version = $this->_getLastestVersion();
-			}
-			$cmd .= ' --version=%(version)s';
-			$args['version'] = $version;
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("update failed: `%s'", $ret['stderr']);
-			}
-			info("updating Joomla database if necessary");
-			$ret = $this->_exec($docroot, 'core update-db');
-			if (!$ret['success']) {
-				return warn("failed to update Joomla database - " .
-					"login to Joomla admin panel to manually perform operation");
-			}
-			return $ret['success'];
-		}
-
-		/**
-		 * Update Joomla! plugins
-		 *
-		 * @param string $hostname domain or subdomain
-		 * @param string $path optional path within host
-		 * @param array  $plugins
-		 * @return bool|void
-		 */
-		public function update_plugins($hostname, $path = '', $plugins = array()) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			$cmd = 'plugin update';
-			$args = array();
-			if (!$plugins) {
-				$cmd .= ' --all';
-			} else {
-				for($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
-					$plugin = $plugins[$i];
-					$version = null;
-					if (isset($plugin['version'])) {
-						$version = $plugin['version'];
-					}
-					if (isset($plugin['name'])) {
-						$plugin = $plugin['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $plugin;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name .'v)s';
-						$args[$name.'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", $ret['stderr']);
-			}
-			return $ret['success'];
-		}
-
-		/**
-		 * Update Joomla! themes
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
-		 * @param array  $themes
-		 * @return bool|void
-		 */
-		public function update_themes($hostname, $path = '', $themes = array()) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			$cmd = 'theme update';
-			$args = array();
-			if (!$themes) {
-				$cmd .= ' --all';
-			} else {
-				for($i = 0, $n = sizeof($themes); $i < $n; $i++) {
-					$theme = $themes[$i];
-					$version = null;
-					if (isset($theme['version'])) {
-						$version = $theme['version'];
-					}
-					if (isset($theme['name'])) {
-						$plugin = $theme['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $theme;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name .'v)s';
-						$args[$name.'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("theme update failed: `%s'", $ret['stderr']);
-			}
-			return $ret['success'];
-		}
-
 
 		/**
 		 * Get installed version
@@ -748,7 +648,8 @@
 		 * @param string $path
 		 * @return null|string version number
 		 */
-		public function get_version($hostname, $path = '') {
+		public function get_version($hostname, $path = '')
+		{
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
@@ -792,15 +693,173 @@
 		}
 
 		/**
+		 * Location is a valid Joomla install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid($hostname, $path = '')
+		{
+			if ($hostname[0] == '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->_normalizePath($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_file_exists($docroot . '/libraries/joomla');
+		}
+
+		/**
 		 * Update core, plugins, and themes atomically
 		 *
 		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
+		 * @param string $path     optional path under hostname
 		 * @return bool
 		 */
-		public function update_all($hostname, $path = '') {
+		public function update_all($hostname, $path = '')
+		{
 			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
 			$this->update_themes($hostname, $path) || error("failed to update all components");
+		}
+
+		/**
+		 * Update Joomla! to latest version
+		 *
+		 * @param string $domain domain or subdomain under which Joomla is installed
+		 * @param string $path   optional subdirectory
+		 * @param string $version
+		 * @return bool
+		 */
+		public function update($domain, $path = '', $version = null)
+		{
+			$docroot = $this->_normalizePath($domain, $path);
+			if (!$docroot) {
+				return error("update failed");
+			}
+
+			$cmd = 'core update';
+			$args = array();
+			if ($version) {
+				if (!is_scalar($version) || strcspn($version, ".0123456789")) {
+					return error("invalid version number, %s", $version);
+				}
+			} else {
+				$version = $this->_getLastestVersion();
+			}
+			$cmd .= ' --version=%(version)s';
+			$args['version'] = $version;
+
+			$ret = $this->_exec($docroot, $cmd, $args);
+			if (!$ret['success']) {
+				return error("update failed: `%s'", $ret['stderr']);
+			}
+			info("updating Joomla database if necessary");
+			$ret = $this->_exec($docroot, 'core update-db');
+			if (!$ret['success']) {
+				return warn("failed to update Joomla database - " .
+					"login to Joomla admin panel to manually perform operation");
+			}
+			return $ret['success'];
+		}
+
+		/**
+		 * Update Joomla! plugins
+		 *
+		 * @param string $hostname domain or subdomain
+		 * @param string $path     optional path within host
+		 * @param array  $plugins
+		 * @return bool|void
+		 */
+		public function update_plugins($hostname, $path = '', $plugins = array())
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("update failed");
+			}
+
+			$cmd = 'plugin update';
+			$args = array();
+			if (!$plugins) {
+				$cmd .= ' --all';
+			} else {
+				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
+					$plugin = $plugins[$i];
+					$version = null;
+					if (isset($plugin['version'])) {
+						$version = $plugin['version'];
+					}
+					if (isset($plugin['name'])) {
+						$plugin = $plugin['name'];
+					}
+
+					$name = 'p' . $i;
+
+					$cmd .= ' %(' . $name . ')s';
+					$args[$name] = $plugin;
+					if ($version) {
+						$cmd .= ' --version=%(' . $name . 'v)s';
+						$args[$name . 'v'] = $version;
+					}
+				}
+			}
+
+			$ret = $this->_exec($docroot, $cmd, $args);
+			if (!$ret['success']) {
+				return error("plugin update failed: `%s'", $ret['stderr']);
+			}
+			return $ret['success'];
+		}
+
+		/**
+		 * Update Joomla! themes
+		 *
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @param array  $themes
+		 * @return bool|void
+		 */
+		public function update_themes($hostname, $path = '', $themes = array())
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("update failed");
+			}
+
+			$cmd = 'theme update';
+			$args = array();
+			if (!$themes) {
+				$cmd .= ' --all';
+			} else {
+				for ($i = 0, $n = sizeof($themes); $i < $n; $i++) {
+					$theme = $themes[$i];
+					$version = null;
+					if (isset($theme['version'])) {
+						$version = $theme['version'];
+					}
+					if (isset($theme['name'])) {
+						$plugin = $theme['name'];
+					}
+
+					$name = 'p' . $i;
+
+					$cmd .= ' %(' . $name . ')s';
+					$args[$name] = $theme;
+					if ($version) {
+						$cmd .= ' --version=%(' . $name . 'v)s';
+						$args[$name . 'v'] = $version;
+					}
+				}
+			}
+
+			$ret = $this->_exec($docroot, $cmd, $args);
+			if (!$ret['success']) {
+				return error("theme update failed: `%s'", $ret['stderr']);
+			}
+			return $ret['success'];
 		}
 
 		/**
@@ -813,13 +872,15 @@
 		{
 			return parent::has_fortification($mode);
 		}
-		
+
 		/**
 		 * Restrict write-access by the app
+		 *
 		 * @param        $hostname
 		 * @param string $path
 		 */
-		public function fortify($hostname, $path = '', $mode = 'max') {
+		public function fortify($hostname, $path = '', $mode = 'max')
+		{
 			parent::fortify($hostname, $path, $mode);
 		}
 
@@ -830,35 +891,9 @@
 		 * @param string $path
 		 * @return bool
 		 */
-		public function unfortify($hostname, $path = '', $mode = 'max') {
+		public function unfortify($hostname, $path = '', $mode = 'max')
+		{
 			return parent::unfortify($hostname, $path, $mode);
-		}
-
-		private function _exec($path = null, $cmd, array $args = array()) {
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::JOOMLA_CLI;
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			if ($path) {
-				$cmd = '--www=%(path)s ' . $cmd;
-				$args['path'] = $path;
-			}
-			$cmd = $cli . ' --no-interaction ' . $cmd;
-			$ret = $this->pman_run($cmd, $args);
-			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
-				// move stdout to stderr on error for consistency
-				$ret['success'] = false;
-				if (!$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
-			} else if (!$ret['success'] && !$ret['stderr']) {
-				$ret['stderr'] = $ret['stdout'];
-			}
-			return $ret;
 		}
 
 		/**
@@ -887,6 +922,7 @@
 		 * Get referred name
 		 *
 		 * Referred to as Joomla!, but internally let's track as "joomla"
+		 *
 		 * @return string
 		 */
 		protected function getInternalName()

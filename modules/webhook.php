@@ -1,28 +1,43 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+
+	/**
 	 * Webhook functions
 	 *
 	 * @package core
-	 * @author Matt Saladna <matt@apisnetworks.com>
 	 */
-	class Webhook_Module extends Module_Skeleton {
+	class Webhook_Module extends Module_Skeleton
+	{
 		public $exportedFunctions;
 
 		public function __construct()
 		{
 			parent::__construct();
-			$this->exportedFunctions =  array(
+			$this->exportedFunctions = array(
 				'*' => PRIVILEGE_SITE,
 			);
 		}
 
-		public function dispatch($funcs) {
+		public function dispatch($funcs)
+		{
 			// todo
 		}
 
-		public function init() {
+		public function init()
+		{
 			// perform filter fetching
 			$prefs = $this->common_load_preferences();
 		}
 	}
+
 ?>

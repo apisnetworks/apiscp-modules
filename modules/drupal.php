@@ -1,13 +1,25 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Drupal drush interface
+	 *
 	 * @package core
 	 */
-
 	class Drupal_Module extends Module_Support_Webapps
 	{
 		const APP_NAME = "Drupal";
-		
+
 		// primary domain document root
 		const DRUPAL_CLI = '/usr/share/pear/drupal.phar';
 
@@ -19,6 +31,7 @@
 		protected $_aclList = array(
 			'min' => array('/sites/*/files')
 		);
+
 		/**
 		 * void __construct(void)
 		 *
@@ -28,7 +41,7 @@
 		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-					'*' => PRIVILEGE_SITE | PRIVILEGE_USER
+				'*' => PRIVILEGE_SITE | PRIVILEGE_USER
 			);
 		}
 
@@ -36,10 +49,11 @@
 		 * Install WordPress into a pre-existing location
 		 *
 		 * @param string $hostname domain or subdomain to install WordPress
-		 * @param string $path optional path under hostname
-		 * @param array  $opts additional install options
+		 * @param string $path     optional path under hostname
+		 * @param array  $opts     additional install options
 		 */
-		public function install($hostname, $path = '', array $opts = array()) {
+		public function install($hostname, $path = '', array $opts = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to install Drupal");
@@ -63,7 +77,7 @@
 				$opts['dist'] = 'drupal';
 				if (isset($opts['version'])) {
 					if (strcspn($opts['version'], ".0123456789x")) {
-						return error("invalid version number, %s",$opts['version']);
+						return error("invalid version number, %s", $opts['version']);
 					}
 					$opts['dist'] .= '-' . $opts['version'];
 				} else if ($this->sql_mysql_version() < 50503) {
@@ -77,11 +91,11 @@
 
 			$cmd = 'dl %(dist)s';
 
-			$tmpdir = '/tmp/drupal' . crc32(mt_rand(0,8192));
+			$tmpdir = '/tmp/drupal' . crc32(mt_rand(0, 8192));
 			$args = array(
 				'tempdir' => $tmpdir,
-				'path' => $docroot,
-				'dist' => $opts['dist']
+				'path'    => $docroot,
+				'dist'    => $opts['dist']
 			);
 			/**
 			 * drupal expects destination dir to exist
@@ -141,8 +155,8 @@
 			}
 			$dbpass = $this->_suggestPassword();
 			$credentials = array(
-				'db' => $db,
-				'user' => $dbuser,
+				'db'       => $db,
+				'user'     => $dbuser,
 				'password' => $dbpass
 			);
 
@@ -191,16 +205,16 @@
 				$dist = $opts['dist'];
 			}
 			$args = array(
-				'dist' => $dist,
-				'profile' => $opts['profile'],
-				'dburi' => $dburi,
+				'dist'         => $dist,
+				'profile'      => $opts['profile'],
+				'dburi'        => $dburi,
 				'account-name' => $opts['user'],
 				'account-pass' => $opts['password'],
 				'account-mail' => $opts['email'],
-				'locale' => $opts['locale'],
-				'site-mail' => $opts['site-email'],
-				'title' => $opts['title'],
-				'xtraopts' => join(" ", $xtra)
+				'locale'       => $opts['locale'],
+				'site-mail'    => $opts['site-email'],
+				'title'        => $opts['title'],
+				'xtraopts'     => join(" ", $xtra)
 			);
 
 			$ret = $this->_exec($docroot, 'site-install %(profile)s -q --db-url=%(dburi)s --account-name=%(account-name)s ' .
@@ -216,7 +230,7 @@
 			}
 			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . ltrim($f, "/");
 			}, $this->_aclList['min']);
 			$this->file_touch($docroot . '/.htaccess');
@@ -225,17 +239,17 @@
 				array($this->username => 'drwx'),
 				array(Web_Module::WEB_USERNAME => 'drwx'),
 			);
-			if (!$this->file_set_acls($files,$users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
+			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
 				warn("failed to set ACLs on `%s/sites/'", $docroot);
 			}
 
 			// confirm version
 			$opts['version'] = $this->get_version($hostname, $path);
 			$params = array(
-				'version' => $opts['version'],
-				'hostname' => $hostname,
+				'version'    => $opts['version'],
+				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify' => 'min'
+				'fortify'    => 'min'
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -248,18 +262,105 @@
 
 			$this->_postInstallTrustedHost($dist, $hostname, $docroot);
 			$url = 'http://' . $hostname . '/' . $path;
-			$msg = "Hello!" ."\r\n" .
+			$msg = "Hello!" . "\r\n" .
 				"This is a confirmation that Drupal has been installed under " . $docroot .
-				". You may access Drupal via " . $url .". Access the administrative " .
-				"panel at " . rtrim($url, "/") . '/user' . " using the following details:" ."\r\n\r\n" .
-				"Username: " . $opts['user'] ."\r\n" .
+				". You may access Drupal via " . $url . ". Access the administrative " .
+				"panel at " . rtrim($url, "/") . '/user' . " using the following details:" . "\r\n\r\n" .
+				"Username: " . $opts['user'] . "\r\n" .
 				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
 			$msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
 				"control panel password!";
-			$hdrs = "From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">\r\nReply-To: ".Crm_Module::REPLY_ADDRESS;
+			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Drupal Installed", $msg, $hdrs);
 			info("Drupal installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;
+		}
+
+		private function _exec($path = null, $cmd, array $args = array())
+		{
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::DRUPAL_CLI . ' -y';
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
+			}
+			if ($path) {
+				$cli = 'cd %(path)s && ' . $cli;
+				$args['path'] = $path;
+			}
+			$cmd = $cli . ' ' . $cmd;
+			$ret = $this->pman_run($cmd, $args);
+			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
+				// move stdout to stderr on error for consistency
+				$ret['success'] = false;
+				if (!$ret['stderr']) {
+					$ret['stderr'] = $ret['stdout'];
+				}
+
+			}
+			return $ret;
+		}
+
+		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return null|string version number
+		 */
+		public function get_version($hostname, $path = '')
+		{
+
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$docroot = $this->_normalizePath($hostname, $path);
+			return $this->_getVersion($docroot);
+		}
+
+		/**
+		 * Location is a valid WP install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid($hostname, $path = '')
+		{
+			if ($hostname[0] == '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->_normalizePath($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_file_exists($docroot . '/sites/default')
+			|| $this->file_file_exists($docroot . '/sites/all');
+		}
+
+		/**
+		 * Get version using exact docroot
+		 *
+		 * @param $docroot
+		 * @return string
+		 */
+		private function _getVersion($docroot)
+		{
+			static $metaCache;
+			if (!isset($metaCache)) {
+				$metaCache = array();
+			}
+			$ret = $this->_exec($docroot, 'status --format=json');
+			if (!$ret['success']) {
+				return null;
+			}
+
+			$output = json_decode($ret['stdout'], true);
+			return $output['drupal-version'];
 		}
 
 		/**
@@ -270,7 +371,8 @@
 		 * @param $docroot
 		 * @return bool|void
 		 */
-		private function _postInstallTrustedHost($version, $hostname, $docroot) {
+		private function _postInstallTrustedHost($version, $hostname, $docroot)
+		{
 			if (version_compare($version, '8.0', '<')) {
 				return true;
 			}
@@ -292,12 +394,13 @@
 		 * Install and activate plugin
 		 *
 		 * @param string $hostname domain or subdomain of wp install
-		 * @param string $path optional path component of wp install
-		 * @param string $plugin plugin name
-		 * @param string $version optional plugin version
+		 * @param string $path     optional path component of wp install
+		 * @param string $plugin   plugin name
+		 * @param string $version  optional plugin version
 		 * @return bool
 		 */
-		public function install_plugin($hostname, $path = '', $plugin, $version = '') {
+		public function install_plugin($hostname, $path = '', $plugin, $version = '')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Drupal location");
@@ -323,7 +426,8 @@
 			return true;
 		}
 
-		public function enable_plugin($hostname, $path = '', $plugin) {
+		public function enable_plugin($hostname, $path = '', $plugin)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Drupal location");
@@ -335,28 +439,16 @@
 			return true;
 		}
 
-		public function disable_plugin($hostname, $path = '', $plugin) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("invalid Drupal location");
-			}
-			$ret = $this->_exec($docroot, 'pm-disable -y %s', array($plugin));
-			if (!$ret) {
-				return error("failed to disable plugin `%s': %s", $plugin, $ret['stderr']);
-			}
-			info("disabled plugin `%s'", $plugin);
-			return true;
-		}
-
 		/**
 		 * Uninstall a plugin
 		 *
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $plugin plugin name
-		 * @param string $force delete even if plugin activated
+		 * @param string $force  delete even if plugin activated
 		 */
-		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false) {
+		public function uninstall_plugin($hostname, $path = '', $plugin, $force = false)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Drupal location");
@@ -382,7 +474,18 @@
 			return true;
 		}
 
-		public function get_plugin_info($hostname, $path = '', $plugin) {
+		public function plugin_active($hostname, $path = '', $plugin)
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("invalid Drupal location");
+			}
+			$plugin = $this->get_plugin_info($hostname, $path, $plugin);
+			return $plugin['status'] === "enabled";
+		}
+
+		public function get_plugin_info($hostname, $path = '', $plugin)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Drupal location");
@@ -396,39 +499,29 @@
 			return array_pop($tmp);
 		}
 
-		public function list_all_plugins($hostname, $path = '', $status = '') {
+		public function disable_plugin($hostname, $path = '', $plugin)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("invalid Drupal location");
 			}
-			if ($status) {
-				$status = strtolower($status);
-				$status = '--status=' . $status;
+			$ret = $this->_exec($docroot, 'pm-disable -y %s', array($plugin));
+			if (!$ret) {
+				return error("failed to disable plugin `%s': %s", $plugin, $ret['stderr']);
 			}
-			$ret = $this->_exec($docroot, 'pm-list --format=json --no-core %s', array($status));
-			if (!$ret['success']) {
-				return error("failed to enumerate plugins: %s", $ret['stderr']);
-			}
-			return json_decode($ret['stdout'], true);
-		}
-
-		public function plugin_active($hostname, $path = '', $plugin) {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("invalid Drupal location");
-			}
-			$plugin = $this->get_plugin_info($hostname, $path, $plugin);
-			return $plugin['status'] === "enabled";
+			info("disabled plugin `%s'", $plugin);
+			return true;
 		}
 
 		/**
 		 * Recovery mode to disable all plugins
 		 *
 		 * @param string $hostname subdomain or domain of WP
-		 * @param string $path optional path
+		 * @param string $path     optional path
 		 * @return bool
 		 */
-		public function disable_all_plugins($hostname, $path = '') {
+		public function disable_all_plugins($hostname, $path = '')
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to determine path");
@@ -448,25 +541,21 @@
 			return true;
 		}
 
-		/**
-		 * Location is a valid WP install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid($hostname, $path = '') {
-			if ($hostname[0] == '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->_normalizePath($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
+		public function list_all_plugins($hostname, $path = '', $status = '')
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("invalid Drupal location");
 			}
-
-			return $this->file_file_exists($docroot . '/sites/default')
-				|| $this->file_file_exists($docroot . '/sites/all');
+			if ($status) {
+				$status = strtolower($status);
+				$status = '--status=' . $status;
+			}
+			$ret = $this->_exec($docroot, 'pm-list --format=json --no-core %s', array($status));
+			if (!$ret['success']) {
+				return error("failed to enumerate plugins: %s", $ret['stderr']);
+			}
+			return json_decode($ret['stdout'], true);
 		}
 
 		/**
@@ -477,7 +566,8 @@
 		 * @param bool   $deletefiles remove all files under docroot
 		 * @return bool
 		 */
-		public function uninstall($hostname, $path = '', $delete = 'all') {
+		public function uninstall($hostname, $path = '', $delete = 'all')
+		{
 			return parent::uninstall($hostname, $path, $delete);
 		}
 
@@ -485,7 +575,7 @@
 		 * Get database configuration for a blog
 		 *
 		 * @param string $hostname domain or subdomain of Drupal
-		 * @param string $path optional path
+		 * @param string $path     optional path
 		 * @return array
 		 */
 		public function db_config($hostname, $path = '')
@@ -511,7 +601,8 @@
 		 * @param null $version
 		 * @return int|string
 		 */
-		public function is_current($version = null) {
+		public function is_current($version = null)
+		{
 			$vermask = substr($version, 0, strpos($version, '.'));
 			$latest = $this->_getLastestVersion($vermask);
 			if (!$version) {
@@ -531,7 +622,8 @@
 		 *
 		 * @return string
 		 */
-		private function _getLastestVersion($version = '7.x') {
+		private function _getLastestVersion($version = '7.x')
+		{
 			$version = $this->_extractBranch($version);
 			$versions = $this->_getVersions('drupal', $version);
 			if (!$versions) {
@@ -548,8 +640,18 @@
 			return $releases[0]['version'];
 		}
 
-		public function test() {
-			return $this->_getLastestVersion('8.x');
+		private function _extractBranch($version)
+		{
+			if (substr($version, -2) == ".x") {
+				return $version;
+			}
+			$pos = strpos($version, ".");
+			if (false === $pos) {
+				// sent major alone
+				return $version . '.x';
+			}
+			$newver = substr($version, 0, $pos);
+			return $newver . '.x';
 		}
 
 		/**
@@ -557,7 +659,8 @@
 		 *
 		 * @return array
 		 */
-		private function _getVersions($module = 'drupal', $version = '7.x') {
+		private function _getVersions($module = 'drupal', $version = '7.x')
+		{
 			$version = $this->_extractBranch($version);
 			$key = 'drupal.versions:' . $module;
 
@@ -582,17 +685,9 @@
 			return $versions;
 		}
 
-		private function _extractBranch($version) {
-			if (substr($version, -2) == ".x") {
-				return $version;
-			}
-			$pos = strpos($version, ".");
-			if (false === $pos) {
-				// sent major alone
-				return $version . '.x';
-			}
-			$newver = substr($version, 0, $pos);
-			return $newver . '.x';
+		public function test()
+		{
+			return $this->_getLastestVersion('8.x');
 		}
 
 		/**
@@ -634,11 +729,12 @@
 		/**
 		 * Get the primary admin for a Drupal instance
 		 *
-		 * @param $domain
+		 * @param      $domain
 		 * @param null $path
 		 * @return bool|string admin or false on failure
 		 */
-		public function get_admin($domain, $path = null) {
+		public function get_admin($domain, $path = null)
+		{
 			$docroot = $this->_normalizePath($domain, $path);
 			$ret = $this->_exec($docroot, 'user-information 1 --format=json');
 			if (!$ret['success']) {
@@ -653,14 +749,28 @@
 		}
 
 		/**
+		 * Update core, plugins, and themes atomically
+		 *
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @return bool
+		 */
+		public function update_all($hostname, $path = '')
+		{
+			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path)
+			|| error("failed to update all components");
+		}
+
+		/**
 		 * Update Drupal to latest version
 		 *
 		 * @param string $hostname domain or subdomain under which WP is installed
-		 * @param string $path optional subdirectory
+		 * @param string $path     optional subdirectory
 		 * @param string $version
 		 * @return bool
 		 */
-		public function update($hostname, $path = '', $version = null) {
+		public function update($hostname, $path = '', $version = null)
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
@@ -668,7 +778,7 @@
 
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, ".0123456789x-")) {
-					return error("invalid version number, %s",$version);
+					return error("invalid version number, %s", $version);
 				}
 			} else {
 				$current = $this->_extractBranch($this->get_version($hostname, $path));
@@ -703,10 +813,12 @@
 
 		/**
 		 * Set Drupal maintenance mode before/after update
+		 *
 		 * @param $docroot
 		 * @param $mode
 		 */
-		private function _setMaintenance($docroot, $mode, $version = null) {
+		private function _setMaintenance($docroot, $mode, $version = null)
+		{
 			if (is_null($version)) {
 				$version = $this->_getVersion($docroot);
 			}
@@ -729,15 +841,17 @@
 
 			return true;
 		}
+
 		/**
 		 * Update Drupal plugins and themes
 		 *
 		 * @param string $hostname domain or subdomain
-		 * @param string $path optional path within host
+		 * @param string $path     optional path within host
 		 * @param array  $plugins
 		 * @return bool|void
 		 */
-		public function update_plugins($hostname, $path = '', $plugins = array()) {
+		public function update_plugins($hostname, $path = '', $plugins = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
@@ -746,7 +860,7 @@
 
 			$args = array();
 			if ($plugins) {
-				for($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
+				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
 					$plugin = $plugins[$i];
 					$version = null;
 					if (isset($plugin['version'])) {
@@ -770,54 +884,6 @@
 		}
 
 		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return null|string version number
-		 */
-		public function get_version($hostname, $path = '') {
-
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$docroot = $this->_normalizePath($hostname, $path);
-			return $this->_getVersion($docroot);
-		}
-
-		/**
-		 * Get version using exact docroot
-		 *
-		 * @param $docroot
-		 * @return string
-		 */
-		private function _getVersion($docroot) {
-			static $metaCache;
-			if (!isset($metaCache)) {
-				$metaCache = array();
-			}
-			$ret = $this->_exec($docroot, 'status --format=json');
-			if (!$ret['success']) {
-				return null;
-			}
-
-			$output = json_decode($ret['stdout'], true);
-			return $output['drupal-version'];
-		}
-
-		/**
-		 * Update core, plugins, and themes atomically
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
-		 * @return bool
-		 */
-		public function update_all($hostname, $path = '') {
-			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path)
-				|| error("failed to update all components");
-		}
-
-		/**
 		 * Web application supports fortification
 		 *
 		 * @param string|null $mode optional mode (min, max)
@@ -827,13 +893,15 @@
 		{
 			return parent::has_fortification($mode);
 		}
-		
+
 		/**
 		 * Restrict write-access by the app
+		 *
 		 * @param        $hostname
 		 * @param string $path
 		 */
-		public function fortify($hostname, $path = '', $mode = 'max') {
+		public function fortify($hostname, $path = '', $mode = 'max')
+		{
 			parent::fortify($hostname, $path, $mode);
 		}
 
@@ -844,38 +912,9 @@
 		 * @param string $path
 		 * @return bool
 		 */
-		public function unfortify($hostname, $path = '', $mode = 'max') {
+		public function unfortify($hostname, $path = '', $mode = 'max')
+		{
 			return parent::unfortify($hostname, $path, $mode);
-		}
-
-		private function _exec($path = null, $cmd, array $args = array()) {
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::DRUPAL_CLI . ' -y';
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			if ($path) {
-				$cli = 'cd %(path)s && ' . $cli;
-				$args['path'] = $path;
-			}
-			$cmd = $cli . ' ' . $cmd;
-			$ret = $this->pman_run($cmd, $args);
-			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
-				// move stdout to stderr on error for consistency
-				$ret['success'] = false;
-				if (!$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
-
-			}
-			return $ret;
-		}
-
-		private function _getCommand() {
-			return 'php ' . self::DRUPAL_CLI;
 		}
 
 		public function _housekeeping()
@@ -896,5 +935,10 @@
 				chmod($local, 755);
 			}
 			return true;
+		}
+
+		private function _getCommand()
+		{
+			return 'php ' . self::DRUPAL_CLI;
 		}
 	}

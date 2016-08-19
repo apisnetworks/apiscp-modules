@@ -1,12 +1,23 @@
 <?php
 	/**
+	 *  +------------------------------------------------------------+
+	 *  | apnscp                                                     |
+	 *  +------------------------------------------------------------+
+	 *  | Copyright (c) Apis Networks                                |
+	 *  +------------------------------------------------------------+
+	 *  | Licensed under Artistic License 2.0                        |
+	 *  +------------------------------------------------------------+
+	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
+	 *  +------------------------------------------------------------+
+	 */
+	
+	/**
 	 * Laravel management
 	 *
 	 * An interface to wp-cli
 	 *
 	 * @package core
 	 */
-
 	class Laravel_Module extends Module_Support_Webapps
 	{
 
@@ -19,13 +30,11 @@
 		const WP_CLI_URL = 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar';
 
 		const VERSION_CHECK_URL = 'https://api.wordpress.org/core/version-check/1.7/';
-
-		private $_versionCache = array();
-
 		protected $_aclList = array(
 			'min' => array('/wp-content'),
 			'max' => array('/wp-content/uploads')
 		);
+		private $_versionCache = array();
 
 		/**
 		 * void __construct(void)
@@ -37,18 +46,19 @@
 
 			parent::__construct();
 			$this->exportedFunctions = array(
-					'*' => PRIVILEGE_SITE | PRIVILEGE_USER
+				'*' => PRIVILEGE_SITE | PRIVILEGE_USER
 			);
 		}
 
 		/**
 		 * Install Laravel into a pre-existing location
 		 *
-         * @param string $hostname domain or subdomain to install Laravel
-		 * @param string $path optional path under hostname
-		 * @param array  $opts additional install options
+		 * @param string $hostname domain or subdomain to install Laravel
+		 * @param string $path     optional path under hostname
+		 * @param array  $opts     additional install options
 		 */
-		public function install($hostname, $path = '', array $opts = array()) {
+		public function install($hostname, $path = '', array $opts = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to install WP");
@@ -77,7 +87,7 @@
 			$args = array('mode' => 'download');
 			if (!is_null($version)) {
 				if (strcspn($version, ".0123456789")) {
-					return error("invalid version number, %s",$version);
+					return error("invalid version number, %s", $version);
 				}
 				$args['version'] = '--version=' . $version;
 			} else {
@@ -104,8 +114,8 @@
 			}
 			$dbpass = $this->_suggestPassword();
 			$credentials = array(
-				'db' => $db,
-				'user' => $dbuser,
+				'db'       => $db,
+				'user'     => $dbuser,
 				'password' => $dbpass
 			);
 
@@ -148,11 +158,11 @@
 			$opts['url'] = rtrim($hostname . '/' . $path, '/');
 
 			$args = array(
-				'email' => $opts['email'],
-				'mode'  => 'install',
-				'url'   => $opts['url'],
-				'title' => $opts['title'],
-				'user'  => $opts['user'],
+				'email'    => $opts['email'],
+				'mode'     => 'install',
+				'url'      => $opts['url'],
+				'title'    => $opts['title'],
+				'user'     => $opts['user'],
 				'password' => $opts['password']
 			);
 
@@ -164,7 +174,7 @@
 			}
 			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function($f) use ($docroot) {
+			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . $f;
 			}, $this->_aclList['min']);
 			$this->file_touch($docroot . '/.htaccess');
@@ -174,7 +184,7 @@
 				array($this->username => 'drwx'),
 				array(Web_Module::WEB_USERNAME => 'drwx'),
 			);
-			if (!$this->file_set_acls($files,$users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
+			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
 				warn("failed to set ACLs on `%s/wp-content/'", $docroot);
 			}
 			$this->file_set_acls(array($docroot . '/'), $users);
@@ -182,142 +192,62 @@
 				$version = $this->_getLastestVersion();
 			}
 			$params = array(
-				'version' => $version,
-				'hostname' => $hostname,
+				'version'    => $version,
+				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify' => 'min'
+				'fortify'    => 'min'
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
 				$hostname = $hostname . '.' . $this->domain;
 			}
 			$url = 'http://' . $hostname . '/' . $path;
-			$msg = "Hello!" ."\r\n" .
+			$msg = "Hello!" . "\r\n" .
 				"This is a confirmation that Laravel has been installed under " . $docroot .
-				". You may access Laravel via " . $url .". Access the administrative " .
-				"panel at " . rtrim($url, "/") . '/wp-admin' . " using the following details:" ."\r\n\r\n" .
-				"Username: " . $opts['user'] ."\r\n" .
+				". You may access Laravel via " . $url . ". Access the administrative " .
+				"panel at " . rtrim($url, "/") . '/wp-admin' . " using the following details:" . "\r\n\r\n" .
+				"Username: " . $opts['user'] . "\r\n" .
 				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
 			$msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
 				"control panel password!";
-			$hdrs = "From: ".Crm_Module::FROM_NAME." <".Crm_Module::FROM_ADDRESS.">\r\nReply-To: ".Crm_Module::REPLY_ADDRESS;
+			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
 			info("Laravel installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;
 		}
 
-
-		/**
-		 * Install and activate plugin
-		 *
-		 * @param string $hostnaem domain or subdomain of wp install
-		 * @param string $path optional path component of wp install
-		 * @param string $plugin plugin name
-		 * @param string $version optional plugin version
-		 * @return bool
-		 */
-		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable') {
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("invalid WP location");
-			}
-
-			$args = array($plugin);
-			$ret = $this->_exec($docroot, 'plugin install %s --activate', $args);
-			if (!$ret['success']) {
-				return error("failed to install plugin `%s': %s", $plugin, $ret['stderr']);
-			}
-			info("installed plugin `%s'", $plugin);
-			return true;
-		}
-
-		/**
-		 * Location is a valid WP install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid($hostname, $path = '') {
-			if ($hostname[0] == '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->_normalizePath($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
-			}
-
-			return $this->file_file_exists($docroot . self::LARALVEL_CLI) || $this->file_file_exists($docroot . '/wp-config-sample.php');
-		}
-
-		/**
-		 * Uninstall WP from a location
-		 *
-		 * @param        $hostname
-		 * @param string $path
-		 * @param bool   $deletefiles remove all files under docroot
-		 * @return bool
-		 */
-		public function uninstall($hostname, $path = '', $deletefiles = true) {
-
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("failed to determine WP");
-			}
-			if (!$this->valid($hostname, $path)) {
-				return error("`%s' does not contain a valid WP install", $docroot);
-			}
-			$config = $this->db_config($hostname, $path);
-			if (!$config) {
-				warn("cannot remove database, wp-config.php missing?");
-			}
-			if ($this->sql_mysql_database_exists($config['db']) && !$this->sql_delete_mysql_database($config['db'])) {
-				warn("failed to delete mysql database `%s'", $config['db']);
-			}
-			if ($config['user'] !== $this->get_service_value('mysql','dbaseadmin')) {
-				if ($this->sql_mysql_user_exists($config['user'], 'localhost') && !$this->sql_delete_mysql_user($config['user'], 'localhost')) {
-					warn("failed to delete mysql user `%s' on localhost", $config['user']);
-				}
-			}
-
-			$this->_map('delete', $docroot);
-
-			if (!$deletefiles) {
-				return info("removed configuration, manually delete files under `%s'", $docroot);
-			}
-
-			$this->file_delete($docroot, true);
-			$url = rtrim(join("/", array($hostname, $path)),"/");
-			$this->file_purge();
-			$this->file_create_directory($docroot);
-			return info("deleted WP blog `%s' located under `%s'", $url, $docroot);
-		}
-
-		/**
-		 * Get database configuration for a blog
-		 *
-		 * @param string $hostname domain or subdomain of wp blog
-		 * @param string $path optional path
-		 * @return array
-		 */
-		public function db_config($hostname, $path = '')
+		private function _exec($path = null, $cmd, array $args = array())
 		{
-			$docroot = $this->_normalizePath($hostname, $path);
-			if (!$docroot) {
-				return error("failed to determine WP");
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::LARAVEL_CLI;
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
 			}
-			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
-			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .' -r %(code)s';
-			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
-			if (!$ret['success']) {
-				return error("failed to obtain WP configuration for `%s'", $docroot);
+
+			$cmd = $cli . ' ' . $cmd;
+
+			if ($path) {
+				$cmd = 'cd %(path)s && ' . $cmd;
+				$args['path'] = $path;
 			}
-			$data = unserialize($ret['stdout']);
-			return $data;
+
+			$ret = $this->pman_run($cmd, $args);
+			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
+				// move stdout to stderr on error for consistency
+				$ret['success'] = false;
+				if (!$ret['stderr']) {
+					$ret['stderr'] = $ret['stdout'];
+				}
+
+			}
+			return $ret;
 		}
 
-		private function _generateNewConfig($domain, $docroot, $dbcredentials, $ftpcredentials = array()) {
+		private function _generateNewConfig($domain, $docroot, $dbcredentials, $ftpcredentials = array())
+		{
 			// generate db
 			if (!isset($ftpcredentials['user'])) {
 				$ftpcredentials['user'] = $this->username . '@' . $this->domain;
@@ -328,19 +258,19 @@
 			if (!isset($ftpcredentials['password'])) {
 				$ftpcredentials['password'] = '';
 			}
-			$xtraphp = '<<' ."\r\n" .
+			$xtraphp = '<<' . "\r\n" .
 				"define('FTP_USER',%(ftpuser)s);" . "\n" .
 				"define('FTP_HOST', %(ftphost)s);" . "\n" .
 				($ftpcredentials['password'] ?
-					"define('FTP_PASS', %(ftppass)s);" : '' ). "\r\n";
+					"define('FTP_PASS', %(ftppass)s);" : '') . "\r\n";
 			$args = array(
-				'mode' => 'config',
-				'db' => $dbcredentials['db'],
+				'mode'     => 'config',
+				'db'       => $dbcredentials['db'],
 				'password' => $dbcredentials['password'],
-				'user' => $dbcredentials['user'],
-				'ftpuser' => $ftpcredentials['user'],
-				'ftphost' => 'localhost',
-				'ftppass' => $ftpcredentials['password']
+				'user'     => $dbcredentials['user'],
+				'ftpuser'  => $ftpcredentials['user'],
+				'ftphost'  => 'localhost',
+				'ftppass'  => $ftpcredentials['password']
 			);
 
 
@@ -352,31 +282,12 @@
 		}
 
 		/**
-		 * Check if version is latest or get latest version
-		 * 
-		 * @param null $version
-		 * @return int|string 
-		 */
-		public function is_current($version = null) {
-			$latest = $this->_getLastestVersion();;
-			if (!$version) {
-				return $version;
-			}
-			if (version_compare($version, $latest, '=')) {
-				return 1;
-			} else if (version_compare($version, $latest, '<')) {
-				return 0;
-			} else {
-				return -1;
-			}
-		}
-
-		/**
 		 * Get latest WP release
 		 *
 		 * @return string
 		 */
-		private function _getLastestVersion() {
+		private function _getLastestVersion()
+		{
 			$versions = $this->_getVersions();
 			if (!$versions) {
 				return null;
@@ -389,7 +300,8 @@
 		 *
 		 * @return array
 		 */
-		private function _getVersions() {
+		private function _getVersions()
+		{
 			$key = 'laravel.versions';
 			$cache = Cache_Super_Global::spawn();
 			if (false !== ($ver = $cache->get($key))) {
@@ -407,15 +319,150 @@
 		}
 
 		/**
+		 * Install and activate plugin
+		 *
+		 * @param string $hostnaem domain or subdomain of wp install
+		 * @param string $path     optional path component of wp install
+		 * @param string $plugin   plugin name
+		 * @param string $version  optional plugin version
+		 * @return bool
+		 */
+		public function install_plugin($hostname, $path = '', $plugin, $version = 'stable')
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("invalid WP location");
+			}
+
+			$args = array($plugin);
+			$ret = $this->_exec($docroot, 'plugin install %s --activate', $args);
+			if (!$ret['success']) {
+				return error("failed to install plugin `%s': %s", $plugin, $ret['stderr']);
+			}
+			info("installed plugin `%s'", $plugin);
+			return true;
+		}
+
+		/**
+		 * Uninstall WP from a location
+		 *
+		 * @param        $hostname
+		 * @param string $path
+		 * @param bool   $deletefiles remove all files under docroot
+		 * @return bool
+		 */
+		public function uninstall($hostname, $path = '', $deletefiles = true)
+		{
+
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("failed to determine WP");
+			}
+			if (!$this->valid($hostname, $path)) {
+				return error("`%s' does not contain a valid WP install", $docroot);
+			}
+			$config = $this->db_config($hostname, $path);
+			if (!$config) {
+				warn("cannot remove database, wp-config.php missing?");
+			}
+			if ($this->sql_mysql_database_exists($config['db']) && !$this->sql_delete_mysql_database($config['db'])) {
+				warn("failed to delete mysql database `%s'", $config['db']);
+			}
+			if ($config['user'] !== $this->get_service_value('mysql', 'dbaseadmin')) {
+				if ($this->sql_mysql_user_exists($config['user'], 'localhost') && !$this->sql_delete_mysql_user($config['user'], 'localhost')) {
+					warn("failed to delete mysql user `%s' on localhost", $config['user']);
+				}
+			}
+
+			$this->_map('delete', $docroot);
+
+			if (!$deletefiles) {
+				return info("removed configuration, manually delete files under `%s'", $docroot);
+			}
+
+			$this->file_delete($docroot, true);
+			$url = rtrim(join("/", array($hostname, $path)), "/");
+			$this->file_purge();
+			$this->file_create_directory($docroot);
+			return info("deleted WP blog `%s' located under `%s'", $url, $docroot);
+		}
+
+		/**
+		 * Location is a valid WP install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid($hostname, $path = '')
+		{
+			if ($hostname[0] == '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->_normalizePath($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_file_exists($docroot . self::LARALVEL_CLI) || $this->file_file_exists($docroot . '/wp-config-sample.php');
+		}
+
+		/**
+		 * Get database configuration for a blog
+		 *
+		 * @param string $hostname domain or subdomain of wp blog
+		 * @param string $path     optional path
+		 * @return array
+		 */
+		public function db_config($hostname, $path = '')
+		{
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("failed to determine WP");
+			}
+			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
+			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
+			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
+			if (!$ret['success']) {
+				return error("failed to obtain WP configuration for `%s'", $docroot);
+			}
+			$data = unserialize($ret['stdout']);
+			return $data;
+		}
+
+		/**
+		 * Check if version is latest or get latest version
+		 *
+		 * @param null $version
+		 * @return int|string
+		 */
+		public function is_current($version = null)
+		{
+			$latest = $this->_getLastestVersion();;
+			if (!$version) {
+				return $version;
+			}
+			if (version_compare($version, $latest, '=')) {
+				return 1;
+			} else if (version_compare($version, $latest, '<')) {
+				return 0;
+			} else {
+				return -1;
+			}
+		}
+
+		/**
 		 * Change WP admin credentials
 		 *
 		 * $fields is a hash whose indices match wp_update_user
 		 * common fields include: user_pass, user_login, and user_nicename
+		 *
 		 * @link https://codex.wordpress.org/Function_Reference/wp_update_user
 		 *
 		 * @param string $domain
 		 * @param string $path
-		 * @param array $fields
+		 * @param array  $fields
 		 * @return bool
 		 */
 		public function change_admin($domain, $path = null, array $fields)
@@ -462,11 +509,12 @@
 		/**
 		 * Get the primary admin for a WP instance
 		 *
-		 * @param $domain
+		 * @param      $domain
 		 * @param null $path
 		 * @return bool|string admin or false on failure
 		 */
-		public function get_admin($domain, $path = null) {
+		public function get_admin($domain, $path = null)
+		{
 			$docroot = $this->_normalizePath($domain, $path);
 			$ret = $this->_exec($docroot, 'user list --role=administrator --field=user_login');
 			if (!$ret['success']) {
@@ -477,14 +525,49 @@
 		}
 
 		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return null|string version number
+		 */
+		public function get_version($hostname, $path = '')
+		{
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$docroot = $this->_normalizePath($hostname, $path);
+			$ret = $this->_exec($docroot, 'core version');
+			if (!$ret['success']) {
+				return null;
+			}
+			return trim($ret['stdout']);
+
+		}
+
+		/**
+		 * Update core, plugins, and themes atomically
+		 *
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @return bool
+		 */
+		public function update_all($hostname, $path = '')
+		{
+			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
+			$this->update_themes($hostname, $path) || error("failed to update all components");
+		}
+
+		/**
 		 * Update Laravel to latest version
 		 *
 		 * @param string $domain domain or subdomain under which WP is installed
-		 * @param string $path optional subdirectory
+		 * @param string $path   optional subdirectory
 		 * @param string $version
 		 * @return bool
 		 */
-		public function update($domain, $path = '', $version = null) {
+		public function update($domain, $path = '', $version = null)
+		{
 			$docroot = $this->_normalizePath($domain, $path);
 			if (!$docroot) {
 				return error("update failed");
@@ -494,7 +577,7 @@
 			$args = array();
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, ".0123456789")) {
-					return error("invalid version number, %s",$version);
+					return error("invalid version number, %s", $version);
 				}
 				$cmd .= ' --version=%(version)s';
 				$args['version'] = $version;
@@ -517,11 +600,12 @@
 		 * Update Laravel plugins
 		 *
 		 * @param string $hostname domain or subdomain
-		 * @param string $path optional path within host
+		 * @param string $path     optional path within host
 		 * @param array  $plugins
 		 * @return bool|void
 		 */
-		public function update_plugins($hostname, $path = '', $plugins = array()) {
+		public function update_plugins($hostname, $path = '', $plugins = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
@@ -532,7 +616,7 @@
 			if (!$plugins) {
 				$cmd .= ' --all';
 			} else {
-				for($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
+				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
 					$plugin = $plugins[$i];
 					$version = null;
 					if (isset($plugin['version'])) {
@@ -547,8 +631,8 @@
 					$cmd .= ' %(' . $name . ')s';
 					$args[$name] = $plugin;
 					if ($version) {
-						$cmd .= ' --version=%(' . $name .'v)s';
-						$args[$name.'v'] = $version;
+						$cmd .= ' --version=%(' . $name . 'v)s';
+						$args[$name . 'v'] = $version;
 					}
 				}
 			}
@@ -564,11 +648,12 @@
 		 * Update Laravel themes
 		 *
 		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
+		 * @param string $path     optional path under hostname
 		 * @param array  $themes
 		 * @return bool|void
 		 */
-		public function update_themes($hostname, $path = '', $themes = array()) {
+		public function update_themes($hostname, $path = '', $themes = array())
+		{
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
@@ -579,7 +664,7 @@
 			if (!$themes) {
 				$cmd .= ' --all';
 			} else {
-				for($i = 0, $n = sizeof($themes); $i < $n; $i++) {
+				for ($i = 0, $n = sizeof($themes); $i < $n; $i++) {
 					$theme = $themes[$i];
 					$version = null;
 					if (isset($theme['version'])) {
@@ -594,8 +679,8 @@
 					$cmd .= ' %(' . $name . ')s';
 					$args[$name] = $theme;
 					if ($version) {
-						$cmd .= ' --version=%(' . $name .'v)s';
-						$args[$name.'v'] = $version;
+						$cmd .= ' --version=%(' . $name . 'v)s';
+						$args[$name . 'v'] = $version;
 					}
 				}
 			}
@@ -605,39 +690,6 @@
 				return error("theme update failed: `%s'", $ret['stderr']);
 			}
 			return $ret['success'];
-		}
-
-
-		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return null|string version number
-		 */
-		public function get_version($hostname, $path = '') {
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$docroot = $this->_normalizePath($hostname, $path);
-			$ret = $this->_exec($docroot, 'core version');
-			if (!$ret['success']) {
-				return null;
-			}
-			return trim($ret['stdout']);
-
-		}
-
-		/**
-		 * Update core, plugins, and themes atomically
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path optional path under hostname
-		 * @return bool
-		 */
-		public function update_all($hostname, $path = '') {
-			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
-				$this->update_themes($hostname, $path) || error("failed to update all components");
 		}
 
 		/**
@@ -650,13 +702,15 @@
 		{
 			return parent::has_fortification($mode);
 		}
-		
+
 		/**
 		 * Restrict write-access by the app
+		 *
 		 * @param        $hostname
 		 * @param string $path
 		 */
-		public function fortify($hostname, $path = '', $mode = 'max') {
+		public function fortify($hostname, $path = '', $mode = 'max')
+		{
 			parent::fortify($hostname, $path, $mode);
 		}
 
@@ -667,37 +721,9 @@
 		 * @param string $path
 		 * @return bool
 		 */
-		public function unfortify($hostname, $path = '', $mode = 'max') {
+		public function unfortify($hostname, $path = '', $mode = 'max')
+		{
 			return parent::unfortify($hostname, $path, $mode);
-		}
-
-		private function _exec($path = null, $cmd, array $args = array()) {
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::LARAVEL_CLI;
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			
-			$cmd = $cli . ' ' . $cmd;
-
-			if ($path) {
-				$cmd = 'cd %(path)s && ' . $cmd;
-				$args['path'] = $path;
-			}
-			
-			$ret = $this->pman_run($cmd, $args);
-			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
-				// move stdout to stderr on error for consistency
-				$ret['success'] = false;
-				if (!$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
-
-			}
-			return $ret;
 		}
 
 		/**
