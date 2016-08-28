@@ -361,13 +361,25 @@
 		 */
 		public function import_mysql($db, $file)
 		{
-			$realfile = $this->file_make_path($file);
-			if (!file_exists($realfile))
-				return error("file `%s' does not exist", $file);
+			if (!IS_CLI) {
+				return $this->query('sql_import_mysql', $db, $file);
+			}
+
+			$prefix = $this->get_prefix();
+			// db name passed without prefix
+			if (strncmp($db, $prefix, strlen($prefix))) {
+				$db = $prefix . $db;
+			}
+
 			$dbs = $this->list_mysql_databases();
-			if (!array_search($db, $dbs)) {
+			if (false === array_search($db, $dbs)) {
 				return error("database `%s' does not exist", $db);
 			}
+			$unlink = null;
+			if (false === ($realfile = $this->_preImport($file, $unlink))) {
+				return false;
+			}
+
 			$fp = fopen($realfile, 'r+');
 			while (false !== ($line = fgets($fp))) {
 				for ($i = 0, $n = strlen($line); $i < $n; $i++) {
@@ -387,12 +399,50 @@
 				}
 			}
 			$user = $this->_create_temp_mysql_user($db);
-			if (!$user) return error("unable to import database");
+			if (!$user) {
+				$this->_postImport($unlink);
+				return error("unable to import database");
+			}
 			$status = Util_Process_Safe::exec("mysql -u %s %s < %s",
 				$user, $db, $realfile
 			);
+			var_export($status, $db, $realfile);
 			$this->_delete_temp_user('mysql', $user);
+			$this->_postImport($unlink);
+
 			return $status['success'];
+		}
+
+		private function _preImport($file, &$unlink) {
+			$realfile = $this->file_make_path($file);
+			if (!file_exists($realfile)) {
+				return error("file `%s' does not exist", $file);
+			}
+
+			if (!$this->file_is_compressed($file)) {
+				return $realfile;
+			}
+			$fname = tempnam($this->domain_fs_path() . '/tmp', 'db');
+			unlink($fname);
+			$ret = $this->file_extract($file, $this->file_unmake_path($fname), true);
+			if (!$ret) {
+				return error("failed to extract archive `%s'", $file);
+			}
+			$files = glob($fname . '/*');
+			if (!$files) {
+				return error("empty archive");
+			}
+			$unlink = $this->file_unmake_path($fname);
+			$tmp = array_pop($files);
+			return $tmp;
+
+		}
+
+		private function _postImport($file) {
+			if (!is_null($file)) {
+				return $this->file_delete($file, true);
+			}
+			return true;
 		}
 
 		public function get_prefix()
@@ -563,7 +613,7 @@
 			}
 
 			// mysql type
-			$dir = self::MYSQL_PATH . '/' . $db;
+			$dir = self::MYSQL_PATH . '/' . $this->_canonicalize_mysql_database($db);
 			// database created as directory in /var/lib/mysql
 			// instead of under fst
 			if (($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) && !is_link($dir)) {
@@ -1805,34 +1855,59 @@
 		 */
 		public function import_pgsql($db, $file)
 		{
-
-			$realfile = $this->file_make_path($file);
-			if (!file_exists($realfile))
-				return error("file `%s' does not exist", $file);
-			$dbs = $this->list_pgsql_databases();
-			if (!array_search($db, $dbs)) {
-				return error("database `%s' does not exist", $db);
+			if (!IS_CLI) {
+				return $this->query('import_pgsql', $db, $file);
 			}
 
+			$prefix = $this->get_prefix();
+			// db name passed without prefix
+			if (strncmp($db, $prefix, strlen($prefix))) {
+				$db = $prefix . $db;
+			}
+			
+			$dbs = $this->list_pgsql_databases();
+			if (false === array_search($db, $dbs)) {
+				return error("database `%s' does not exist", $db);
+			}
+			$unlink = null;
+			if (false === ($realfile = $this->_preImport($file, $unlink))) {
+				return false;
+			}
 			$user = $this->_create_temp_pgsql_user($db);
 			if (!$user) return error("import failed - cannot create temp user");
 
 			$cmd = "env PGPASSWORD=%(password)s psql -f %(file)s -u %(user)s %(db)s";
 			$args = array(
 				'password' => self::PG_TEMP_PASSWORD,
-				'file'     => $file,
+				'file'     => $realfile,
 				'user'     => $user,
 				'db'       => $db
 			);
 			$status = Util_Process_Safe::exec($cmd, $args);
+			$this->_delete_temp_pgsql_user($user);
+			$this->_postImport($unlink);
 
-			if (!$status['success'])
+			if (!$status['success']) {
 				return error("import failed: %s", $status['error']);
+			}
 			return $status['success'];
 		}
 
-		public function empty_mysql_database($db)
+		public function truncate_mysql_database($db)
 		{
+
+			return $this->_mysql_empty_truncate_wrapper($db, "truncate");
+		}
+
+		private function _mysql_empty_truncate_wrapper($db, $mode) {
+			if ($mode != "truncate" && $mode != "empty") {
+				return error("unknown mode `%s'", $mode);
+			}
+			if ($mode == "empty") {
+				// semantically more correct
+				$mode = 'drop';
+			}
+
 			$prefix = $this->get_service_value('mysql', 'dbaseprefix');
 			if (strncmp($db, $prefix, strlen($prefix))) {
 				$db = $prefix . $db;
@@ -1844,7 +1919,7 @@
 
 			$user = $this->_create_temp_mysql_user($db);
 			if (!$user) {
-				return error("failed to empty db `%s'", $db);
+				return error("failed to %s db `%s'", $mode, $db);
 			}
 			$conn = new mysqli("localhost", $user);
 			if (!$conn->select_db($db)) {
@@ -1853,21 +1928,27 @@
 
 			$conn->query("SET FOREIGN_KEY_CHECKS=0");
 
-			$q = "SELECT CONCAT('TRUNCATE TABLE ',table_schema,'.',TABLE_NAME, ';') 
+			$q = "SELECT CONCAT('" . strtoupper($mode) . " TABLE ','`', table_schema,'`','.','`',TABLE_NAME,'`', ';') 
 					  FROM INFORMATION_SCHEMA.TABLES where  table_schema in ('" . $conn->escape_string($db) . "');";
 			$res = $conn->query($q);
 			while (null !== ($rs = $res->fetch_row())) {
 				if (!$conn->query($rs[0])) {
-					warn("failed to empty table `%s'", $rs[0]);
+					var_dump($conn->error);
+					warn("failed to %s table `%s'", $mode, $rs[0]);
 				}
 			}
 
 			$conn->query("SET @@FOREIGN_KEY_CHECKS=1;");
 			if (!$res) {
-				return error("empty failed on database `%s': `%s'", $db, $conn->error);
+				return error("%s failed on database `%s': `%s'", $mode, $db, $conn->error);
 			}
 			$this->_delete_temp_mysql_user($user);
 			return true;
+		}
+
+		public function empty_mysql_database($db)
+		{
+			return $this->_mysql_empty_truncate_wrapper($db, "empty");
 		}
 
 		/**
@@ -1886,7 +1967,7 @@
 				$file = $db . '.sql';
 			if (!in_array($db, $this->list_mysql_databases()))
 				return error("Invalid database " . $db);
-			if ($file[0] != '/' && $file[0] != '.') {
+			if ($file[0] !== '/' && $file[0] !== '.' && $file[0] !== '~') {
 				$file = '/tmp/' . $file;
 			}
 			$path = $this->file_make_path($file);
@@ -1930,7 +2011,7 @@
 			if (!$status['success'])
 				return error("export failed: %s", $status['stderr']);
 
-			return $file;
+			return $this->file_unmake_path($path);
 		}
 
 		/**
@@ -2017,7 +2098,7 @@
 			if (is_null($file))
 				$file = $db . '.sql';
 
-			if ($file[0] != '/' && $file[0] != '.') {
+			if ($file[0] !== '/' && $file[0] !== '.' && $file[0] !== '~') {
 				$path = $this->domain_fs_path() . '/tmp/' . $file;
 			} else {
 				$path = $this->file_make_path($file);
@@ -2055,7 +2136,7 @@
 			chown($path, $this->user_id) && chgrp($path, $this->group_id) && chmod($path, 0600);
 			if (!$status['success'])
 				return error("export failed: %s", $status['stderr']);
-			return true;
+			return $this->file_unmake_path($path);
 		}
 
 

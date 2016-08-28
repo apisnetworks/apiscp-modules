@@ -1034,7 +1034,7 @@
 					$meta['reference'],
 					"https://cp.apisnetworks.com/apps/troubleticket?view&id=" . $id,
 					$meta['server'] . ".apisnetworks.com",
-					SERVER_NAME_SHORT,
+					$meta['server'],
 					$meta['username'],
 					$meta['reference'],
 					$package,

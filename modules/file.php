@@ -30,6 +30,9 @@
 		const ACL_MODE_DEFAULT = 'd';
 		const ACL_NO_RECALC_MASK = 'n';
 		const ACL_FLAGS = '-PRbdkxn';
+		// under apnscp root
+		const DOWNLOAD_SKIP_LIST = '/etc/file_download_skiplist.txt';
+
 		private static $registered_extensions = array(
 			'zip'     => 'zip',
 			'tgz'     => 'gzip',
@@ -83,6 +86,7 @@
 			$this->exportedFunctions = array(
 				'*'                               => PRIVILEGE_ALL,
 				'lookup_chroot_pwnam'             => PRIVILEGE_SERVER_EXEC,
+				'get_directory_contents_backend'  => PRIVILEGE_SERVER_EXEC|PRIVILEGE_ALL,
 				'get_file_contents_backend'       => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
 				'report_quota'                    => PRIVILEGE_SITE,
 				'report_quota_backend'            => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
@@ -319,16 +323,18 @@
 			}
 			// we really don't know how to handle relative files
 
-			if (!isset($path[0]))
+			if (!isset($path[0])) {
 				return $this->domain_fs_path();
-			else if ($path[0] != '/') {
+			} else if ($path[0] === "~") {
+				$path = $this->user_get_home() . substr($path,1);
+			} else if ($path[0] !== '/') {
 				return error($path . ": path must be absolute");
 			}
 			$root = '';
 			$newpath = str_replace('//', '/', $path);
 			$link = '';
 
-			if (($this->permission_level & PRIVILEGE_SITE | PRIVILEGE_USER)) {
+			if (($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER))) {
 				$root = $this->domain_fs_path();
 			}
 
@@ -397,11 +403,12 @@
 		 * @param string $file
 		 * @return array
 		 */
-		public function stat_backend($file)
+		public function stat_backend($file, $shadow = false)
 		{
 			$link = '';
 			$link_type = 0;
-			$path = $this->make_path($file, $link);
+			$path = $shadow ? $this->make_shadow_path($file, $link) :
+				$this->make_path($file, $link);
 			if ($path instanceof Exception) {
 				return $path;
 			}
@@ -409,7 +416,7 @@
 			$filemtime = -1;
 			if (!$link && !file_exists($path)) return array();
 			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER))
-				$prefix = $this->domain_fs_path();
+				$prefix = $shadow ? $this->domain_shadow_path() : $this->domain_fs_path();
 			else
 				$prefix = '';
 			// real path
@@ -558,10 +565,18 @@
 			}
 			//$this->cached->delete($cachekey);
 
-			if (!isset($stats[$filehash]) && is_debug()) {
-				var_dump("EMER: Missed hash!?!!!@", $vpathbase, $filename, $dirhash, $filehash, self::$stat_cache[$siteid][$dirhash]);
-				die();
+			if (!isset($stats[$filehash])) {
+				if (!$shadow) {
+					return $this->stat_backend($file, true);
+				}
+				if (is_debug()) {
+					$newpath = str_replace('/fst', '/shadow', $pathbase);
+					var_dump(`ls -la $pathbase ; ls -la $newpath`);
+					var_dump("EMER: Missed hash!?!!!@", $vpathbase, $filename, $dirhash, $filehash, self::$stat_cache[$siteid][$dirhash]);
+					die();
+				}
 			}
+
 			if (!isset($stats[$filehash])) {
 				$data = "ASKED: $filehash ($filename)" . "\r\n\r\n" . var_export($stats, true);
 				Error_Report::report("MISSED HASH: " . $data);
@@ -762,7 +777,6 @@
 			$dir2mk = array();
 			if (!$recursive && !file_exists(dirname($path)))
 				return error(dirname($dir) . ": no such file/directory");
-
 			if (file_exists($path)) {
 				if (is_dir($path)) return true;
 				else               return warn($dir . ": file exists");
@@ -780,6 +794,14 @@
 				if (!file_exists($fullpath))
 					$dir2mk[] = $fullpath;
 			} while (false !== ($curdir = (strtok("/"))));
+			if (!$dir2mk) {
+				// @XXX weird aufs bug, initial stat reports no
+				// but incremental dir buildup reports file_exists()
+				// possible delay in cache?
+				// triggered in litmus basic test no 6,
+				// "mkcol_over_plain" -> mkdir over file
+				return is_dir($fullpath);
+			}
 			$parent = dirname($dir2mk[0]);
 			$pstat = $this->stat($this->unmake_path($parent));
 
@@ -810,7 +832,7 @@
 		 *
 		 * @return string chroot'd path
 		 */
-		private function unmake_path($mPath)
+		public function unmake_path($mPath)
 		{
 			// admin always has root access
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
@@ -889,7 +911,8 @@
 		{
 			$stat = $this->_getCache($file);
 			if (false !== $stat) return $stat;
-			return $this->query('file_stat_backend', $file);
+			$shadow = version_compare(platform_version(), '4.5', '>=');
+			return $this->query('file_stat_backend', $file, $shadow);
 		}
 
 		private function _getCache($file)
@@ -1592,6 +1615,9 @@
 						$path,
 						array(0, -1));
 				}
+				if (!$mimestatus) {
+					return false;
+				}
 				return ($mFormat == 'html') ? trim(substr(strstr($mimestatus['output'], ':'), 2)) : $mimestatus;
 			}
 
@@ -1609,7 +1635,7 @@
 				($mFormat == 'html' ? '-i' : '-b'),
 				$path,
 				array(0, -1));
-			return $mimestatus['output'];
+			return $mimestatus;
 		}
 
 		/**
@@ -1799,15 +1825,20 @@
 		public function get_directory_contents($mPath, $sort = true)
 		{
 			if (!IS_CLI) {
-				return $this->query('file_get_directory_contents', rtrim($mPath, '/'), $sort);
+				$shadow = version_compare(platform_version(), '4.5', '>=');
+				return $this->query('file_get_directory_contents_backend', rtrim($mPath, '/'), $sort, $shadow);
 			}
-			$path = $this->make_path($mPath);
+		}
+
+		public function get_directory_contents_backend($mPath, $sort = true, $shadow = false) {
+			$path = $shadow ? $this->make_shadow_path($mPath) : $this->make_path($mPath);
 			if ($path instanceof Exception)
 				return $path;
-
 			if (!is_dir($path))
 				return error("`%s'`: invalid directory", $mPath);
-			$stat = $this->stat_backend($mPath);
+			// trust transformed path, e.g. get_directory_contents("~/")
+			$mPath = $shadow ? $this->unmake_shadow_path($path) : $this->unmake_path($path);
+			$stat = $this->stat_backend($this->unmake_shadow_path($path));
 			if ($stat instanceof Exception) throw $stat;
 			if (!$stat['can_execute'] || !$stat['can_read']) {
 				return error("cannot access directory `%s' permission denied",
@@ -2271,8 +2302,7 @@
 				$rename_dest = rtrim($rename_dest, DIRECTORY_SEPARATOR);
 				$nchanged = rename($src_path, $rename_dest) & $lchanged;
 			}
-
-			return $nchanged;
+			return $nchanged > 0;
 		}
 
 		/**
@@ -2501,15 +2531,28 @@
 			}
 
 			$newfiles = array();
+			// do a separate path for unprivileged users
+			$isUser = $this->permission_level&PRIVILEGE_USER == PRIVILEGE_USER;
 			foreach ($files as $f) {
 				if (false !== strpos($f, "..") || $f[0] !== '/') {
 					// naughty naughty!
 					continue;
 				} else if (!isset($f[1])) {
 					// evaluate out to . or root
-					$f = '..';
+					$f = "..";
+					continue;
+				}
+				if ($isUser) {
+					$stat = $this->stat($f);
+					if ($stat['uid'] != $this->user_id) {
+						warn("file `%s' not owned by %s, skipping", $f, $this->username);
+						continue;
+					}
 				}
 				$newfiles[] = substr($f, 1);
+			}
+			if (!$newfiles) {
+				return error("nothing to download!");
 			}
 			$filelist = tempnam('/tmp', 'fl');
 			chmod($filelist, 0600);
@@ -2525,10 +2568,16 @@
 			// lowest priority
 			$proc->setPriority(19);
 			// need absolute path to pcntl_exec
-			$ret = $proc->run('/bin/tar --directory %s -cf %s --files-from=%s',
-				$this->domain_shadow_path(),
-				$fifo,
-				$filelist
+			$xtrainclude = null;
+			$ret = $proc->run('/bin/tar --directory %(shadow)s -cf %(fifo)s %(xtrainclude)s --exclude-from=%(skipfile)s '.
+				'--one-file-system --files-from=%(list)s ',
+				array(
+					'xtrainclude' => $xtrainclude,
+					'shadow' => $this->domain_shadow_path(),
+					'fifo' =>  $fifo,
+					'list' => $filelist,
+					'skipfile' => INCLUDE_PATH . self::DOWNLOAD_SKIP_LIST
+				)
 			);
 			return $ret['success'] ? $fifo : false;
 		}

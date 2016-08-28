@@ -751,6 +751,9 @@
 		 */
 		public function _housekeeping()
 		{
+			if (file_exists(self::WP_CLI) && filemtime(self::WP_CLI) < filemtime(__FILE__)) {
+				unlink(self::WP_CLI);
+			}
 			if (!file_exists(self::WP_CLI)) {
 				$url = self::WP_CLI_URL;
 				$res = Util_HTTP::download($url, self::WP_CLI);
