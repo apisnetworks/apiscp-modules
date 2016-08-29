@@ -165,7 +165,6 @@
 				'user'     => $opts['user'],
 				'password' => $opts['password']
 			);
-
 			$ret = $this->_exec($docroot, 'core %(mode)s --admin_email=%(email)s --skip-email ' .
 				'--url=%(url)s --title=%(title)s --admin_user=%(user)s ' .
 				'--admin_password=%(password)s', $args);
@@ -211,7 +210,10 @@
 			$msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
 				"control panel password!";
 			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
-			Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
+			if (!is_debug()) {
+				Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
+			}
+
 			info("WordPress installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;
 		}
@@ -231,7 +233,8 @@
 				$args['path'] = $path;
 			}
 			$cmd = $cli . ' ' . $cmd;
-			$ret = $this->pman_run($cmd, $args);
+			// $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php
+			$ret = $this->pman_run($cmd, $args, array('SERVER_NAME' => $this->domain));
 			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
