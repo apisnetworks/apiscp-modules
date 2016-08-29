@@ -125,8 +125,6 @@
 		public function get_service_value($mSrvcType, $mSrvcName = null)
 		{
 			$srvcVal = parent::get_service_value($mSrvcType, $mSrvcName);
-			if (is_null($srvcVal))
-				return false;
 			return $srvcVal;
 		}
 

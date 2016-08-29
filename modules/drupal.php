@@ -790,16 +790,18 @@
 			if ($this->file_file_exists($htaccess) && !$this->file_move($htaccess, $htaccess . '.bak', true)) {
 				return error("upgrade failure: failed to save copy of original .htaccess");
 			}
+			$this->file_purge();
 			$cmd = 'pm-update drupal-%(version)s';
 			$args = array('version' => $version);
 
 			$this->_setMaintenance($docroot, true, $current);
-
 			$ret = $this->_exec($docroot, $cmd, $args);
-
+			$this->file_purge();
 			$this->_setMaintenance($docroot, false, $current);
 
-			if ($this->file_file_exists($htaccess . '.bak') && !$this->file_move($htaccess . '.bak', $htaccess, true)) {
+			if ($this->file_file_exists($htaccess . '.bak') && !$this->file_move($htaccess . '.bak', $htaccess, true)
+				&& ( $this->file_purge() || true ) )
+			{
 				warn("failed to rename backup `%s/.htaccess.bak' to .htaccess", $docroot);
 			}
 
