@@ -461,7 +461,8 @@
 				if ($islink === false) {
 					$stat_details = stat($path);
 				} else {
-					$referent = $this->make_path($vpathbase . '/' . $dirent);
+					$tmp = $vpathbase . '/' . $dirent;
+					$referent = $shadow ? $this->make_shadow_path($tmp) : $this->make_path($tmp);
 					$vreferent = substr($referent, $prefixlen);
 					if (!file_exists($referent)) {
 						$vreferent = null;
