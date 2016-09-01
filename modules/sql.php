@@ -65,6 +65,7 @@
 				'get_pgsql_password'      => PRIVILEGE_ALL,
 				'set_pgsql_password'      => PRIVILEGE_ALL,
 				'export_mysql_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'export_pgsql_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'repair_mysql_database'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 
@@ -1804,12 +1805,17 @@
 				return error("Cannot remove main user");
 			else if (!$this->pgsql_user_exists($user))
 				return error("db user `$user' not found");
-			$prefix = str_replace('-', '', $this->get_prefix());
+			$prefix = $this->get_prefix();
 			if ($user != $this->get_config('mysql', 'dbaseadmin') && strncmp($user, $prefix, strlen($prefix)))
 				$user = $prefix . $user;
 			$tblspace = $this->_get_tablespace();
-			$this->pgsql->query('REVOKE ALL ON TABLESPACE ' . $tblspace . ' FROM "' . $user . '"');
-			$rs = $this->pgsql->query("DROP ROLE \"" . $user . "\"");
+			if (function_exists('pg_escape_literal')) {
+				$usersafe = pg_escape_identifier($user);
+			} else {
+				$usersafe = '"' . pg_escape_string($user) . '"';
+			}
+			$this->pgsql->query('REVOKE ALL ON TABLESPACE ' . $tblspace . ' FROM ' . $usersafe . '');
+			$this->pgsql->query("DROP ROLE " . $usersafe);
 
 			if ($this->pgsql->error)
 				return new PostgreSQLError("Invalid query, " . $this->pgsql->error);
@@ -1843,11 +1849,80 @@
 
 		public function pg_vacuum_db_backend($db)
 		{
-
-			$status = Util_Process::exec("vacuumdb -f -z -v " . escapeshellarg($db));
+			$status = Util_Process::exec("vacuumdb -zfq --dbname=" . escapeshellarg($db));
 			if ($status['error'] instanceof Exception)
 				return error($status['error']);
 			return $status['success'];
+		}
+
+		public function truncate_pgsql_database($db)
+		{
+
+			return $this->_pgsql_empty_truncate_wrapper($db, "truncate");
+		}
+
+		private function _pgsql_empty_truncate_wrapper($db, $mode) {
+			if ($mode != "truncate" && $mode != "empty") {
+				return error("unknown mode `%s'", $mode);
+			}
+			if ($mode == "empty") {
+				// semantically more correct
+				$mode = 'drop';
+			}
+
+			$prefix = $this->get_service_value('mysql', 'dbaseprefix');
+			if (strncmp($db, $prefix, strlen($prefix))) {
+				$db = $prefix . $db;
+			}
+
+			if (!$this->pgsql_database_exists($db)) {
+				return error("unknown database, `%s'", $db);
+			}
+
+			$user = $this->_create_temp_pgsql_user($db);
+			if (!$user) {
+				return error("failed to %s db `%s'", $mode, $db);
+			}
+			$dsn = 'host=localhost dbname=' . $db . ' user=' . $user . ' password=' . self::PG_TEMP_PASSWORD;
+			$sqldb = pg_connect($dsn);
+			if (!$sqldb) {
+				$this->_delete_temp_pgsql_user($user);
+				return error("failed to %s db `%s', db connection failed", $mode, $db);
+			}
+			// via psql -E, unlikely to
+			$q = "SELECT n.nspname as \"schema\", " .
+				"c.relname as \"name\", " .
+				"r.rolname as \"owner\"" .
+				"FROM pg_catalog.pg_class c " .
+                "JOIN pg_catalog.pg_roles r ON r.oid = c.relowner " .
+                "LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace " .
+				"WHERE c.relkind IN ('r','') " .
+                "AND n.nspname <> 'pg_catalog' " .
+                "AND n.nspname !~ '^pg_toast' " .
+                "AND pg_catalog.pg_table_is_visible(c.oid) " .
+				"ORDER BY 1,2;";
+			$rs = pg_query($sqldb, $q);
+			$pgver = $this->pgsql_version();
+			// available in 8.4
+			$identity = $mode !== "empty" && $pgver >= 80400 ? "RESTART IDENTITIY" : "";
+			while (false !== ($res = pg_fetch_object($rs))) {
+				if (function_exists('pg_escape_identifier')) {
+					$tablesafe = pg_escape_identifier($res->name);
+				} else {
+					$tablesafe = '"' . pg_escape_string($res->name) . '"';
+				}
+				$q = strtoupper($mode) . " TABLE " . $tablesafe . " " . $identity . " CASCADE";
+				if (!($res = pg_query($sqldb,$q))) {
+					warn("failed to %s table `%s': %s", $mode, $res->name, pg_errormessage($sqldb));
+				}
+			}
+			$this->_delete_temp_pgsql_user($user);
+			return true;
+		}
+
+		public function empty_pgsql_database($db)
+		{
+			return $this->_pgsql_empty_truncate_wrapper($db, "empty");
 		}
 
 		/**
@@ -1856,7 +1931,7 @@
 		public function import_pgsql($db, $file)
 		{
 			if (!IS_CLI) {
-				return $this->query('import_pgsql', $db, $file);
+				return $this->query('sql_import_pgsql', $db, $file);
 			}
 
 			$prefix = $this->get_prefix();
@@ -1875,15 +1950,16 @@
 			}
 			$user = $this->_create_temp_pgsql_user($db);
 			if (!$user) return error("import failed - cannot create temp user");
-
-			$cmd = "env PGPASSWORD=%(password)s psql -f %(file)s -u %(user)s %(db)s";
+			$proc = new Util_Process_Safe();
+			$proc->setEnvironment("PGPASSWORD", self::PG_TEMP_PASSWORD);
+			$cmd = "psql -q -h 127.0.0.1 -f %(file)s -U %(user)s %(db)s";
 			$args = array(
 				'password' => self::PG_TEMP_PASSWORD,
 				'file'     => $realfile,
 				'user'     => $user,
 				'db'       => $db
 			);
-			$status = Util_Process_Safe::exec($cmd, $args);
+			$status = $proc->run($cmd, $args);
 			$this->_delete_temp_pgsql_user($user);
 			$this->_postImport($unlink);
 
@@ -1933,7 +2009,6 @@
 			$res = $conn->query($q);
 			while (null !== ($rs = $res->fetch_row())) {
 				if (!$conn->query($rs[0])) {
-					var_dump($conn->error);
 					warn("failed to %s table `%s'", $mode, $rs[0]);
 				}
 			}
@@ -2137,6 +2212,76 @@
 			if (!$status['success'])
 				return error("export failed: %s", $status['stderr']);
 			return $this->file_unmake_path($path);
+		}
+
+		/**
+		 * Export a PGSQL db to a named pipe for immediate download
+		 *
+		 * @param $db
+		 * @return bool|void
+		 */
+		public function export_pgsql_pipe($db)
+		{
+			if (version_compare(platform_version(), '4.5', '<=')) {
+				return error('platform version too old to support download feature');
+			}
+
+			if (!in_array($db, $this->list_pgsql_databases())) {
+				return error("Invalid database " . $db);
+			}
+
+			$user = $this->_create_temp_pgsql_user($db);
+
+			return $this->query('sql_export_pgsql_pipe_real', $db, $user);
+		}
+
+		/**
+		 * Export a PGSQL database to a named pipe
+		 *
+		 * Differs from export_mysql_pipe in that it may only be called internally
+		 * or from backend, no API access
+		 *
+		 * @param $db
+		 * @param $user if empty use superuser
+		 * @return bool|string|void
+		 */
+		public function export_pgsql_pipe_real($db, $user)
+		{
+			if (!IS_CLI) {
+				return $this->query('sql_export_pgsql_pipe_real', $db, $user);
+			}
+			// automatically cleaned up on exit()/destruct
+
+			$cmd = "/usr/bin/pg_dump -h 127.0.0.1 -U %s -x --file=%s %s";
+
+			// @XXX potential race condition
+			$fifo = tempnam('/tmp', 'id-' . $this->site);
+			unlink($fifo);
+			if (!posix_mkfifo($fifo, 0600)) {
+				return error("failed to ready pipe for export");
+			}
+			chown($fifo, File_Module::UPLOAD_UID);
+			$proc = new Util_Process_Fork();
+
+			// lowest priority
+			$proc->setPriority(19);
+			$proc->setEnvironment('PGPASSWORD', self::PG_TEMP_PASSWORD);
+			$status = $proc->run($cmd,
+				$user,
+				$fifo,
+				$db
+			);
+
+			if (!$status['success'] || !file_exists($fifo))
+				return error("export failed: %s", $status['stderr']);
+			register_shutdown_function(function () use ($fifo) {
+				if (file_exists($fifo)) {
+					unlink($fifo);
+				}
+
+			});
+
+			return $fifo;
 		}
 
 
@@ -2490,7 +2635,7 @@
 		public function pgsql_user_exists($user)
 		{
 			$db = $this->pgsql;
-			$prefix = str_replace('-', '', $this->get_prefix());
+			$prefix = $this->get_prefix();
 			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
 				strncmp($user, $prefix, strlen($prefix))
 			) {
@@ -2740,6 +2885,7 @@
 			if (!$rs->fetch_object()) {
 				return error("cannot create temp pgsql user `%s'", $user);
 			}
+			$sqldb->query("GRANT \"" . $this->username . "\" TO \"" . $user . "\"");
 			$this->_register_temp_user('pgsql', $user);
 			return $user;
 
@@ -2796,14 +2942,14 @@
 			return true;
 		}
 
-		public function _delete_temp_user($db, $user)
+		public function _delete_temp_user($dbtype, $user)
 		{
-			if ($db == 'mysql') {
+			if ($dbtype == 'mysql') {
 				return $this->_delete_temp_mysql_user($user);
-			} else if ($db == 'pgsql') {
+			} else if ($dbtype == 'pgsql') {
 				return $this->_delete_temp_pgsql_user($user);
 			} else {
-				fatal("unsupported database `%s'", $db);
+				fatal("unsupported database `%s'", $dbtype);
 			}
 		}
 
@@ -2828,8 +2974,9 @@
 
 		private function _delete_temp_pgsql_user($user)
 		{
-			if (!$this->delete_pgsql_user($user))
+			if (!$this->delete_pgsql_user($user)) {
 				return false;
+			}
 
 			$idx = array_search($user, $this->_tempUsers['pgsql']);
 			if ($idx !== false) unset($this->_tempUsers['pgsql'][$idx]);

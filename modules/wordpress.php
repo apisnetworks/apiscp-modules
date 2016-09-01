@@ -422,8 +422,14 @@
 				return error("failed to determine WP");
 			}
 			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
-			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
-			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
+			$cmd = 'cd %(path)s && php -d mysqli.default_socket=%(socket)s -r %(code)s';
+			$ret = $this->pman_run($cmd,
+				array(
+					'path' => $docroot,
+					'code' => $code,
+					'socket' => ini_get('mysqli.default_socket')
+				)
+			);
 			if (!$ret['success']) {
 				return error("failed to obtain WP configuration for `%s'", $docroot);
 			}
