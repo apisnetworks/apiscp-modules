@@ -16,7 +16,7 @@ For example, to get server uptime, call `get_uptime()` in the `common` module:
     $endpoint . '/apnscp.wsdl',
       array(
       'connection_timeout' => 5,
-      'location'           => $endpoint.'soap?authkey='.$key,
+      'location'           => $endpoint.'/soap?authkey='.$key,
       'uri'                => 'urn:net.apnscp.soap'
     )
   );
