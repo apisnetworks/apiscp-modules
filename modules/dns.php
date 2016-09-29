@@ -306,8 +306,16 @@
 					$rr = strtoupper($rr);
 					// TXT records should always be balanced with quotes
 					// assume this to be the case if " present
+					// don't pretty-print if more than 1 quote pair present
 					if ($rr == 'TXT' && $parameter[0] == '"') {
-						$parameter = substr($parameter, 1, -1);
+						if (strpos($parameter, '"', 1) === strlen($parameter)-1) {
+							// parameter formatted as "foobar"
+							$parameter = substr($parameter, 1, -1);
+						} else if (preg_match(Regex::DNS_TXT_PRETTY_PRINT, $parameter)) {
+							// balanced quotes, no spaces within quotes, e.g.
+							// "v=spf1" "ip4:64.22.68.1/24" "mx" "-all"
+							$parameter = str_replace('"', '', $parameter);
+						}
 					}
 					$zoneData[$rr][] = array(
 						'name'      => $name,
@@ -325,7 +333,7 @@
 
 		private function _get_zone_information_raw_raw($domain)
 		{
-			$data = Util_Process::exec("dig -t AXFR -y '" . self::$dns_key . "' @" . self::PRIMARY_NAMESERVER . " " . $domain);
+			$data = Util_Process::exec("dig -t AXFR -y '" . self::$dns_key . "' @" . self::$nameservers[0] . " " . $domain);
 			return $data['success'] ? $data['output'] : false;
 		}
 
@@ -748,7 +756,7 @@
 				return error("unknown RR class `%s'", $rr);
 			}
 			$status = Util_Process::exec('dig +time=1 +tcp +short @%s %s %s',
-				self::PRIMARY_NAMESERVER,
+				self::$nameservers[0],
 				escapeshellarg($record),
 				array_key_exists($rr, self::$rec_2_const) ? $rr : 'ANY'
 			);
@@ -1068,7 +1076,7 @@
 			Util_Process::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
 				'%s @%s %s > %s',
 				escapeshellarg(self::$dns_key),
-				self::PRIMARY_NAMESERVER,
+				self::$nameservers[0],
 				$zone,
 				$tmpfile,
 				array('mute_stderr' => true)
@@ -1383,7 +1391,7 @@
 			// nameserver zone replication service port
 			$port = 25500;
 			$msg = $err = null;
-			$socket = fsockopen(DNS_Module::PRIMARY_NAMESERVER, $port, $err, $msg);
+			$socket = fsockopen(self::$nameservers[0], $port, $err, $msg);
 			if (!$socket) {
 				Error_Reporter::report("failed to add domain `%s' with `%s': (%x) %s",
 					$domain, $ip, $err, $msg);
@@ -1509,7 +1517,7 @@
 		private static function __send($cmd)
 		{
 			$key = explode(':', self::$dns_key);
-			$cmd = 'server ' . self::PRIMARY_NAMESERVER . "\n" .
+			$cmd = 'server ' . self::$nameservers[0] . "\n" .
 				'key ' . $key[0] . ' ' . $key[1] . "\n" .
 				$cmd . "\n" . 'send' . "\n";
 			$file = tempnam('/tmp', 'dns');

@@ -1270,8 +1270,8 @@
 			// no priority escalation, priorities ordered low -> high
 			if ($posoldp && ($posnewp <= $posoldp) ||
 				!$posoldp && !$posnewp ||
-				($this->permission_level & PRIVILEGE_ADMIN)
-			) {
+				($this->permission_level & PRIVILEGE_ADMIN))
+			{
 				return false;
 			}
 
@@ -1279,14 +1279,16 @@
 			$response = Util_HTML_BBCode::stripHTML($response);
 			$header = $domain . ": " . $subject . "\r\n";
 			$maxlen = self::MAX_SMS_LENGTH - strlen($header);
-			Mail::send(
-				Crm_Module::SHORT_COPY_ADMIN,
-				"",
-				/*$subject.": ".$domain,*/
-				$header . substr($response, 0, $maxlen),
-				"From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">",
-				"-f " . Crm_Module::FROM_ADDRESS . " -F '" . Crm_Module::FROM_NAME . "'"
-			);
+			if (Crm_Module::SHORT_COPY_ADMIN) {
+				Mail::send(
+					Crm_Module::SHORT_COPY_ADMIN,
+					"",
+					/*$subject.": ".$domain,*/
+					$header . substr($response, 0, $maxlen),
+					"From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">",
+					"-f " . Crm_Module::FROM_ADDRESS . " -F '" . Crm_Module::FROM_NAME . "'"
+				);
+			}
 		}
 
 		public function change_subject($ticket, $newsubject)

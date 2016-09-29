@@ -68,7 +68,7 @@
 			if ($signal < -1 || $signal > self::_NSIG) {
 				return error("invalid signal %d", $signal);
 			}
-			$status = Util_Process_Sudo::exec('/bin/kill -%d %d ', $signal, $pid);
+			$status = Util_Process_Sudo::exec('/bin/kill -%d %d ', $signal, (int)$pid);
 			if (!$status['success']) {
 				return error("kill failed: %s", $status['stderr']);
 			}

@@ -94,54 +94,6 @@
 		}
 
 		/**
-		 * string encrypt_sql_password(string, string)
-		 *
-		 * @param string $sqlpasswd plaintext SQL password
-		 * @param string $salt      salt used to encrypt it
-		 * @return string base64-encoded and encrypted password
-		 */
-		public function encrypt_sql_password($sqlpasswd, $salt)
-		{
-			if (!$td = mcrypt_module_open(APNSCP_CIPHER, '', MCRYPT_MODE_ECB, ''))
-				return new ValueError("Invalid cipher " . APNSCP_CIPHER);
-			$iv = mcrypt_create_iv(mcrypt_get_iv_size(APNSCP_CIPHER,
-				MCRYPT_MODE_ECB),
-				MCRYPT_RAND);
-			$encStr = mcrypt_encrypt(APNSCP_CIPHER,
-				$salt,
-				$sqlpasswd,
-				MCRYPT_MODE_ECB,
-				$iv);
-			mcrypt_module_close($td);
-			return base64_encode($encStr);
-
-		}
-
-		/**
-		 * string decrypt_sql_password (string, string)
-		 *
-		 * @param  string $password base64-encoded password
-		 * @param  string $salt     salt used to encrypt the password
-		 * @return string plaintext password
-		 */
-		public function decrypt_sql_password($password, $salt)
-		{
-			if (!$td = mcrypt_module_open(APNSCP_CIPHER, '', MCRYPT_MODE_ECB, ''))
-				return new ValueError("Invalid cipher " . APNSCP_CIPHER);
-			$iv = mcrypt_create_iv(mcrypt_get_iv_size(APNSCP_CIPHER,
-				MCRYPT_MODE_ECB),
-				MCRYPT_RAND);
-			$decStr = mcrypt_decrypt(APNSCP_CIPHER,
-				$salt,
-				base64_decode($password),
-				MCRYPT_MODE_ECB,
-				$iv);
-			mcrypt_module_close($td);
-			return trim($decStr);
-
-		}
-
-		/**
 		 * bool store_sql_password (string, string)
 		 *
 		 * @param string $sqlpasswd base64 encoded and encrypted password @{see encrypt_sql_password}

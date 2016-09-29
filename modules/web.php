@@ -765,15 +765,17 @@
 			}
 
 			$checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
+			if (is_link($checkpath)) {
+				$checkpath = realpath($checkpath);
+				if (strncmp($prefix, $checkpath, strlen($prefix))) {
+					return error("docroot for `%s/%s' exceeds site root", $hostname, $path);
+				}
+			}
 			if (!file_exists($checkpath)) {
 				$subpath = dirname($checkpath);
 				if (!file_exists($subpath)) {
 					return error("invalid domain `%s', docroot `%s' does not exist", $hostname, $docroot);
 				}
-			} else if (is_link($checkpath)) {
-				return error("normalized path `%s' must not be symlink but actual folder",
-					$docroot
-				);
 			}
 			if (!isset($pathHash[$hostname])) {
 				$pathHash[$hostname] = array();

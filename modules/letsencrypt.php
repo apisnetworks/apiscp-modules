@@ -152,7 +152,8 @@
 			}
 
 			if ($this->certificateIssued($this->site)) {
-				$this->revoke();
+				// let's not worry about this
+				//$this->revoke();
 			}
 
 			$cnreq = array();

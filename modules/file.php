@@ -448,7 +448,7 @@
 				return error("cannot open `%s'", dirname($file));
 			}
 			Error_Reporter::mute_warning(true);
-
+			$stats = array();
 			while (false !== ($dirent = readdir($dh))) {
 				if ($dirent === '..') {
 					continue;
