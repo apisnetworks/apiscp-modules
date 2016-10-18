@@ -94,7 +94,7 @@
 			);
 			if (false !== array_search($password, $disallowed) || strlen($password) < 7) {
 				return error("password is weak");
-			} else if (strstr(strtolower($password), strtolower($user))) {
+			} else if (preg_match('/.{0,4}' . $user . '.{0,4}/i', $password)) {
 				return error("password cannot be same as username");
 			}
 			/**
@@ -718,8 +718,9 @@
 		 */
 		public function set_temp_password($site, $limit = 120/** time in seconds */, $password = null)
 		{
-			if (!IS_CLI)
+			if (!IS_CLI) {
 				return $this->query('auth_set_temp_password', $site, $limit, $password);
+			}
 
 			if (!$password) {
 				$password = $this->_generate_password();
@@ -751,15 +752,14 @@
 				'passwd' => $crypted,
 				'user'   => $user
 			);
-			/*$editor = new Util_Account_Editor($site);
+			$editor = new Util_Account_Editor($site);
 			$ret = $editor->setMode('edit')->setConfig('siteinfo', self::PWOVERRIDE_KEY, true)
-				->setConfig('siteinfo','cpasswd', $crypted)->edit();*/
+				->setConfig('siteinfo','cpasswd', $crypted)->edit();
 			//if (!$ret) {
 			// once Image/Augend go, we can use the above
-			$editor = Util_Process_Safe::exec('chroot %(path)s usermod -p %(passwd)s %(user)s', $args);
-			if (!$editor['success']) {
-				return error("failed to set temp password: `%s'",
-					$editor['stderr']);
+			//$editor = Util_Process_Safe::exec('chroot %(path)s usermod -p %(passwd)s %(user)s', $args);
+			if (!$ret) {
+				return error("failed to set temp password: `%s'", Error_Reporter::get_last_msg());
 			}
 			$siteconf = str_replace("/fst", "/info/current/siteinfo", $args['path']);
 			$fp = fopen($siteconf, "a");
@@ -780,12 +780,22 @@
 			$str = 'PT' . intval($limit) . 'S';
 			$dt->add(new DateInterval($str));
 			$proc = new Util_Process_Schedule($dt);
-			$editor = new Util_Account_Editor($site);
-			$editor->setMode('edit')->setConfig('siteinfo', 'cpasswd', $oldcrypted)->
-			setConfig('siteinfo', self::PWOVERRIDE_KEY, false);
-			// runs as root, which leaves $site null, populate
-			$cmd = $editor->getCommand();
-			$status = $proc->run($cmd);
+			$key = 'RESET-' . $site_id;
+			if (!$proc->idPending($key)) {
+				$proc->setID($key);
+				$editor = new Util_Account_Editor($site);
+				$editor->setMode('edit')->setConfig('siteinfo', 'cpasswd', $oldcrypted)->
+				setConfig('siteinfo', self::PWOVERRIDE_KEY, false);
+				// runs as root, which leaves $site null, populate
+				$cmd = $editor->getCommand();
+				$status = $proc->run($cmd);
+			} else {
+				// shim a response if run multiple times
+				$status = array(
+					'success' => true
+				);
+			}
+
 			if ($status['success']) {
 				info("Password set on `%s'@`%s' to `%s' for %d seconds",
 					$user,

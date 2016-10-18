@@ -183,13 +183,15 @@
 			}
 
 			// pre-flight checks done, let's install
-			$cmd = new Util_Account_Editor();
-			$cmd->setConfig('openssl', 'enabled', 1);
+			if (!$this->get_service_value('openssl','enabled')) {
+				$cmd = new Util_Account_Editor();
+				$cmd->setConfig('openssl', 'enabled', 1);
 
-			// ensure HTTP config is rebuild
-			$cmd->edit();
+				// ensure HTTP config is rebuild
+				$cmd->edit();
+			}
 
-			$proc = new Util_Process_Batch('2 minutes');
+			$proc = new Util_Process_Batch();
 			if (!$proc->idPending("SSL_HTTP_RELOAD")) {
 				// ensure 1 instance is pending
 				info("reloading web server in 2 minutes, stay tuned!");

@@ -421,7 +421,7 @@
 			if (!$docroot) {
 				return error("failed to determine WP");
 			}
-			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
+			$code = 'set_error_handler(function() { global $table_prefix; print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix)); die(); }); include("./wp-config.php"); trigger_error("");';
 			$cmd = 'cd %(path)s && php -d mysqli.default_socket=%(socket)s -r %(code)s';
 			$ret = $this->pman_run($cmd,
 				array(

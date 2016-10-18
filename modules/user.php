@@ -278,8 +278,12 @@
 				$this->email_deny_user($user, 'imap');
 			if (!$smtp_enable)
 				$this->email_deny_user($user, 'smtp');
-			if (!$cp_enable)
+			if (!$cp_enable) {
 				$this->auth_deny_user($user, 'cp');
+			} else {
+				$this->auth_permit_user($user, 'cp');
+			}
+
 
 			if (!$this->exists($user)) {
 				return false;

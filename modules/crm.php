@@ -477,6 +477,7 @@
 			if ($this->auth_is_inactive()) {
 				return error("account is deactivated and cannot use ticket interface");
 			}
+
 			$priorities = $this->get_priorities();
 			if (!$mPriority)
 				$mPriority = $priorities[0];
@@ -485,8 +486,14 @@
 			else if (!$this->_isValidPriority($mPriority))
 				return error("unknown priority `" . $mPriority . "'");
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
-				$domain = $mContact;
-				$mContact = $this->admin_get_address_from_domain($domain);
+				$domain = is_array($mContact) ? $mContact[0] : $mContact;
+				$adminemail = $this->admin_get_address_from_domain($domain);
+				if (is_array($mContact)) {
+					$mContact = array_slice($mContact, 1);
+					array_push($mContact, $adminemail);
+				} else {
+					$mContact = array($adminemail);
+				}
 				$site_id = $this->admin_get_site_id_from_domain($domain);
 				$username = $this->admin_get_meta_from_domain($domain, 'siteinfo', 'admin_user');
 				$invoice = $this->admin_get_meta_from_domain($domain, 'billing', 'invoice');
@@ -549,7 +556,13 @@
 				(`ticket_id`, `open_ts`, `subject_id`, `close_ts`, `classifier`, `priority`)
 				VALUES(:ticket_id, NOW(), :subject_id, NULL, NULL, :priority);";
 			$stmt = $db->prepare($q);
-			$stmt->execute(array('ticket_id' => $id, 'subject_id' => $mSubject, 'priority' => $mPriority));
+			$stmt->execute(
+				array(
+					'ticket_id' => $id, 
+					'subject_id' => $mSubject, 
+					'priority' => $mPriority
+				)
+			);
 
 			$subject = $this->get_subject_by_id($mSubject);
 
@@ -886,9 +899,9 @@
 
 		private function _send_ticket_email($id, $rid, $state = 'append')
 		{
-			if (is_debug()) {
+			/*if (is_debug()) {
 				return debug("ignoring ticket email in debug");
-			}
+			}*/
 
 			$template = array('html' => null, 'plain' => null);
 			$data = $this->_get_response_by_rid($rid);
@@ -1791,8 +1804,8 @@
     <tr>
         <td></td>
         <td class="container" width="600">
-            <h1 id="logo" style="height:40px;width: 200px;display: block;margin: 5px auto 0 auto;">
-                <img src="https://apisnetworks.com/images/logo/logo-40px.png"/>
+            <h1 id="logo" style="height:40px;width: 200px;display: block; margin: 5px auto 0 auto;">
+                <img src="https://apisnetworks.com/images/logo/logo-40px.png" style="margin-left: 15px;"/>
             </h1>
             <div class="content" style="padding:0 0 20px;">
                 <table class="main" width="100%" cellpadding="0" cellspacing="0">                                      

@@ -561,15 +561,21 @@
 				$nameservers = self::$externalNameservers;
 			}
 			for ($i = 0; $i < 5; $i++) {
-				$recraw = dns_get_record($host, $rrsym, $nameservers);
+				$recraw = Error_Reporter::silence(function() use($host, $rrsym, $nameservers) {
+					return dns_get_record($host, $rrsym, $nameservers);	
+				});
 				if ($recraw !== false) {
 					break;
 				}
 				usleep(500000);
 			}
+			if ($recraw === false) {
+				$host = ltrim(join(".", array($subdomain, $domain)),'.');
+				return error("failed to get external raw records for `%s' on `%s'", $rr, $host);
+			}
 
 			$records = array();
-			foreach ($recraw as $r) {
+			foreach ((array)$recraw as $r) {
 				$target = null;
 
 				// most records

@@ -2726,7 +2726,7 @@
 				$cmd = 'myisamchk -r -c ' . $sqlroot . '/%s/*.MYI';
 			}
 			$ret = Util_Process_Safe::exec($cmd, $db);
-			if (!$ret['success']) {
+			if (!$ret['success'] && !strstr($ret['stderr'], "doesn't exist")) {
 				return error("`%s' repair failed:\n%s", $db, $ret['error']);
 			}
 			return info("`%s' repair succeeded:\n%s", $db, $ret['output']);
