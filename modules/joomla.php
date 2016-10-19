@@ -75,7 +75,6 @@
 		 */
 		public function install($hostname, $path = '', array $opts = array())
 		{
-			$opts['version'] = '3.5.1';
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to install Joomla");
