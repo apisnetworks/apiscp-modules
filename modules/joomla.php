@@ -14,8 +14,6 @@
 	/**
 	 * Joomla! management
 	 *
-	 * An interface to wp-cli
-	 *
 	 * @package core
 	 */
 	class Joomla_Module extends Module_Support_Webapps
@@ -26,11 +24,12 @@
 		// primary domain document root
 		const JOOMLA_CLI = '/usr/share/pear/joomlatools.phar';
 		//const JOOMLA_CLI = '/.socket/php/pear/1.4.6/joomlatools-console-1.4.6/bin/joomla';
+		const UPDATE_URI = 'https://github.com/joomla/joomla-cms/releases/download/%version%/Joomla_%version%-Stable-Update_Package.zip';
 
 		// latest release
 		const JOOMLA_CLI_URL = '';
 		const JOOMLA_CLI_VERSION = '1.4.6';
-		const VERSION_CHECK_URL = 'https://api.joomla.org/core/version-check/1.7/';
+		const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
 		const JOOMLA_MIRROR = 'http://mirror.apisnetworks.com/joomla';
 		protected $_aclList = array(
@@ -76,6 +75,7 @@
 		 */
 		public function install($hostname, $path = '', array $opts = array())
 		{
+			$opts['version'] = '3.5.1';
 			$docroot = $this->_normalizePath($hostname, $path);
 			if (!$docroot) {
 				return error("failed to install Joomla");
@@ -121,7 +121,7 @@
 				}
 
 			} else {
-				$version = $this->_getLastestVersion();
+				$version = $this->_getLatestVersion();
 			}
 			$args['version'] = '--release=' . $version;
 
@@ -217,28 +217,17 @@
 			$opts['url'] = rtrim($hostname . '/' . $path, '/');
 
 			// by default, let's only open up ACLs to the bare minimum
-
-			$files = array_map(function ($f) use ($docroot) {
-				return $docroot . '/' . $f;
-			}, $this->_aclList['min']);
 			$this->file_touch($docroot . '/.htaccess');
-			$users = array(
-				array(Web_Module::WEB_USERNAME => 7),
-				array($this->username => 'drwx'),
-				array(Web_Module::WEB_USERNAME => 'drwx'),
-			);
-			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
-				warn("failed to set ACLs on `%s/'", $docroot);
-			}
+			$this->fortify($hostname, $path, 'max');
 			//$this->file_set_acls(array($docroot . '/'), $users);
 			if (!$version) {
-				$version = $this->_getLastestVersion();
+				$version = $this->_getLatestVersion();
 			}
 			$params = array(
 				'version'    => $version,
 				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => 'min'
+				'fortify'    => 'max'
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -265,7 +254,7 @@
 		 *
 		 * @return string
 		 */
-		private function _getLastestVersion()
+		private function _getLatestVersion()
 		{
 			$versions = $this->_getVersions();
 			if (!$versions) {
@@ -287,7 +276,7 @@
 				return $ver;
 			}
 			$proc = Util_Process::exec(
-				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s versions',
+				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s --refresh versions',
 				array(
 					'repo' => self::JOOMLA_MIRROR
 				)
@@ -618,7 +607,7 @@
 		 */
 		public function is_current($version = null)
 		{
-			$latest = $this->_getLastestVersion();;
+			$latest = $this->_getLatestVersion();;
 			if (!$version) {
 				return $version;
 			}
@@ -722,8 +711,9 @@
 		 */
 		public function update_all($hostname, $path = '')
 		{
-			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
-			$this->update_themes($hostname, $path) || error("failed to update all components");
+			return $this->update($hostname, $path);
+			/*&& $this->update_plugins($hostname, $path) &&
+			$this->update_themes($hostname, $path) || error("failed to update all components");*/
 		}
 
 		/**
@@ -736,34 +726,106 @@
 		 */
 		public function update($domain, $path = '', $version = null)
 		{
+			if (!IS_CLI) {
+				return $this->query('joomla_update', $domain, $path, $version);
+			}
 			$docroot = $this->_normalizePath($domain, $path);
 			if (!$docroot) {
 				return error("update failed");
 			}
 
-			$cmd = 'core update';
-			$args = array();
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, ".0123456789")) {
 					return error("invalid version number, %s", $version);
+				} else if (!in_array($version, $this->versions())) {
+					return error("unknown version `%s'", $version);
 				}
 			} else {
-				$version = $this->_getLastestVersion();
+				$version = $this->_getLatestVersion();
 			}
-			$cmd .= ' --version=%(version)s';
-			$args['version'] = $version;
 
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("update failed: `%s'", $ret['stderr']);
+			$replace = array(
+				'version' => $version
+			);
+			$uri = preg_replace_callback(Regex::LAZY_SUB, function ($m) use ($replace) {
+				return $replace[$m[1]];
+			}, self::UPDATE_URI);
+
+			$stat = $this->file_stat($docroot);
+			if ($stat['uid'] < User_Module::MIN_UID) {
+				$user = $this->username;
+			} else {
+				$user = $stat['owner'];
 			}
-			info("updating Joomla database if necessary");
-			$ret = $this->_exec($docroot, 'core update-db');
-			if (!$ret['success']) {
-				return warn("failed to update Joomla database - " .
-					"login to Joomla admin panel to manually perform operation");
+
+			if (!parent::download($uri, $docroot)) {
+				return error("failed to update Joomla! - download failed");
 			}
+			if ($user !== $this->username) {
+				$this->file_chown($docroot, $user, true);
+			}
+
+			$this->fortify($domain, $path);
+			info("Joomla updated, fortification set to MAX");
+
+			// as a prereq, joomlaupdate component must be updated as well
+			// PHP runs jailed, may not have cache plugin installed, disable it
+			$cfgfile = $docroot . '/configuration.php';
+			$config = $this->file_get_file_contents($cfgfile);
+			$newconfig = preg_replace('/public\s+\$cache_handler\s*=[^;]+;/', '', $config);
+			$this->file_put_file_contents($cfgfile, $newconfig);
+			if (!$this->_updateJoomlaUpdatePlugin($docroot, $user, $version)) {
+				warn("Upgrade incomplete - failed to fetch Joomla! Update extension. Login to admin portal to finish.");
+			}
+			$this->file_put_file_contents($cfgfile, $config, true);
+			return info("Upgrade partially completed. Login to Joomla! admin portal to finish upgrade.");
+		}
+
+		private function _updateJoomlaUpdatePlugin($docroot, $user, $version) {
+			$juext = $this->get_plugin_info('com_joomlaupdate');
+			if (!$juext) {
+				return false;
+			}
+
+			if (version_compare($version, $juext['update']['targetplatform']['@attributes']['version'], "<")) {
+				return true;
+			}
+
+			$uri = $juext['update']['downloads']['downloadurl'];
+			$path = $docroot . '/tmp/com_joomlaupdate';
+			if ($this->file_file_exists($path)) {
+				return false;
+			}
+
+			$this->file_create_directory($path);
+			if (!parent::download($uri, $path)) {
+				return false;
+			}
+			$this->file_chown($path, $user, true);
+
+			$ret = $this->_exec($docroot, 'extension:installfile -- . %(plugin)s', array('plugin' => $path));
+			$this->file_delete($path, true);
 			return $ret['success'];
+		}
+
+		public function get_plugin_info($plugin, $ver = null) {
+			$replace = array(
+				'plugin' => $plugin,
+				'ver' => $ver
+			);
+			// @todo determine plugin versioning
+			$uri = preg_replace_callback(Regex::LAZY_SUB, function ($m) use ($replace) {
+				return $replace[$m[1]];
+			}, 'http://update.joomla.org/core/extensions/%plugin%.xml?ver=%ver%');
+			$content = silence(function() use ($uri) {
+				return simplexml_load_file($uri, "SimpleXMLElement", LIBXML_NOCDATA);
+			});
+			if (!$content) {
+				return false;
+			}
+			// @todo I don't like this, but SimpleXML is not an acceptable public
+			// return type either
+			return json_decode(json_encode((array)$content), true);
 		}
 
 		/**
@@ -913,7 +975,7 @@
 
 			$local = $this->service_template_path('siteinfo') . '/' . self::JOOMLA_CLI;
 			if (!file_exists($local)) {
-				return copy(self::JOOMLA_CLI, $local);
+				copy(self::JOOMLA_CLI, $local);
 			}
 			return true;
 		}

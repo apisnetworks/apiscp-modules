@@ -128,6 +128,9 @@
 				return error("invalid site email `%s' provided", $opts['site-email']);
 			} else if (!isset($opts['site-email'])) {
 				// default to active domain, hope it's valid!
+				if (false === strpos($hostname, ".")) {
+					$hostname .= '.' . $this->domain;
+				}
 				$split = $this->web_split_host($hostname);
 				if (!$this->email_address_exists('postmaster', $split['domain'])) {
 					if (!$this->email_transport_exists($split['domain'])) {

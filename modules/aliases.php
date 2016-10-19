@@ -185,10 +185,16 @@
 					$user = $this->user_get_username_from_uid($stat['uid']);
 				}
 				if ($user) {
-					$uid = $this->user_get_uid_from_username($user);
-					if ($uid < User_Module::MIN_UID) {
+					if ($user == $this->tomcat_system_user()) {
 						$user = $this->username;
+						$uid = $this->user_get_uid_from_username($user);
+					} else {
+						$uid = $this->user_get_uid_from_username($user);
+						if ($uid < User_Module::MIN_UID) {
+							$user = $this->username;
+						}
 					}
+
 					$user_home = '/home/' . $user;
 					$user_home_abs = $this->domain_fs_path() . $user_home;
 

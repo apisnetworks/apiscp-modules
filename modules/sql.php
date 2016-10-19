@@ -2713,15 +2713,21 @@
 			if (count($files) < 2) {
 				return true;
 			}
+
 			// negotiate to use mysqlcheck or myisamchk
 			$quota = $this->site_get_account_quota();
-			// convert from bytes to KB
-			$dbsize = ceil($this->get_database_size('mysql', $db) / 1024);
+			$db = $this->_connect_root();
+			$q = "SELECT MAX(Data_length) AS max FROM " .
+				"information_schema.tables WHERE table_schema = '" .
+				$db->real_escape_string($db) . "'";
+			$rs = $db->query($q);
+			$tblsz = $rs->max/1024*1.25; //working room
+
 			$qfree = $quota['qhard'] - $quota['qused'];
 			$cmd = 'env HOME=/root mysqlcheck --auto-repair %s';
-			if ($dbsize > $qfree) {
+			if ($tblsz > $qfree) {
 				warn("not enough storage to safely use mysqlcheck (need %d KB have %d KB free): reverting to myisamchk",
-					$dbsize, $qfree
+					$tblsz, $qfree
 				);
 				$cmd = 'myisamchk -r -c ' . $sqlroot . '/%s/*.MYI';
 			}

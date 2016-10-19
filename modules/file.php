@@ -2441,10 +2441,19 @@
 		public function endow_upload($files)
 		{
 			if (!IS_CLI) return $this->query("file_endow_upload", $files);
-			if (!is_array($files)) $files = array($files);
-			if (Error_Reporter::is_error()) return error("cannot handle upload in inconsistent state");
+			if (Error_Reporter::is_error()) {
+				return error("cannot handle upload in inconsistent state");
+			}
+
+			if (!is_array($files)) {
+				$files = array($files);
+			}
+
 			for ($i = 0, $n = sizeof($files); $i < $n; $i++) {
 				$file = $files[$i];
+				if ($file[0] === "." || $file[0] === "/") {
+					warn("invalid file to endow upload `%s', skipping (must reside in `%s'", $file, TEMP_DIR);
+				}
 				$path = $this->make_path(TEMP_DIR . '/' . $file);
 				$base = $this->make_path(TEMP_DIR);
 				if (substr($path, 0, strlen($base)) != $base) {
@@ -2612,7 +2621,7 @@
 			$uuidmap = $this->user_get_users();
 			$uuidmap['apache'] = array('uid' => APACHE_UID);
 
-			if ($this->tomcat_enabled()) {
+			if ($this->tomcat_permitted()) {
 				$tcuser = $this->tomcat_system_user();
 				$tcuid = posix_getpwnam($tcuser);
 				$uuidmap[$tcuser] = $tcuid['uid'];
