@@ -359,7 +359,6 @@
 			$status = Util_Process_Safe::exec("mysql -u %s %s < %s",
 				$user, $db, $realfile
 			);
-			var_export($status, $db, $realfile);
 			$this->_delete_temp_user('mysql', $user);
 			$this->_postImport($unlink);
 

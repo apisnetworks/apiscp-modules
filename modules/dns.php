@@ -1201,8 +1201,11 @@
 			$conf = Auth::profile()->conf->cur;
 			if (!$this->get_service_value('ipinfo', 'namebased')) {
 				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
+				// pass the domain to verify the PTR isn't detached incorrectly
+				// from another domain that has recycled it
+				$domain = $this->get_service_value('siteinfo', 'domain');
 				foreach ($ips as $ip) {
-					$this->__deleteIP($ip);
+					$this->__deleteIP($ip, $domain);
 				}
 			}
 
@@ -1247,6 +1250,10 @@
 					array_pop($conf_new['ipaddrs']);
 				$this->remove_zone($domainold);
 				$this->add_zone($domainnew, $ip);
+				// domain name changed
+				if (!$conf_new['namebased']) {
+					$this->__changePTR($ip, $domainnew, $domainold);
+				}
 			}
 
 			if ($conf_new === $conf_cur) return;
@@ -1281,7 +1288,6 @@
 				// removed ip-based hosting
 				$ipadd = $conf_new['nbaddrs'];
 			}
-
 			// change DNS
 			// there will always be a 1:1 pairing for IP addresses
 			foreach ($ipadd as $newip) {
@@ -1306,12 +1312,20 @@
 			return;
 		}
 
-		private function __deleteIP($ip)
+		/**
+		 * @param        $ip
+		 * @param string $domain confirm PTR rDNS matches domain
+		 * @return bool
+		 */
+		private function __deleteIP($ip, $domain = '')
 		{
 			$rev = $this->__reverseIP($ip);
 			$node = substr($rev, 0, strpos($rev, '.'));
 			$fqdn = $rev . '.in-addr.arpa.';
-			$cmd = 'prereq yxrrset ' . $fqdn . ' PTR' . "\n" .
+			if ($domain) {
+				$domain = ' ' . rtrim($domain) . '.';
+			}
+			$cmd = 'prereq yxrrset ' . $fqdn . ' PTR' . $domain . "\n" .
 				'update delete ' . $fqdn . ' PTR';
 			$resp = self::__send($cmd);
 			if (!is_debug() && !$resp['success']) {
@@ -1320,6 +1334,35 @@
 
 			}
 			info("Released $ip");
+			return true;
+		}
+
+		/**
+		 * Change PTR name
+		 *
+		 * @param        $ip IP address to alter
+		 * @param        $hostname new PTR name
+		 * @param string $chk optional check hostname to verify
+		 * @return bool
+		 */
+		private function __changePTR($ip, $hostname, $chk = '') {
+			$rev = $this->__reverseIP($ip);
+			$fqdn = $rev . '.in-addr.arpa.';
+
+			if ($chk) {
+				$chk = ' ' . rtrim($chk, '.') . '.';
+			}
+			$cmd = 'prereq yxrrset ' . $fqdn . ' PTR' . $chk . "\n";
+				'update delete ' . $fqdn . ' ' . self::DNS_TTL . ' PTR ' . "\n" .
+				'update add ' . $fqdn . ' ' . self::DNS_TTL . ' PTR ' . $hostname;
+
+			$resp = self::__send($cmd);
+			if (!is_debug() && !$resp['success']) {
+				error("cannot change PTR for $ip - " . $resp[1]);
+				report($cmd, var_export($resp, true));
+				return false;
+			}
+			// update ARP tables
 			return true;
 		}
 

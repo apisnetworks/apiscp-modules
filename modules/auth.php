@@ -776,9 +776,7 @@
 			// touch siteXX/info to purge stale conf
 			touch(dirname(dirname($siteconf)));
 
-			$dt = new DateTime();
-			$str = 'PT' . intval($limit) . 'S';
-			$dt->add(new DateInterval($str));
+			$dt = new DateTime("now + " . intval($limit) . " seconds");
 			$proc = new Util_Process_Schedule($dt);
 			$key = 'RESET-' . $site_id;
 			if (!$proc->idPending($key)) {

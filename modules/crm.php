@@ -2047,6 +2047,10 @@ EOF;
 				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				"%data%" .
 				"\n\n" .
+				"------------------" . "\n" .
+				"IN REPLY TO:" . "\n" .
+				"------------------" . "\n" .
+				"%inreplyto%\n\n" .
 				"You may log into apnscp to view and update this ticket." . "\n\n" .
 				"Thank you for choosing Apis Networks!" . "\n" .
 				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
@@ -2183,7 +2187,21 @@ EOF;
 			$stmt->bindParam(':data', $data, PDO::PARAM_LOB);
 			$msg = sprintf("\r\n* file: %s (%.2f KB)", $filename, $size / 1024);
 			if (!$stmt->execute()) {
-				return false;
+				/**
+				 * typically this fails because max_allowed_packet is less than
+				 * the file size
+				 */
+				$msg = $stmt->errorInfo();
+				if (is_array($msg)) {
+					$msg = $msg[2];
+				} else {
+					$msg = "unspecified DB error";
+				}
+				Error_Reporter::report(
+					"failed to add attachment `%s' with size '%d': %s",
+					$filename, $size, $msg
+				);
+				return error("failed to save attachment `%s' to database", $filename);
 			}
 			$this->_append_ticket_message_raw($ticket, $rid, $msg);
 			return true;
