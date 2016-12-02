@@ -250,7 +250,7 @@
 			} else if ($smtp_enable && !$imap_enable) {
 				warn("IMAP service not enabled. User will be able to send mail, but not receive");
 			} else if (!$smtp_enable && !$imap_enable) {
-				info("E-mail not enabled for user");
+				info("Email not enabled for user");
 			}
 			$cmd = '/usr/local/bin/AddVirtUser cpasswd=%(password)s %(site)s %(user)s %(gecos)s %(quota)d';
 			$cmd .= ' ' . join($svc_list, ' ');
@@ -274,10 +274,16 @@
 				return false;
 			}
 			// Ensim unconditionally grants IMAP/SMTP access
-			if (!$imap_enable)
+			if (!$imap_enable) {
 				$this->email_deny_user($user, 'imap');
-			if (!$smtp_enable)
+			} else {
+				$this->email_permit_user($user, 'imap');
+			}
+			if (!$smtp_enable) {
 				$this->email_deny_user($user, 'smtp');
+			} else {
+				$this->email_permit_user($user, 'smtp');
+			}
 			if (!$cp_enable) {
 				$this->auth_deny_user($user, 'cp');
 			} else {
@@ -290,6 +296,7 @@
 			}
 
 			Util_Account_Hooks::run('create_user', array($user));
+			$this->flush();
 			return true;
 		}
 

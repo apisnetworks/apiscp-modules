@@ -256,6 +256,12 @@
 			return true;
 		}
 
+		public function _reload($what = null) {
+			if ($what === "letsencrypt") {
+				Util_Process::exec('/sbin/service vsftpd restart');
+			}
+		}
+
 		public function _delete_user($user)
 		{
 			if ($this->user_jailed($user)) {

@@ -727,6 +727,20 @@
 		}
 
 		/**
+		 * Get app root for Laravel
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return string
+		 */
+		protected function _normalizePath($hostname, $path = '') {
+			// Laravel app root resides 1 level down
+			$path = $this->web_normalize_path($hostname, $path);
+
+			return dirname($path);
+		}
+
+		/**
 		 * Laravel housekeeping
 		 *
 		 * @return bool

@@ -1128,7 +1128,11 @@
 				$sitetemplate = $mime->get();
 			}
 
-			if ($initiator == 'admin' || $state == 'new') {
+			// has multiple contacts attached to ticket, send notice to everyone
+			// since there is no reliable means to tease out who sent out what
+			// @todo possible loop?
+			$hasmultiple = count(preg_split('/,; /', $recipient, -1, PREG_SPLIT_NO_EMPTY)) > 1;
+			if ($initiator == 'admin' || $state == 'new' || $hasmultiple) {
 				// modify subject to read Ticket Confirmation: instead of Confirmation
 				$tmp = $subject;
 				if ($state == 'new') {

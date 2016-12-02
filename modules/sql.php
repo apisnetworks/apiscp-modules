@@ -577,6 +577,9 @@
 
 			$space = 0;
 			$dh = opendir($dir);
+			if (!$dh) {
+				return error("failed to open database directory `%s'", $dir);
+			}
 			while (($file = readdir($dh)) !== false) {
 				if ($file == "." || $file == "..")
 					continue;
@@ -2715,12 +2718,13 @@
 
 			// negotiate to use mysqlcheck or myisamchk
 			$quota = $this->site_get_account_quota();
-			$db = $this->_connect_root();
+			$conn = $this->_connect_root();
 			$q = "SELECT MAX(Data_length) AS max FROM " .
 				"information_schema.tables WHERE table_schema = '" .
-				$db->real_escape_string($db) . "'";
-			$rs = $db->query($q);
-			$tblsz = $rs->max/1024*1.25; //working room
+				$conn->real_escape_string($db) . "'";
+			$rs = $conn->query($q);
+			$row = $rs->fetch_object();
+			$tblsz = $row->max/1024*1.25; //working room
 
 			$qfree = $quota['qhard'] - $quota['qused'];
 			$cmd = 'env HOME=/root mysqlcheck --auto-repair %s';
@@ -2730,9 +2734,9 @@
 				);
 				$cmd = 'myisamchk -r -c ' . $sqlroot . '/%s/*.MYI';
 			}
-			$ret = Util_Process_Safe::exec($cmd, $db);
+			$ret = Util_Process_Safe::exec($cmd, array($db));
 			if (!$ret['success'] && !strstr($ret['stderr'], "doesn't exist")) {
-				return error("`%s' repair failed:\n%s", $db, $ret['error']);
+				return error("`%s' repair failed:\n%s", $db, $ret['stderr']);
 			}
 			return info("`%s' repair succeeded:\n%s", $db, $ret['output']);
 		}

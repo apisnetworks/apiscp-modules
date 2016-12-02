@@ -106,7 +106,7 @@
 			if (!IS_CLI) {
 				return $this->query('ssl_install', $key, $cert, $chain);
 			}
-			if ($this->get_service_value('ipinfo', 'namebased')) {
+			if (!$this->permitted()) {
 				return error("account requires assigned IP address for SSL");
 			}
 
@@ -183,13 +183,13 @@
 			}
 
 			// pre-flight checks done, let's install
-			if (!$this->get_service_value('openssl','enabled')) {
-				$cmd = new Util_Account_Editor();
-				$cmd->setConfig('openssl', 'enabled', 1);
+			//if (!$this->get_service_value('openssl','enabled')) {
+			$cmd = new Util_Account_Editor();
+			$cmd->setConfig('openssl', 'enabled', 1);
 
-				// ensure HTTP config is rebuild
-				$cmd->edit();
-			}
+			// ensure HTTP config is rebuild
+			$cmd->edit();
+			//}
 
 			$proc = new Util_Process_Batch();
 			if (!$proc->idPending("SSL_HTTP_RELOAD")) {
@@ -992,7 +992,7 @@
 				if (isset($conf['chain']) && count($conf) === 1) {
 					// separate config parser
 					return $conf;
-				} else if (!isset($conf['host']) || !isset($conf['crt']) || !isset($conf['key'])) {
+				} else if (!isset($conf['crt']) || !isset($conf['key'])) {
 					return array();
 				}
 				return $conf;
@@ -1001,6 +1001,7 @@
 			// old format for multiple IP/personalities per account
 			$masterconfig = glob('/etc/httpd/conf/virtual/' . $this->site . '{,.*}', GLOB_BRACE);
 			$sitecerts = array();
+			$accountaddr = $this->common_get_ip_address();
 
 			foreach ($masterconfig as $config) {
 				$cert = array();
@@ -1024,6 +1025,8 @@
 					if ($tmp) {
 						$cert['host'] = substr($cert['host'], 0, $tmp);
 					}
+				} else {
+					$cert['host'] = $accountaddr;
 				}
 				$sitecerts[] = $cert;
 			}
@@ -1032,7 +1035,7 @@
 
 		public function permitted()
 		{
-			return !$this->get_service_value('ipinfo', 'namebased');
+			return version_compare(platform_version(), '7', '>=') || !$this->get_service_value('ipinfo', 'namebased');
 		}
 
 		private function _getSSLExtraConfig()
@@ -1050,22 +1053,42 @@
 			$conf_new = Auth::profile()->conf->new;
 			$conf_cur = Auth::profile()->conf->cur;
 			$certdir = $this->domain_fs_path() . self::CRT_PATH;
+			$renameWrapper = function($mode) use ($certdir) {
+				if ($mode === 'disable') {
+					foreach (glob($certdir . '/*.crt') as $cert) {
+						rename($cert, $cert . '-disabled');
+						info("disabled certificate " . basename($cert));
+					}
+				} else {
+					foreach (glob($certdir . '/*.crt-disabled') as $cert) {
+						rename($cert, substr($cert, 0, -9));
+						info("enabled certificate " . substr(basename($cert), 0, -9));
+					}
+				}
+
+			};
+
+			if (version_compare(platform_version(), '7', '>=')) {
+				// Atlas and on do things differently
+				if (!$conf_new['openssl']['enabled']) {
+					$renameWrapper('disable');
+				} else if ($conf_new['openssl']['enabled'] && !$conf_cur['openssl']['enabled']) {
+					$renameWrapper('enable');
+				}
+				return;
+			}
+
 			if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
 				!$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']
 			) {
-				foreach (glob($certdir . '/*.crt') as $cert) {
-					rename($cert, $cert . '-disabled');
-					info("disabled certificate " . basename($cert));
-				}
+				$renameWrapper('disable');
 			} else if (!$conf_new['ipinfo']['namebased']) {
 				$ssl = dirname($this->_getSSLExtraConfig());
 				if (!file_exists($ssl)) {
 					mkdir($ssl, 0711);
 				}
-				foreach (glob($certdir . '/*.crt-disabled') as $cert) {
-					rename($cert, substr($cert, 0, -9));
-					info("enabled certificate " . substr(basename($cert), 0, -9));
-				}
+				$renameWrapper('enable');
+
 			}
 
 		}

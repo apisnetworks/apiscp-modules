@@ -28,9 +28,9 @@
 		const SECONDARY_NAMESERVER = 'ns2.apisnetworks.com';
 		const NAMEBASED_INTERFACE_FILE = '/etc/virtualhosting/interface';
 		// default DNS TTL for records modified via update()
-		const DYNDNS_TTL = 600;
+		const DYNDNS_TTL = 300;
 		// default DNS TTL for records
-		const DNS_TTL = 86400;
+		const DNS_TTL = 43200;
 		// netmask of allowable IP addresses
 		const IP_ALLOCATION_BLOCK = '64.22.68.0/24';
 		// standard hosts file location
@@ -960,6 +960,10 @@
 				$domain = substr($domain, 4);
 			}
 
+			if ($ignore_on_account) {
+				return !$this->domain_on_account($domain);
+			}
+
 			$q = "SELECT di_invoice, server_name, site_id FROM domain_information WHERE domain = ?";
 
 			$stmt = self::$domain_db->prepare($q);
@@ -973,13 +977,31 @@
 			$hosted = $stmt->num_rows > 0;
 			$stmt->close();
 			if (!$hosted) return false;
-			if (!$ignore_on_account) return $hosted;
-			// check if domain is hosted on account
-			if ($invoice) {
-				// compare invoice of account and instance
-				return $invoice != $this->billing_get_invoice();
+			return $hosted;
+		}
+
+		public function domain_on_account($domain) {
+			self::_connect_db();
+
+			if (substr($domain, 0, 4) == "www.") {
+				$domain = substr($domain, 4);
 			}
-			return $site_id != $this->site_id || $server != SERVER_NAME_SHORT;
+
+			$q = "select IF(d.di_invoice != \"\", d.di_invoice,d2.di_invoice) AS invoice " .
+					"FROM domain_information d LEFT JOIN domain_information d2 ON " .
+					"d.parent_domain = d2.domain WHERE d.domain = ?";
+
+			$stmt = self::$domain_db->prepare($q);
+
+			$invoice = null;
+			$stmt->bind_param("s", $domain);
+			$stmt->bind_result($invoice);
+			$stmt->execute();
+			$stmt->store_result();
+			$stmt->fetch();
+			$hosted = $stmt->num_rows > 0;
+			$stmt->close();
+			return $hosted && $invoice == $this->get_config('billing','invoice');
 		}
 
 		/**

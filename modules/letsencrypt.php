@@ -23,6 +23,9 @@
 		// staging
 		const LETSENCRYPT_TESTING_SERVER = 'acme-staging.api.letsencrypt.org/directory';
 		const LE_AUTHORITY_FINGERPRINT = 'A8:4A:6A:63:04:7D:DD:BA:E6:D1:39:B7:A6:45:65:EF:F3:A8:EC:A1';
+		// include complementary hostname variant, e.g. foo.com + www.foo.com or www.foo.com + foo.com
+		const INCLUDE_ALT_FORM = LETSENCRYPT_ALTERNATIVE_FORM;
+		const SYSCERT_NAME = 'MAIN';
 
 		protected $activeServer;
 
@@ -177,20 +180,21 @@
 					continue;
 				}
 
-
-				$altform = null;
-				if (strncmp($host, "www.", 4)) {
-					// add www.example.com if example.com given
-					$altform = "www." . $host;
-				} else {
-					// add example.com if www.example.com given
-					$altform = substr($host, 4);
-				}
-				if ($this->_verifyIP($altform, $myip)) {
-					$cnreq[] = $altform;
-				} else {
-					info("skipping alternative hostname form `%s', IP does not resolve to `%s'",
-						$altform, $myip);
+				if (self::INCLUDE_ALT_FORM) {
+					$altform = null;
+					if (strncmp($host, "www.", 4)) {
+						// add www.example.com if example.com given
+						$altform = "www." . $host;
+					} else {
+						// add example.com if www.example.com given
+						$altform = substr($host, 4);
+					}
+					if ($this->_verifyIP($altform, $myip)) {
+						$cnreq[] = $altform;
+					} else {
+						info("skipping alternative hostname form `%s', IP does not resolve to `%s'",
+							$altform, $myip);
+					}
 				}
 
 				if (!$this->_verifyIP($host, $myip)) {
@@ -206,7 +210,7 @@
 			}
 			if (!$cnreq) {
 				error("no hostnames to register");
-				return null;
+				return false;
 			}
 			if (!$this->requestReal($cnreq, $this->site)) {
 				return false;
@@ -241,6 +245,16 @@
 			}
 			$this->_deleteAcmeCertificate($this->site);
 			return true;
+		}
+
+		public function exists() {
+			$path = parent::acmeAccountDirectory($this->site);
+			return file_exists($path);
+		}
+
+		public function storage_path($site) {
+
+			return $this->acmeAccountDirectory($site);
 		}
 
 		protected function _exec($cmd, array $args)
@@ -360,9 +374,21 @@
 			if (!$this->supported()) {
 				return;
 			}
-
 			$this->_register(Crm_Module::FROM_ADDRESS);
-			if (!is_debug()) {
+			$svrstorage = $this->storage_path(self::SYSCERT_NAME);
+			if (!is_dir($svrstorage)) {
+				// make a dummy cert that has already expired to bootstrap
+				if (!mkdir($svrstorage, 0700, true)) {
+					return error("failed to create system cert directory `%s'", $svrstorage);
+				}
+				$cns = array(SERVER_NAME);
+				if (defined('LETSENCRYPT_ADDITIONAL_CERTS')) {
+					$cns = array_merge($cns, preg_split('/[, ]+/', constant('LETSENCRYPT_ADDITIONAL_CERTS')));
+				}
+				if ($this->requestReal($cns, self::SYSCERT_NAME)) {
+					$this->installSystemCertificate();
+				}
+			} else if (!is_debug()) {
 				$this->renewExpiringCertificates();
 			}
 		}
@@ -399,7 +425,11 @@
 		{
 			$conf_new = Auth::profile()->conf->new;
 			$conf_cur = Auth::profile()->conf->cur;
-			if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
+			if (version_compare(platform_version(), '7', '>=')) {
+				if (!$conf_new['openssl']['enabled']) {
+					$this->_delete();
+				}
+			} else if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
 				!$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']
 			) {
 				$this->_delete();

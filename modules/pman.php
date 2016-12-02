@@ -490,7 +490,7 @@
 			$realcmd .= join(' \; ', $components);
 			$ret = $proc->run($realcmd);
 			if (!$ret['success']) {
-				return error("failed to schedule task `%s': %s", $cmd, $ret['error']);
+				return error("failed to schedule task `%s': %s", $realcmd, $ret['stderr']);
 			}
 			return true;
 		}

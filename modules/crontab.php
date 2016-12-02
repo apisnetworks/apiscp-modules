@@ -284,13 +284,17 @@
 			chmod($tmpFile, 0644);
 			$sudo = new Util_Process_Sudo();
 			$sudo->setUser($user . '@' . $this->domain);
-			$retData = Util_Process_Sudo::exec("crontab %s ",
+			$retData = $sudo->run("crontab %s ",
 				'/tmp/' . basename($tmpFile));
 			unlink($tmpFile);
 			return $retData['success'] ? true :
 				error("failed to set cron contents for `%s': %s", $user, $retData['error']);
 		}
 
+		public function add_raw($line, $user = null) {
+			
+		}
+		
 		public function enable_job($min, $hour, $dom, $month,
 		                           $dow, $cmd, $user = null)
 		{

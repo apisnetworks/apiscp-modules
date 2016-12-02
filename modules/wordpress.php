@@ -278,7 +278,7 @@
 
 			$ret = $this->_exec($docroot, 'core %(mode)s --dbname=%(db)s --dbpass=%(password)s --dbuser=%(user)s --dbhost=localhost --extra-php ' . $xtraphp, $args);
 			if (!$ret['success']) {
-				return error("failed to generate configuration, error: %s", $ret['stderr']);
+				return error("failed to generate configuration, error: %s", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			return true;
 		}
@@ -336,10 +336,12 @@
 				return error("invalid WP location");
 			}
 
-			$args = array($plugin);
-			$ret = $this->_exec($docroot, 'plugin install %s --activate', $args);
+			$args = array(
+				'plugin' => $plugin
+			);
+			$ret = $this->_exec($docroot, 'plugin install %(plugin)s --activate', $args);
 			if (!$ret['success']) {
-				return error("failed to install plugin `%s': %s", $plugin, $ret['stderr']);
+				return error("failed to install plugin `%s': %s", $plugin, coalesce($ret['stderr'], $ret['stdout']));
 			}
 			info("installed plugin `%s'", $plugin);
 			return true;
@@ -360,15 +362,17 @@
 				return error("invalid WP location");
 			}
 
-			$args = array($plugin);
-			$cmd = 'plugin uninstall %s';
+			$args = array(
+				'plugin' => $plugin
+			);
+			$cmd = 'plugin uninstall %(plugin)s';
 			if ($force) {
 				$cmd .= ' --deactivate';
 			}
 			$ret = $this->_exec($docroot, $cmd, $args);
 
 			if (!$ret['stdout'] || !strncmp($ret['stdout'], "Warning:", strlen("Warning:"))) {
-				return error("failed to uninstall plugin `%s': %s", $plugin, $ret['stderr']);
+				return error("failed to uninstall plugin `%s': %s", $plugin, coalesce($ret['stderr'], $ret['stdout']));
 			}
 			info("uninstalled plugin `%s'", $plugin);
 			return true;
@@ -390,7 +394,7 @@
 
 			$ret = $this->_exec($docroot, 'plugin deactivate --all --skip-plugins');
 			if (!$ret['success']) {
-				return error("failed to deactivate all plugins: %s", $ret['stderr']);
+				return error("failed to deactivate all plugins: %s", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			return info("plugin deactivation successful: %s", $ret['stdout']);
 		}
@@ -500,7 +504,7 @@
 			if (!$ret['success']) {
 				return error("failed to update admin `%s', error: %s",
 					$admin,
-					$ret['stderr']
+					coalesce($ret['stderr'], $ret['stdout'])
 				);
 			}
 
@@ -612,7 +616,7 @@
 
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
-				return error("update failed: `%s'", $ret['stderr']);
+				return error("update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			info("updating WP database if necessary");
 			$ret = $this->_exec($docroot, 'core update-db');
@@ -666,7 +670,7 @@
 
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", $ret['stderr']);
+				return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			return $ret['success'];
 		}
@@ -714,7 +718,7 @@
 
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
-				return error("theme update failed: `%s'", $ret['stderr']);
+				return error("theme update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			return $ret['success'];
 		}

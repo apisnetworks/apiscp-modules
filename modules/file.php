@@ -178,7 +178,10 @@
 		 */
 		public function extract($archive, $dest, $overwrite = true)
 		{
-			if (!IS_CLI) return $this->query('file_extract', $archive, $dest);
+			if (!IS_CLI) {
+				$ret = $this->query('file_extract', $archive, $dest);
+				return $ret;
+			}
 
 			$class = $this->initialize_interface($archive);
 			$archive_path = $this->make_path($archive);
@@ -192,7 +195,7 @@
 			if (!file_exists($destination_path)) {
 				if (!$this->create_directory($dest, 0755, true))
 					return false;
-			} else if (!$this->can_descend(dirname($destination_path), true)) {
+			} else if (!$this->can_descend($destination_path, true)) {
 				return error($dest . ": unable to write to directory");
 			}
 
@@ -203,6 +206,7 @@
 
 			mkdir($tmp_path);
 			chmod($tmp_path, 0700);
+
 			$ret = $class->extract_files($archive_path, $tmp_path);
 			if ($ret instanceof Exception) return $ret;
 
@@ -970,12 +974,15 @@
 				$stat = $this->stat_backend(substr($fullpath, strlen($fspfx)));
 				if ($stat instanceof Exception)
 					return error($stat->getMessage());
-				if (!$stat['can_execute'] || !$stat['can_read'])
+				if (!$stat['can_execute'] || !$stat['can_read']) {
 					return false;
+				}
 			} while (false !== ($subdir = strtok("/")));
 
-			if ($rw && !$stat['can_write'])
+			if ($rw && !$stat['can_write']) {
 				return false;
+			}
+
 
 			return true;
 		}
@@ -1839,7 +1846,7 @@
 			if (!is_dir($path))
 				return error("`%s'`: invalid directory", $mPath);
 			// trust transformed path, e.g. get_directory_contents("~/")
-			$mPath = $shadow ? $this->unmake_shadow_path($path) : $this->unmake_path($path);
+			$mPath = rtrim($shadow ? $this->unmake_shadow_path($path) : $this->unmake_path($path), '/');
 			$stat = $this->stat_backend($this->unmake_shadow_path($path));
 			if ($stat instanceof Exception) throw $stat;
 			if (!$stat['can_execute'] || !$stat['can_read']) {

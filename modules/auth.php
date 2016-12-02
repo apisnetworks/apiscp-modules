@@ -198,9 +198,9 @@
 
 			if (!IS_CLI) {
 				$ret = $this->query('auth_change_cpassword', $cpassword, $user, $domain);
-				if ($ret && ($this->permission_level & PRIVILEGE_SITE)
-					&& !$user || $user == $this->username
-				) {
+				if (!$ret || $this->get_service_value('siteinfo', self::PWOVERRIDE_KEY)) {
+					return $ret;
+				} else if ($this->permission_level&(PRIVILEGE_SITE|PRIVILEGE_USER)) {
 					// admin password changed
 					parent::sendNotice(
 						'password',
@@ -582,6 +582,7 @@
 			} else if ($this->web_subdomain_exists($domain)) {
 				return error("cannot promote subdomain `%s' to domain", $domain);
 			} else if (!$this->aliases_bypass_exists($domain) &&
+				$this->dns_gethostbyname_t($domain) != $this->common_get_ip_address() &&
 				$this->dns_get_records_external('', 'any', $domain) &&
 				!$this->dns_domain_uses_nameservers($domain)
 			) {

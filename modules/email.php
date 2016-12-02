@@ -187,7 +187,7 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 		/**
 		 * @deprecated @link modify_mailbox
 		 */
-		public function rename_mailbox($olduser, $olddomain, $newuser, $newdomain, $newmailbox, $newtype)
+		public function rename_mailbox($olduser, $olddomain, $newuser, $newdomain, $newmailbox, $newtype = null)
 		{
 			return $this->modify_mailbox($olduser, $olddomain, $newuser, $newdomain, $newmailbox, $newtype);
 		}

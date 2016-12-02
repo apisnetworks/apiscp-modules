@@ -63,11 +63,16 @@
 			return $field ? $cp[$field] : $cp;
 		}
 
+		public function platform_version() {
+			return platform_version();
+		}
+
 		public function _init()
 		{
 			$this->exportedFunctions = array(
 				'*'                      => PRIVILEGE_SITE,
 				'cp_version'             => PRIVILEGE_ALL,
+				'platform_version'       => PRIVILEGE_ALL,
 				'dashboard_memory_usage' => PRIVILEGE_ALL,
 				'lservice_memory_usage'  => PRIVILEGE_ALL,
 				'changelog'              => PRIVILEGE_ALL,

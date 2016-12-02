@@ -26,8 +26,9 @@
 		//const JOOMLA_CLI = '/.socket/php/pear/1.4.6/joomlatools-console-1.4.6/bin/joomla';
 		const UPDATE_URI = 'https://github.com/joomla/joomla-cms/releases/download/%version%/Joomla_%version%-Stable-Update_Package.zip';
 
-		// latest release
-		const JOOMLA_CLI_URL = '';
+		// after installation apply the following fortification profile
+		const DEFAULT_FORTIFY_MODE = 'max';
+
 		const JOOMLA_CLI_VERSION = '1.4.6';
 		const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
@@ -217,8 +218,10 @@
 
 			// by default, let's only open up ACLs to the bare minimum
 			$this->file_touch($docroot . '/.htaccess');
-			$this->fortify($hostname, $path, 'max');
-			//$this->file_set_acls(array($docroot . '/'), $users);
+			$fortifymode = self::DEFAULT_FORTIFY_MODE;
+			$this->fortify($hostname, $path, $fortifymode);
+			info("fortification mode set to %s", strtoupper($fortifymode));
+
 			if (!$version) {
 				$version = $this->_getLatestVersion();
 			}
@@ -226,7 +229,7 @@
 				'version'    => $version,
 				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => 'max'
+				'fortify'    => $fortifymode
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -239,8 +242,8 @@
 				"panel at " . rtrim($url, "/") . '/administrator' . " using the following details:" . "\r\n\r\n" .
 				"Username: " . $opts['user'] . "\r\n" .
 				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
-			$msg .= "\r\nWhen installing plugins or themes, be sure to place fortification mode " .
-				"in \"Web App Write Mode\" in the control panel!" . "\r\n" .
+			$msg .= "\r\n** IMPORTANT **: When installing plugins or themes, be sure to place fortification mode " .
+				"in \"MIN\" or \"Web App Write Mode\" in the control panel!" . "\r\n" .
 				"See: http://kb.apisnetworks.com/control-panel/understanding-fortification/";
 			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Joomla! Installed", $msg, $hdrs);
@@ -764,8 +767,8 @@
 				$this->file_chown($docroot, $user, true);
 			}
 
-			$this->fortify($domain, $path);
-			info("Joomla updated, fortification set to MAX");
+			$this->fortify($domain, $path, self::DEFAULT_FORTIFY_MODE);
+			info("Joomla updated, fortification set to %s", strtoupper(self::DEFAULT_FORTIFY_MODE));
 
 			// as a prereq, joomlaupdate component must be updated as well
 			// PHP runs jailed, may not have cache plugin installed, disable it

@@ -483,9 +483,6 @@
 
 		public function add_shared_domain($domain, $path)
 		{
-			/**
-			 * @XXX don't drop into CLI, because IS_SOAP needs to bypass verification step
-			 */
 			$domain = preg_replace('/^www./', '', strtolower($domain));
 			$path = rtrim(str_replace('..', '.', $path), '/') . '/';
 
@@ -503,7 +500,9 @@
 			if ($this->shared_domain_hosted($domain))
 				return error("`%s': domain is already hosted by another account", $domain);
 
-			if (!$this->_verify_dns($domain) && !$this->_verify_url($domain)) {
+			if (!$this->dns_domain_on_account($domain) /** domain under same invoice */&&
+				!$this->_verify_dns($domain) && !$this->_verify_url($domain))
+			{
 				$nameservers = $this->dns_get_authns_from_host($domain);
 				$cpnameservers = $this->dns_get_hosting_nameservers();
 				$hash = $this->_get_url_hash($domain);
@@ -611,7 +610,7 @@
 			 *
 			 * @XXX DNS checks can be bypassed via API: BAD
 			 */
-			if (IS_SOAP || is_debug() || $this->_is_bypass($domain)) {
+			if (is_debug() || $this->_is_bypass($domain)) {
 				return true;
 			}
 			// domain not hosted, 5 second timeout
