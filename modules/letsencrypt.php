@@ -210,7 +210,7 @@
 			}
 			if (!$cnreq) {
 				error("no hostnames to register");
-				return false;
+				return null;
 			}
 			if (!$this->requestReal($cnreq, $this->site)) {
 				return false;
