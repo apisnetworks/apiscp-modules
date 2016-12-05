@@ -543,7 +543,7 @@
 				return error("unknown rr record type `%s'", $rr);
 			}
 			if (!$nameservers) {
-				$nameservers = self::EXTERNAL_NAMESERVER;
+				$nameservers = array(self::EXTERNAL_NAMESERVER);
 			}
 			for ($i = 0; $i < 5; $i++) {
 				$recraw = Error_Reporter::silence(function() use($host, $rrsym, $nameservers) {
@@ -945,10 +945,6 @@
 				$domain = substr($domain, 4);
 			}
 
-			if ($ignore_on_account) {
-				return !$this->domain_on_account($domain);
-			}
-
 			$q = "SELECT di_invoice, server_name, site_id FROM domain_information WHERE domain = ?";
 
 			$stmt = self::$domain_db->prepare($q);
@@ -961,7 +957,9 @@
 			$stmt->fetch();
 			$hosted = $stmt->num_rows > 0;
 			$stmt->close();
-			if (!$hosted) return false;
+			if ($hosted && !$ignore_on_account) {
+				return !$this->domain_on_account($domain);
+			}
 			return $hosted;
 		}
 
@@ -1026,7 +1024,7 @@
 				return error("malformed domain `%s'", $domain);
 			}
 			$found = false;
-			$ns = self::EXTERNAL_NAMESERVER;
+			$ns = $this->get_hosting_nameservers();
 			if (is_array($ns)) {
 				$ns = array_pop($ns);
 			}
