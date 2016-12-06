@@ -277,7 +277,7 @@
 			foreach (glob($this->domain_fs_path() . '/var/subdomain/*/') as $entry) {
 				$subdomain = basename($entry);
 				$path = null;
-				if (file_exists($entry . '/html')) {
+				if (is_link($entry . '/html') || is_dir($entry . '/html') /* smh... */) {
 					if (!is_link($entry . '/html')) {
 						warn("subdomain `%s' doc root is directory", $subdomain);
 						$path = '/var/subdomain/' . $entry . '/html';
@@ -1015,10 +1015,16 @@
 
 		}
 
-		public function _edit_user($user, $usernew)
+		public function _edit_user($user, $usernew, array $pwd)
 		{
-			$userhome = $this->user_get_user_home($user);
-			$re = '!^' . $userhome . '!';
+			/**
+			 * @TODO
+			 * Assert that all users are stored under /home/username
+			 * edit_user hook is called after user is changed, so
+			 * this is lost without passing user pwd along
+			 */
+			$userhome = $this->user_get_user_home($usernew);
+			$re = '!^' . $pwd['home'] . '!';
 			mute_warn();
 			$subdomains = $this->list_subdomains('path', $re);
 			unmute_warn();

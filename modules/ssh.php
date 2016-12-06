@@ -18,6 +18,7 @@
 	 */
 	class Ssh_Module extends Module_Skeleton
 	{
+		const PAM_SVC_NAME = 'ssh';
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -35,7 +36,7 @@
 
 		public function deny_user($user)
 		{
-			return Util_Pam::remove_entry($user, 'ssh');
+			return Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
 		}
 
 		public function permit_user($user)
@@ -43,7 +44,7 @@
 			if ($this->auth_is_demo()) {
 				return error("SSH disabled for demo account");
 			}
-			return Util_Pam::add_entry($user, 'ssh');
+			return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
 		}
 
 		public function user_enabled($user)
@@ -51,7 +52,7 @@
 			if (!$this->get_config('ssh', 'enabled'))
 				return warn("ssh not enabled on account");
 
-			return Util_Pam::check_entry($user, 'ssh');
+			return Util_Pam::check_entry($user, self::PAM_SVC_NAME);
 		}
 
 		public function enabled()
@@ -71,10 +72,8 @@
 			}
 
 			// @TODO nuke active ssh sessions?
-			mute_warn();
-			$this->deny_user($user);
-			$this->permit_user($usernew);
-			unmute_warn();
+			Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
+			Util_Pam::add_entry($usernew, self::PAM_SVC_NAME);
 			return true;
 		}
 
@@ -91,8 +90,8 @@
 			// stupid thor...
 			$conf = Auth::profile()->conf->new;
 			$admin = $conf['siteinfo']['admin_user'];
-			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, 'ssh')) {
-				Util_Pam::remove_entry($admin, 'ssh');
+			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, self::PAM_SVC_NAME)) {
+				Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
 			}
 		}
 	}

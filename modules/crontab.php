@@ -598,10 +598,9 @@
 				return true;
 			}
 
-			mute_warn();
-			$this->deny_user($user);
-			$this->permit_user($usernew);
-			unmute_warn();
+			$this->_deny_user_real($user);
+			$this->_permit_user_real($usernew);
+
 			$this->restart();
 			return true;
 		}
@@ -620,7 +619,10 @@
 			$uid = $this->user_get_uid_from_username($user);
 			if (!$uid || $uid < User_Module::MIN_UID)
 				return error("user `%s' is system user or does not exist", $user);
+			return $this->_deny_user_real($user);
+		}
 
+		protected function _deny_user_real($user) {
 			$file = $this->domain_fs_path() . '/etc/cron.deny';
 			if (!file_exists($file)) {
 				touch($file);
@@ -658,7 +660,10 @@
 			} else if (!$uid) {
 				warn("user `%s' does not exist", $user);
 			}
+			return $this->_permit_user_real($user);
+		}
 
+		protected function _permit_user_real($user) {
 			$file = $this->domain_fs_path() . '/etc/cron.deny';
 			if (!file_exists($file)) return true;
 			$fp = fopen($file, 'a+');

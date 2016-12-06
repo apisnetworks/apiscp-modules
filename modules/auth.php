@@ -872,7 +872,6 @@
 		 */
 		public function get_api_keys($user = null)
 		{
-			$keys = array();
 			if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
 				$user = $this->username;
 			} else if ($user) {
@@ -880,6 +879,10 @@
 					return error("user `%s' does not exist", $user);
 				}
 			}
+			return $this->_get_api_keys_real($user);
+		}
+
+		protected function _get_api_keys_real($user) {
 			$db = Auth_SOAP::get_api_db();
 			$qfrag = $this->_getAPIQueryFragment();
 			/**
@@ -898,7 +901,7 @@
 			if (!$rs) {
 				return error("failed to get keys");
 			}
-
+			$keys = array();
 			while ($row = $rs->fetch_object()) {
 				$keys[] = array(
 					'key'       => $row->api_key,
@@ -967,7 +970,7 @@
 		private function _edit_wrapper($userold, $usernew)
 		{
 			$db = $this->mysql;
-			foreach ($this->get_api_keys($userold) as $key) {
+			foreach ($this->_get_api_keys_real($userold) as $key) {
 				$q = $db->query("UPDATE api_keys SET `username` = '" . $db->escape_string($usernew) . "' " .
 					"WHERE api_key = '" . $key['key'] . "' AND `username` = '" . $db->escape_string($userold) . "'"
 				);
@@ -1008,7 +1011,6 @@
 		 */
 		public function permit_user($user, $svc = 'cp')
 		{
-
 			if (!in_array($svc, $this->_pam_services()))
 				return error("unknown service `$svc'");
 			return Util_Pam::add_entry($user, $svc);

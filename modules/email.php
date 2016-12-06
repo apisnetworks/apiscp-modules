@@ -254,8 +254,9 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 
 
 				$users = $this->user_get_users();
-				if (!isset($users[$local_user]))
+				if (!isset($users[$local_user])) {
 					return error("User account `%s' does not exist", $local_user);
+				}
 
 				$uid = intval($users[$local_user]['uid']);
 
@@ -1282,15 +1283,17 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 
 		public function _edit_user($user, $usernew)
 		{
-			$uid = $this->user_get_uid_from_username($user);
+			// edit_user hooks enumerated after user changed
+			$uid = $this->user_get_uid_from_username($usernew);
 			if (!$uid) {
-				return error("cannot determine uid from user `%s' in mailbox translation", $uid);
+				return error("cannot determine uid from user `%s' in mailbox translation", $user);
 			}
 			mute_warn();
 			foreach ($this->_pam_services() as $svc) {
 				if ($this->user_enabled($user, $svc)) {
-					$this->permit_user($usernew, $svc);
-					$this->deny_user($user, $svc);
+					Util_Pam::remove_entry($user, $svc);
+					// edit_user hook renames user then calls
+					Util_Pam::add_entry($usernew, $svc);
 				}
 			}
 			unmute_warn();
@@ -1326,7 +1329,7 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 
 		private function _pam_services()
 		{
-			return array('smtp', 'imap');
+			return array('smtp_relay', 'imap');
 		}
 
 		public function user_enabled($user, $svc = null)

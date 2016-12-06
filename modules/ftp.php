@@ -25,7 +25,8 @@
 		 */
 		const VSFTPD_CONF_DIR = '/etc/vsftpd';
 		const VSFTPD_CHROOT_FILE = '/etc/vsftpd.chroot_list';
-
+		const PAM_SVC_NAME = 'proftpd';
+		
 		public function __construct()
 		{
 			parent::__construct();
@@ -36,12 +37,16 @@
 
 		public function user_jailed($user)
 		{
-			$chroot_file = $this->domain_fs_path() . self::VSFTPD_CHROOT_FILE;
-			if (!file_exists($chroot_file))
-				return false;
 			if (!$this->user_exists($user))
 				return error("user " . $user . " does not exist");
 
+			return $this->_user_jailed_real($user);
+		}
+
+		protected function _user_jailed_real($user) {
+			$chroot_file = $this->domain_fs_path() . self::VSFTPD_CHROOT_FILE;
+			if (!file_exists($chroot_file))
+				return false;
 			return (bool)preg_match('/\b' . $user . '\b/', file_get_contents($chroot_file));
 		}
 
@@ -127,7 +132,10 @@
 
 			if (!$this->user_exists($user))
 				return error("user " . $user . " does not exist");
+			return $this->_set_option_real($user, $c_directive, $c_val);
+		}
 
+		protected function _set_option_real($user, $c_directive, $c_val = null) {
 			$user_conf = self::VSFTPD_CONF_DIR . '/' . $user;
 
 			if (!file_exists($this->domain_fs_path() . $user_conf) &&
@@ -183,7 +191,10 @@
 
 			if (!$this->user_exists($user))
 				return error("user " . $user . " does not exist");
+			return $this->_get_option_real($user, $c_directive);
+		}
 
+		protected function _get_option_real($user, $c_directive) {
 			$conf_file = $this->domain_fs_path() . self::VSFTPD_CONF_DIR . '/' . $user;
 			if (!file_exists($conf_file)) {
 				warn("no configuration set for user " . $user);
@@ -202,7 +213,7 @@
 
 		public function deny_user($user)
 		{
-			return Util_Pam::remove_entry($user, 'proftpd');
+			return Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
 		}
 
 		public function permit_user($user)
@@ -210,27 +221,24 @@
 			if ($this->auth_is_demo()) {
 				return error("FTP disabled for demo account");
 			}
-			return Util_Pam::add_entry($user, 'proftpd');
+			return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
 		}
 
 		public function user_enabled($user)
 		{
-			return Util_Pam::check_entry($user, 'proftpd');
+			return Util_Pam::check_entry($user, self::PAM_SVC_NAME);
 		}
 
-		public function _edit_user($user, $usernew)
+		public function _edit_user($user, $usernew, $pwd)
 		{
 			if (!$this->user_enabled($user)) {
 				return true;
 			}
-			mute_warn();
-			if ($this->user_enabled($user)) {
-				$this->deny_user($user);
-				$this->permit_user($usernew);
-			}
-			unmute_warn();
-			$home = $this->user_get_user_home($user);
-			if ($this->user_jailed($user)) {
+			Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
+			Util_Pam::add_entry($usernew, self::PAM_SVC_NAME);
+
+			$home = $pwd['home'];
+			if ($this->_user_jailed_real($user)) {
 				$jailhome = null;
 				if ($this->has_configuration($user)) {
 					$jailhome = $this->get_option($user, 'local_root');
@@ -283,8 +291,8 @@
 			// stupid thor...
 			$conf = Auth::profile()->conf->new;
 			$admin = $conf['siteinfo']['admin_user'];
-			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, 'proftpd')) {
-				Util_Pam::remove_entry($admin, 'proftpd');
+			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, self::PAM_SVC_NAME)) {
+				Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
 			}
 		}
 	}

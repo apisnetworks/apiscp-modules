@@ -646,7 +646,7 @@
 		 */
 		public function get_authns_from_host($host)
 		{
-			$nameservers = self::EXTERNAL_NAMESERVER;
+			$nameservers = array(self::EXTERNAL_NAMESERVER);
 			$authns = dns_get_record($host, $this->record2const('ns'), $nameservers);
 			$tmp = array();
 			foreach ($authns as $a) {
@@ -957,10 +957,14 @@
 			$stmt->fetch();
 			$hosted = $stmt->num_rows > 0;
 			$stmt->close();
-			if ($hosted && !$ignore_on_account) {
-				return !$this->domain_on_account($domain);
+			if (!$hosted) {
+				return false;
 			}
-			return $hosted;
+			if (!$ignore_on_account) {
+				return $hosted;
+			}
+			
+			return !$this->domain_on_account($domain);
 		}
 
 		public function domain_on_account($domain) {
