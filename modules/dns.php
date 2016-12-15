@@ -988,7 +988,7 @@
 			$stmt->fetch();
 			$hosted = $stmt->num_rows > 0;
 			$stmt->close();
-			return $hosted && $invoice == $this->get_config('billing','invoice');
+			return $hosted && $invoice == coalesce($this->get_config('billing','invoice'), $this->get_config('billing','parent_invoice'));
 		}
 
 		/**
