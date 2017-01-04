@@ -2166,7 +2166,9 @@
 				$optimized = false;
 			}
 			$unmakeFn = $optimized ? 'unmake_shadow_path' : 'unmake_path';
-			if ($optimized) {
+			if ($optimized && $this->_optimizedShadowAssertion < 2) {
+				// OverlayFS doesn't like direct operations on r/w branch
+				// perform move onto synthetic fs
 				$dest_path = $this->make_shadow_path($dest);
 			} else {
 				$dest_path = $this->make_path($dest);
@@ -2795,6 +2797,11 @@
 			}
 		}
 
+		/**
+		 * Dump OverlayFS cache
+		 *
+		 * @return bool
+		 */
 		public function purge()
 		{
 			if (!IS_CLI) {

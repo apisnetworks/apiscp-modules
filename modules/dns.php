@@ -24,8 +24,9 @@
 		 */
 		private static $dns_key = DNS_TSIG_KEY;
 		/** primary nameserver */
-		const INTERNAL_NAMESERVER = DNS_INTERNAL_MASTER;
-		const EXTERNAL_NAMESERVER = DNS_EXTERNAL_NS;
+		const MASTER_NAMESERVER = DNS_INTERNAL_MASTER;
+		const AUTHORITATIVE_NAMESERVER = DNS_AUTHORITATIVE_NS;
+		const RECURSIVE_NAMESERVER = DNS_RECURSIVE_NS;
 		const NAMEBASED_INTERFACE_FILE = '/etc/virtualhosting/interface';
 		// default DNS TTL for records modified via update()
 		const DYNDNS_TTL = 300;
@@ -265,7 +266,7 @@
 			}
 			$rec = $this->_get_zone_information_raw($domain);
 			if (is_null($rec)) {
-				return new apnscpException("Non-authorative for zone " . $domain);
+				return error("Non-authorative for zone " . $domain);
 			}
 			return $rec;
 
@@ -318,7 +319,7 @@
 
 		private function _get_zone_information_raw_raw($domain)
 		{
-			$data = Util_Process::exec("dig -t AXFR -y '" . self::$dns_key . "' @" . self::INTERNAL_NAMESERVER . " " . $domain);
+			$data = Util_Process::exec("dig -t AXFR -y '" . self::$dns_key . "' @" . self::MASTER_NAMESERVER . " " . $domain);
 			return $data['success'] ? $data['output'] : false;
 		}
 
@@ -464,8 +465,7 @@
 				return error("cannot view DNS information for unaffiliated domain `" . $domain . "'");
 			}
 			$recs = $this->_get_records_raw($subdomain, $rr, $domain);
-			if ($recs instanceof Exception) return error($recs->getMessage());
-			return $recs;
+			return (array)$recs;
 
 		}
 
@@ -543,7 +543,7 @@
 				return error("unknown rr record type `%s'", $rr);
 			}
 			if (!$nameservers) {
-				$nameservers = array(self::EXTERNAL_NAMESERVER);
+				$nameservers = array(self::RECURSIVE_NAMESERVER);
 			}
 			for ($i = 0; $i < 5; $i++) {
 				$recraw = Error_Reporter::silence(function() use($host, $rrsym, $nameservers) {
@@ -646,7 +646,7 @@
 		 */
 		public function get_authns_from_host($host)
 		{
-			$nameservers = array(self::EXTERNAL_NAMESERVER);
+			$nameservers = array(self::RECURSIVE_NAMESERVER);
 			$authns = dns_get_record($host, $this->record2const('ns'), $nameservers);
 			$tmp = array();
 			foreach ($authns as $a) {
@@ -747,7 +747,7 @@
 				return error("unknown RR class `%s'", $rr);
 			}
 			$status = Util_Process::exec('dig +time=1 +tcp +short @%s %s %s',
-				self::INTERNAL_NAMESERVER,
+				self::AUTHORITATIVE_NAMESERVER,
 				escapeshellarg($record),
 				array_key_exists($rr, self::$rec_2_const) ? $rr : 'ANY'
 			);
@@ -1094,7 +1094,7 @@
 			Util_Process::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
 				'%s @%s %s > %s',
 				escapeshellarg(self::$dns_key),
-				self::INTERNAL_NAMESERVER,
+				self::AUTHORITATIVE_NAMESERVER,
 				$zone,
 				$tmpfile,
 				array('mute_stderr' => true)
@@ -1452,7 +1452,7 @@
 			// nameserver zone replication service port
 			$port = 25500;
 			$msg = $err = null;
-			$socket = fsockopen(self::INTERNAL_NAMESERVER, $port, $err, $msg);
+			$socket = fsockopen(self::MASTER_NAMESERVER, $port, $err, $msg);
 			if (!$socket) {
 				Error_Reporter::report("failed to add domain `%s' with `%s': (%x) %s",
 					$domain, $ip, $err, $msg);
@@ -1578,7 +1578,7 @@
 		private static function __send($cmd)
 		{
 			$key = explode(':', self::$dns_key);
-			$cmd = 'server ' . self::INTERNAL_NAMESERVER . "\n" .
+			$cmd = 'server ' . self::MASTER_NAMESERVER . "\n" .
 				'key ' . $key[0] . ' ' . $key[1] . "\n" .
 				$cmd . "\n" . 'send' . "\n";
 			$file = tempnam('/tmp', 'dns');

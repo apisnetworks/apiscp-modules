@@ -1035,7 +1035,7 @@
 
 		public function permitted()
 		{
-			return version_compare(platform_version(), '6.5', '>=') || !$this->get_service_value('ipinfo', 'namebased');
+			return version_compare(platform_version(), '6', '>=') || !$this->get_service_value('ipinfo', 'namebased');
 		}
 
 		private function _getSSLExtraConfig()
@@ -1068,7 +1068,7 @@
 
 			};
 
-			if (version_compare(platform_version(), '6.5', '>=')) {
+			if (version_compare(platform_version(), '6', '>=')) {
 				// Luna and on do things differently
 				if (!$conf_new['openssl']['enabled']) {
 					$renameWrapper('disable');

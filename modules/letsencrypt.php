@@ -425,7 +425,7 @@
 		{
 			$conf_new = Auth::profile()->conf->new;
 			$conf_cur = Auth::profile()->conf->cur;
-			if (version_compare(platform_version(), '6.5', '>=')) {
+			if (version_compare(platform_version(), '6', '>=')) {
 				if (!$conf_new['openssl']['enabled']) {
 					$this->_delete();
 				}
