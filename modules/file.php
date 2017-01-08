@@ -80,7 +80,7 @@
 				$this->compression_instances[$iface] = null;
 			}
 			$this->_optimizedShadowAssertion = (int)version_compare(platform_version(), '4.5', '>=');
-			if ($this->_optimizedShadowAssertion && version_compare(platform_version(), '6.5', '>=')) {
+			if ($this->_optimizedShadowAssertion && version_compare(platform_version(), '6', '>=')) {
 				$this->_optimizedShadowAssertion = 2;
 			}
 			$this->exportedFunctions = array(
@@ -2807,7 +2807,7 @@
 			if (!IS_CLI) {
 				return $this->query('file_purge');
 			}
-			if (version_compare(platform_version(), '6.5', '<')) {
+			if (version_compare(platform_version(), '6', '<')) {
 				return false;
 			}
 			if ($this->permission_level & !(PRIVILEGE_SITE | PRIVILEGE_USER)) {

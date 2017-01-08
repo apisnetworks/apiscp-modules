@@ -790,7 +790,13 @@
 			$dboptData = "default-character-set=" . $charset . "\n" .
 				"default-collation=" . $collation;
 			$path = $this->domain_fs_path();
-			if (version_compare(platform_version(), '4.5', '>=') && version_compare(platform_version(), '6.5', '<')) {
+			if (version_compare(platform_version(), '4.5', '>=')) {
+				/**
+				 * use shadow/ on OverlayFS platforms too. mysqldump
+				 * communicates with mysqld to dump tables, so there's
+				 * no risk of ghosting as seen if we write directly to shadow/
+				 * and query from the composite path fst/
+				 */
 				$path = $this->domain_shadow_path();
 			}
 			$dbcan = $this->_canonicalize_mysql_database($db);
