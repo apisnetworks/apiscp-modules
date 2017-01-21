@@ -556,7 +556,8 @@
 			}
 			if ($recraw === false) {
 				$host = ltrim(join(".", array($subdomain, $domain)),'.');
-				return error("failed to get external raw records for `%s' on `%s'", $rr, $host);
+				warn("failed to get external raw records for `%s' on `%s'", $rr, $host);
+				return [];
 			}
 
 			$records = array();
@@ -647,7 +648,12 @@
 		public function get_authns_from_host($host)
 		{
 			$nameservers = array(self::RECURSIVE_NAMESERVER);
-			$authns = dns_get_record($host, $this->record2const('ns'), $nameservers);
+			$authns = silence(function() use ($host, $nameservers) {
+				return dns_get_record($host, static::record2const('ns'), $nameservers);
+			});
+			if (!$authns) {
+				return array();
+			}
 			$tmp = array();
 			foreach ($authns as $a) {
 				if ($a['type'] == 'NS') {
@@ -746,7 +752,7 @@
 			if ($this->record2const($rr) < 1) {
 				return error("unknown RR class `%s'", $rr);
 			}
-			$status = Util_Process::exec('dig +time=1 +tcp +short @%s %s %s',
+			$status = Util_Process::exec('dig +time=3 +tcp +short @%s %s %s',
 				self::AUTHORITATIVE_NAMESERVER,
 				escapeshellarg($record),
 				array_key_exists($rr, self::$rec_2_const) ? $rr : 'ANY'
@@ -860,8 +866,8 @@
 		 */
 		public function add_record($zone, $subdomain, $rr, $param, $ttl = self::DNS_TTL)
 		{
-			if ((strcmp($zone, 'apisnetworks.com') && is_debug())) {
-				//return info("not setting DNS record in development mode");
+			if (is_debug()) {
+				return info("not setting DNS record in development mode");
 			}
 
 			if (!$this->owned_zone($zone))
@@ -1021,13 +1027,18 @@
 		 */
 		public function domain_uses_nameservers($domain)
 		{
-			// IMPORTANT:
-			// if the server trusts
-			$dns = $this->get_records_external(null, 'ns', $domain);
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				return error("malformed domain `%s'", $domain);
 			}
+			// IMPORTANT:
+			// if the server trusts
+			$dns = mute(function () use ($domain) {
+				return static::get_records_external(null, 'ns', $domain);
+			});
 			$found = false;
+			if (!$dns) {
+				return $found;
+			}
 			$ns = $this->get_hosting_nameservers();
 			if (is_array($ns)) {
 				$ns = array_pop($ns);

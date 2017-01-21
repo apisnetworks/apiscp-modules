@@ -788,11 +788,11 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 			if (!$keepdns) {
 				$split = $this->web_split_host($domain);
 				$mailsub = rtrim('mail.' . $split['subdomain'], '.');
-				if ($this->dns_record_exists($split['domain'], $split['subdomain'], 'MX')) {
-					$this->dns_remove_record($split['domain'], $split['subdomain'], 'MX');
-				}
 				if ($this->dns_record_exists($split['domain'], $mailsub, 'A')) {
 					$this->dns_remove_record($split['domain'], $mailsub, 'A');
+				}
+				if ($this->dns_record_exists($split['domain'], $split['subdomain'], 'MX')) {
+					$this->dns_remove_record($split['domain'], $split['subdomain'], 'MX');
 				}
 			}
 			return $ok;
@@ -822,67 +822,58 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 			// default record
 			$myip = $this->site_ip_address();
 			$mymailrec = rtrim('mail.' . $subdomain, '.');
-			$forcemake = false;
-			if (!$this->dns_record_exists($domain, $subdomain, 'MX')) {
-				// add DNS first
-				$this->dns_add_record($domain, $subdomain, 'MX', '10 mail.' . $transport);
-			} else {
-				// record exists, confirm MX value
-				$hostname = ltrim($subdomain . "." . $domain, ".");
 
-				$rec = $this->dns_get_records_by_rr('MX', $hostname);
-				// just examine the first record...
-				if (!$rec) {
-					// external DNS settings, dns_record_exists queries public DNS
-					// get_records_by_rr queries internally
-					$nsrecs = join(", ", $this->dns_get_hosting_nameservers());
-					warn("external nameservers are used to provide DNS for domain. Continuing to make " .
-						"local MX records on local nameservers. E-mail configuration in Mail > Manage Mailboxes " .
-						"will not be reflected until nameservers are changed to %s",
-						$nsrecs,
-						$nsrecs
-					);
-					$forcemake = true;
-					$this->dns_add_record($domain, $subdomain, 'MX', '10 mail.' . $transport);
-				} else {
-					$rec = array_pop($rec);
-					list($priority, $host) = preg_split("/\s+/", $rec['parameter']);
-					$mxip = $this->dns_gethostbyname_t($host);
-					if ($mxip != $myip) {
-						$hostname = ltrim($subdomain . '.' . $domain, ".");
-						warn("Custom MX record for `%s' already exists, not overwriting. Manually add a MX record for `%s' to `%s'",
-							$hostname,
-							$hostname,
-							'10 mail.' . $transport);
-						return true;
-					}
-				}
+			if (!$this->dns_domain_uses_nameservers($domain)) {
+				$nsrecs = join(", ", $this->dns_get_hosting_nameservers());
+				warn("Domain uses third-party nameservers to provide DNS. Continuing to make " .
+					"local MX records on local nameservers. Email configuration in Mail > Manage Mailboxes " .
+					"will not be reflected until nameservers are changed to %s",
+					$nsrecs,
+					$nsrecs
+				);
 			}
 
 			/**
 			 * forcefully set the record just in case, if external DNS is used
 			 * if MX destination record is already present, elicit a warning and continue;
 			 */
-			if ($forcemake || !$this->dns_record_exists($domain, $mymailrec)) {
+			if ($this->dns_record_exists($domain, $mymailrec, 'A')) {
 				$srvrec = $this->dns_get_records($mymailrec, 'A', $domain);
-				if (!$srvrec) {
-					return $this->dns_add_record($domain, $mymailrec, 'A', $myip) ||
-					warn("failed to populate DNS record for MX!");
-				}
 				// should only be 1 record...
 				$srvrec = array_pop($srvrec);
-				if ($srvrec['parameter'] == $myip) {
-					return true;
+				if ($srvrec['parameter'] != $myip) {
+					$hostname = join(".", array($mymailrec, $domain));
+					warn("A record for %s points to %s, not overwriting! Email will not " .
+						"route properly until the record is changed from %s to %s.",
+						$hostname,
+						$srvrec['parameter'],
+						$srvrec['parameter'],
+						$myip
+					);
 				}
-				$hostname = join(".", array($mymailrec, $domain));
-				warn("A record for %s points to %s, not overwriting! E-mail will not " .
-					"route properly until the record is changed from %s to %s.",
-					$hostname,
-					$srvrec['parameter'],
-					$srvrec['parameter'],
-					$myip
-				);
+			} else {
+				$this->dns_add_record($domain, $mymailrec, 'A', $myip) ||
+					warn("failed to populate DNS record for MX!");
 			}
+
+			if (!$this->dns_record_exists($domain, $subdomain, 'MX')) {
+				return $this->dns_add_record($domain, $subdomain, 'MX', '10 mail.' . $transport);
+			}
+
+			// record exists, confirm MX value matches
+			$rec = $this->dns_get_records($subdomain, 'A', $domain);
+			// just examine the first record...
+			$rec = array_pop($rec);
+			list($priority, $host) = preg_split("/\s+/", $rec['parameter']);
+			$mxip = $this->dns_gethostbyname_t($host);
+			if ($mxip != $myip) {
+				$hostname = ltrim($subdomain . '.' . $domain, ".");
+				warn("Custom MX record for `%s' already exists, not overwriting. Manually add a MX record for `%s' to `%s'",
+					$hostname,
+					$hostname,
+					'10 mail.' . $transport);
+			}
+
 			return true;
 		}
 

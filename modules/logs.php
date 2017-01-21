@@ -316,14 +316,14 @@
 			if (!IS_CLI) {
 				return $this->query('logs_validate_config');
 			}
-			$proc = Util_Process::exec('chroot %s logrotate -v /etc/logrotate.conf',
-				$this->domain_fs_path());
-			if (!$proc['success']) {
-				return error("logrotate check failed: %s", $proc['stderr']);
+			$proc = new Util_Process_Chroot($this->domain_fs_path());
+			$ret = $proc->run('/usr/sbin/logrotate %s %s', ['-d', '/etc/logrotate.conf']);
+			if (!$ret['success']) {
+				return error("logrotate check failed: %s", $ret['stderr']);
 			}
 			// additional non-fatal markup can appear in logrotate config
 			$errs = array();
-			foreach (explode("\n", $proc['stderr']) as $line) {
+			foreach (explode("\n", $ret['stderr']) as $line) {
 				if (!strncmp($line, "error:", 6)) {
 					$errs[] = $line;
 					warn($line);
@@ -332,6 +332,20 @@
 			return count($errs) > 0 ? -1 : 1;
 		}
 
+		public function set_logrotate($data) {
+			if (!IS_CLI) {
+				return $this->query('logs_set_logrotate', $data);
+			}
+
+			$file = $this->domain_fs_path() . '/etc/logrotate.conf';
+			$old = file_get_contents($file);
+			file_put_contents($file, $data);
+			if (!$this->validate_config()) {
+				file_put_contents($file, $old);
+				return false;
+			}
+			return true;
+		}
 	}
 
 ?>

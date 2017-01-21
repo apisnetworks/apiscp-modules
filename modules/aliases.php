@@ -601,7 +601,7 @@
 		 * @param $domain
 		 * @return bool domain can be hosted
 		 */
-		private function _verify_dns($domain)
+		protected function _verify_dns($domain)
 		{
 			/*
 			 * workaround for account migrations which
@@ -624,20 +624,8 @@
 				// domain is on this server and would appear in db lookup check
 				return true;
 			}
-
-			$ns = $this->dns_get_authns_from_host($domain);
-			// no nameservers set
-			if (!$ns) {
+			if ($this->domain_is_delegated($domain)) {
 				return true;
-			}
-
-			$hostingns = $this->dns_get_hosting_nameservers();
-			// uses Apis nameservers, we're good
-
-			foreach ($ns as $n) {
-				if (in_array($n, $hostingns)) {
-					return true;
-				}
 			}
 			$record = self::DNS_VERIFICATION_RECORD . '.' . $domain;
 			$tmp = $this->dns_gethostbyname_t($record, 500);
@@ -648,12 +636,36 @@
 		}
 
 		/**
+		 * Verify that a domain is delegated to hosting nameservers
+		 *
+		 * @param $domain
+		 * @return int
+		 */
+		protected function domain_is_delegated($domain)
+		{
+			$ns = $this->dns_get_authns_from_host($domain);
+			// no nameservers set, treat this as addable
+			if (!$ns) {
+				return -1;
+			}
+			$hostingns = $this->dns_get_hosting_nameservers();
+			// uses at least 1 of the required nameservers, we're good
+
+			foreach ($ns as $n) {
+				if (in_array($n, $hostingns)) {
+					return 1;
+				}
+			}
+			return 0;
+		}
+
+		/**
 		 * Check to bypass addon domain DNS validation test
 		 *
 		 * @param string $domain
 		 * @return bool domain is bypassed
 		 */
-		private function _is_bypass($domain)
+		protected function _is_bypass($domain)
 		{
 			if (!file_exists(self::BYPASS_FILE)) {
 				return false;
@@ -664,7 +676,7 @@
 			return (false !== ($line = array_search($domain, $recs)));
 		}
 
-		private function _verify_url($domain)
+		protected function _verify_url($domain)
 		{
 			$hash = $this->_get_url_hash($domain);
 			$url = 'http://' . $domain . '/' . $hash . '.html';
@@ -705,7 +717,7 @@
 			return trim(strip_tags($content)) == $hash;
 		}
 
-		private function _get_url_hash($domain)
+		protected function _get_url_hash($domain)
 		{
 			$str = $domain . fileinode($this->domain_info_path());
 			// get a bit of entropy from
