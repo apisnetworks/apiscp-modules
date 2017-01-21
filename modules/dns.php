@@ -1182,12 +1182,13 @@
 		/**
 		 * Release IP into allocation pool
 		 *
-		 * @param $ip
+		 * @param $ip IP address to release
+		 * @param $domain additional truthiness check before releasing IP
 		 * @return bool
 		 */
-		public function release_ip($ip)
+		public function release_ip($ip, $domain = null)
 		{
-			return $this->__deleteIP($ip);
+			return $this->__deleteIP($ip, $domain);
 		}
 
 		private static function __parse($resp, $orig, $new = '', $nsCMD = '')
@@ -1294,13 +1295,13 @@
 				$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_cur['ipaddrs']);
 			}
 
-			$domain = Auth::profile()->conf->new['siteinfo']['domain'];
 			foreach ($ipdel as $ip) {
-				$this->__deleteIP($ip);
+				// NB __changePTR is called before to update domain on change
+				$this->__deleteIP($ip, $domainnew);
 			}
 
 			foreach ($ipadd as $ip) {
-				$this->__addIP($ip, $domain);
+				$this->__addIP($ip, $domainnew);
 			}
 
 			$domains = array_keys($this->web_list_domains());
@@ -1336,11 +1337,13 @@
 		}
 
 		/**
+		 * Release PTR assignment from an IP
+		 * 
 		 * @param        $ip
 		 * @param string $domain confirm PTR rDNS matches domain
 		 * @return bool
 		 */
-		private function __deleteIP($ip, $domain = '')
+		private function __deleteIP($ip, $domain = null)
 		{
 			$rev = $this->__reverseIP($ip);
 			$node = substr($rev, 0, strpos($rev, '.'));
