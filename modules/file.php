@@ -2161,19 +2161,19 @@
 
 			if (!$src || !$dest) return error("missing source/destination");
 			if ($this->permission_level & PRIVILEGE_SITE) {
-				$optimized = $this->_optimizedShadowAssertion;
+				$optimized = !!$this->_optimizedShadowAssertion;
 			} else {
 				$optimized = false;
 			}
 			$unmakeFn = $optimized ? 'unmake_shadow_path' : 'unmake_path';
-			if ($optimized && $this->_optimizedShadowAssertion < 2) {
+			$dest_path = $this->make_path($dest);
+			if ($optimized) {
 				// OverlayFS doesn't like direct operations on r/w branch
 				// perform move onto synthetic fs
-				$dest_path = $this->make_shadow_path($dest);
+				$dest_parent = $this->make_shadow_path(dirname($dest));
 			} else {
-				$dest_path = $this->make_path($dest);
+				$dest_parent = dirname($dest_path);
 			}
-			$dest_parent = dirname($dest_path);
 
 			if (!file_exists($dest_parent))
 				return error("move: destination directory `" . dirname($dest) . "' does not exist");
@@ -2187,14 +2187,17 @@
 			// straight file rename
 			// mv /a.txt /b.txt
 			if (!file_exists($dest_path)) {
-				if (isset($src[1]))
+				if (isset($src[1])) {
 					return error("move: cannot rename multiple files to new file");
+				}
 				$parent = $this->{$unmakeFn}($dest_parent);
 			} else {
-				$parent = $this->{$unmakeFn}($dest_path);
+				$parent = $this->unmake_path($dest_path);
 			}
 			if ($optimized) {
-				$dest_pstat = array('file_type' => filetype($dest_parent));
+				$dest_pstat = [
+					'file_type' => filetype($dest_parent)
+				];
 			} else {
 				$dest_pstat = $this->stat($parent);
 			}
@@ -2216,7 +2219,7 @@
 				$nchanged = 0;
 				$link = '';
 				$file = $src[$i];
-				$src_path = $optimized ? $this->make_shadow_path($file, $link) : $this->make_path($file, $link);
+				$src_path = $this->make_path($file, $link);
 
 				if (!file_exists($src_path)) {
 					warn("move: `" . $file . "': No such file or directory");
@@ -2246,7 +2249,7 @@
 				// source directory must have -wx permission
 				$src_parent = dirname($src_path);
 				if (!isset($perm_cache[$src_parent])) {
-					$src_pstat = $this->stat($this->{$unmakeFn}($src_parent));
+					$src_pstat = $this->stat($this->unmake_path($src_parent));
 					$perm_cache[$src_parent] = !$src_pstat instanceof Exception && $src_pstat &&
 						$src_pstat['can_write'] && $src_pstat['can_execute'];
 				}
@@ -2282,7 +2285,7 @@
 						warn("cannot move `" . basename($file) . "' - destination `" . basename($rename_dest) . "' exists");
 						continue;
 					}
-					$del = $this->delete($this->{$unmakeFn}($rename_dest), true);
+					$del = $this->delete($this->unmake_path($rename_dest), true);
 					if (!$del || $del instanceof Exception) {
 						if ($del instanceof Exception)
 							warn("cannot remove file `$file' - " . $del->getMessage());
@@ -2293,18 +2296,17 @@
 
 				if ($src_stat['link']) {
 					// rename won't rename a symbolic link; delete and recreate the link
-					$this->delete(array($this->{$unmakeFn}($link)), false);
-					$this->symlink($src_stat['referent'], $this->{$unmakeFn}($dest_path));
+					$this->delete(array($this->unmake_path($link)), false);
+					$this->symlink($src_stat['referent'], $parent);
 					if ($src_stat['uid'] >= User_Module::MIN_UID || $src_stat['uid'] === APACHE_UID) {
 						// don't worry about changing
 						// symlink if owner is root or apache
-						$nchanged = $lchanged & $this->chown_symlink($this->{$unmakeFn}($dest_path), $src_stat['owner']);
+						$nchanged = $lchanged & $this->chown_symlink($parent, $src_stat['owner']);
 					}
 
 					continue;
 				}
 
-				// @TODO avoid hardcoding the DAV check
 				// CP runs Dav, Dav uses UPLOAD_UID
 				if ($src_stat['uid'] == self::UPLOAD_UID) {
 					chown($src_path, $this->user_id);
@@ -2553,6 +2555,7 @@
 			$newfiles = array();
 			// do a separate path for unprivileged users
 			$isUser = $this->permission_level&PRIVILEGE_USER == PRIVILEGE_USER;
+			$shadowpath = $this->domain_shadow_path();
 			foreach ($files as $f) {
 				if (false !== strpos($f, "..") || $f[0] !== '/') {
 					// naughty naughty!

@@ -861,7 +861,7 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 			}
 
 			// record exists, confirm MX value matches
-			$rec = $this->dns_get_records($subdomain, 'A', $domain);
+			$rec = $this->dns_get_records($subdomain, 'MX', $domain);
 			// just examine the first record...
 			$rec = array_pop($rec);
 			list($priority, $host) = preg_split("/\s+/", $rec['parameter']);
