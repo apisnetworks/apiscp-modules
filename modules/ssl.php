@@ -134,14 +134,19 @@
 			$keyfile = $this->domain_fs_path() . self::KEY_PATH . '/server.key';
 			// backup just in case
 			foreach (array($crtfile, $keyfile) as $file) {
+				/**
+				 * make sure its constituents exist
+				 * overlayfs ghosts merged layer if r/w doesn't contain
+				 * parent dir
+				 */
+				$this->file_shadow_buildup_backend($file);
 				$dir = dirname($file);
 				if (!is_dir($dir)) {
 					mkdir($dir, 0700, true);
 					chown($dir, 'root');
 					chgrp($dir, $this->group_id);
 					chmod($dir, 0700);
-				}
-				if (file_exists($file)) {
+				} else if (file_exists($file)) {
 					$old = file_get_contents($file);
 					file_put_contents($file . '-old', $old);
 				}

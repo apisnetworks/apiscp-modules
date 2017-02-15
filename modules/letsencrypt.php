@@ -304,6 +304,7 @@
 						// request failed the first time, retry
 						if (false !== strpos($msg, "invalid anti-replay nonce")) {
 							if ($tries < 3) {
+								sleep(1);
 								return $this->_exec($cmd, $args);
 							}
 						}

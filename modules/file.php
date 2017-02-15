@@ -99,7 +99,12 @@
 				'fix_apache_perms_backend'        => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				'chmod_backend'                   => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
 				'find_quota_files'                => PRIVILEGE_SITE,
-				'canonicalize_site'               => PRIVILEGE_SITE | PRIVILEGE_USER);
+				'canonicalize_site'               => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'shadow_buildup_backend'          => PRIVILEGE_ALL|PRIVILEGE_SERVER_EXEC
+			);
+			if (is_debug()) {
+				$this->exportedFunctions = ['*' => PRIVILEGE_ALL];
+			}
 			$this->__wakeup();
 		}
 
@@ -2285,7 +2290,7 @@
 						warn("cannot move `" . basename($file) . "' - destination `" . basename($rename_dest) . "' exists");
 						continue;
 					}
-					$del = $this->delete($this->unmake_path($rename_dest), true);
+					$del = $optimized ? unlink($rename_dest) : $this->delete($this->unmake_path($rename_dest), true);
 					if (!$del || $del instanceof Exception) {
 						if ($del instanceof Exception)
 							warn("cannot remove file `$file' - " . $del->getMessage());
@@ -2555,7 +2560,6 @@
 			$newfiles = array();
 			// do a separate path for unprivileged users
 			$isUser = $this->permission_level&PRIVILEGE_USER == PRIVILEGE_USER;
-			$shadowpath = $this->domain_shadow_path();
 			foreach ($files as $f) {
 				if (false !== strpos($f, "..") || $f[0] !== '/') {
 					// naughty naughty!
@@ -2608,24 +2612,35 @@
 		/**
 		 * Set file access control lists
 		 *
-		 * permissions may be of the form:
-		 *  octal (1, 2, 4 and any combo thereof)
+		 * - user if omitted removes all ACL entries
+		 * - permissions may be of the form:
+		 *  octal (0, 1, 2, 4 and any combo thereof)
 		 *  or
 		 *  drwx, d sets default
 		 *  setting permission null will remove all permissions
+		 * - "0" permission will disallow all access for named user
 		 *
 		 * @param string|array    $file
-		 * @param string          $user
+		 * @param string|null     $user
 		 * @param int|string|null $permission
 		 * @param array           $xtra map of default: bool, recursive: bool (not manageable by subuser)
 		 * @return bool
 		 */
-		public function set_acls($file, $user, $permission = null, $xtra = array())
+		public function set_acls($file, $user = null, $permission = null, $xtra = array())
 		{
-			if (!IS_CLI) {
+			if (!IS_CLI && !is_debug()) {
 				return $this->query('file_set_acls', $file, $user, $permission, $xtra);
 			}
-
+			if (!is_null($permission) && ctype_digit($permission)) {
+				$permission = intval($permission);
+			}
+			// @todo bring API up to consistent definition
+			if (!empty($xtra['recursive'])) {
+				$xtra[self::ACL_MODE_RECURSIVE] = 1;
+			}
+			if (!empty($xtra['default'])) {
+				$xtra[self::ACL_MODE_DEFAULT] = 1;
+			}
 			if (!version_compare(platform_version(), '4.5', '>=')) {
 				return error("`%s': only available on platform 4.5+", __FUNCTION__);
 			}
@@ -2743,8 +2758,10 @@
 				}
 
 				$default = false;
-
-				if (!ctype_digit((string)$perms)) {
+				$flag = 'm';
+				if (is_null($perms)) {
+					$flag = 'x';
+				} else if (!ctype_digit((string)$perms)) {
 					if (0 < ($pos = strspn($perms, "drwx")) && isset($perms[$pos])) {
 						// permissions provided as chars, verify it's sensible
 						return error("unknown permission mode `%s' setting for user `%s'",
@@ -2765,8 +2782,14 @@
 					}
 					$perms = $tmp;
 				}
+
 				$uid = $uuidmap[$u]['uid'];
-				$map[] = '-m ' . ($default ? 'd:' : '') . 'u:' . $uid . (is_null($perms) ? '' : ':' . $perms);
+				$map[] = sprintf('-%s %su:%u%s',
+					$flag,
+					($default ? 'd:' : ''),
+					$uid,
+					(is_null($perms) ? null : ':' . $perms)
+				);
 			}
 			return $this->_acl_driver($sfiles, $flags, $map);
 
@@ -2790,6 +2813,61 @@
 			}
 
 			return true;
+		}
+
+		/**
+		 * Build up shadow layer component wrapper
+		 * {@see shadow_buildup_backend}
+		 *
+		 * @param string $path file or directory to verify
+		 * @return bool
+		 */
+		public function shadow_buildup($path) {
+			return $this->query('file_shadow_buildup_backend', $path, $this->user_id);
+
+		}
+
+		/**
+		 * Build up shadow layer components
+		 *
+		 * @param string $path file or directory to verify
+		 * @param string|int $user user to set on buildup (default: current user on non CLI)
+		 * @return bool
+		 */
+		public function shadow_buildup_backend($path, $user, $perm = 0755) {
+			$shadowprefix = $this->domain_shadow_path();
+			$prefix = $this->domain_fs_path();
+			/**
+			 * Flexible parsing on path input
+			 */
+			if (!strncmp($path, $prefix, strlen($prefix))) {
+				$path = substr($path, $prefix);
+			}
+			if (strncmp($path, $shadowprefix, strlen($shadowprefix))) {
+				$path = $this->make_shadow_path($path);
+			}
+			$parent = dirname($path);
+			$tok = strtok($parent, "/");
+			$chkpath = '';
+			do {
+				$chkpath .= "/" . $tok;
+				if (!file_exists($chkpath)) {
+					break;
+				}
+
+			} while (false !== ($tok = strtok("/")));
+			$remaining = strtok("/");
+			if (!$remaining) {
+				return true;
+			}
+			mkdir($parent, $perm, true);
+			do {
+				chown($chkpath, $user) && chgrp($chkpath, $this->group_id);
+				$chkpath .= $remaining;
+			} while (false !== ($remaining = strtok("/")));
+
+			// and drop OverlayFS cache
+			return $this->purge();
 		}
 
 		public function _delete()

@@ -31,8 +31,8 @@
 
 		const VERSION_CHECK_URL = 'https://api.wordpress.org/core/version-check/1.7/';
 		protected $_aclList = array(
-			'min' => array('/wp-content', '/.htaccess'),
-			'max' => array('/wp-content/uploads')
+			'min' => array('/wp-content', '/.htaccess', '/wp-config.php'),
+			'max' => array('/wp-content/uploads', '/wp-content/cache')
 		);
 		private $_versionCache = array();
 
@@ -173,20 +173,7 @@
 			}
 			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function ($f) use ($docroot) {
-				return $docroot . '/' . $f;
-			}, $this->_aclList['min']);
-			$this->file_touch($docroot . '/.htaccess');
-
-			$users = array(
-				array(Web_Module::WEB_USERNAME => 7),
-				array($this->username => 'drwx'),
-				array(Web_Module::WEB_USERNAME => 'drwx'),
-			);
-			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
-				warn("failed to set ACLs on `%s/wp-content/'", $docroot);
-			}
-			$this->file_set_acls(array($docroot . '/'), $users);
+			$this->fortify($hostname, $path, 'max');
 			if (!$version) {
 				$version = $this->_getLastestVersion();
 			}
@@ -225,8 +212,7 @@
 			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
 				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::WP_CLI;
 			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
+				$args = array_slice(func_get_args(), 2);
 			}
 			if ($path) {
 				$cmd = '--path=%(path)s ' . $cmd;
@@ -310,7 +296,8 @@
 				return $ver;
 			}
 			$url = self::VERSION_CHECK_URL;
-			$contents = file_get_contents($url);
+			$context = stream_context_create(['http' => ['timeout' => 5]]);
+			$contents = file_get_contents($url, null, $context);
 			if (!$contents) {
 				return array();
 			}
@@ -318,6 +305,29 @@
 			$versions = $versions['offers'];
 			$cache->set($key, $versions, 43200);
 			return $versions;
+		}
+
+		/**
+		 *
+		 */
+		public function plugin_status($hostname, $path = '', $plugin = null) {
+			$docroot = $this->_normalizePath($hostname, $path);
+			if (!$docroot) {
+				return error("invalid WP location");
+			}
+			$args = array(
+				'plugin' => $plugin
+			);
+			$ret = $this->_exec($docroot, 'plugin status %s', $args);
+			if (!$ret['success']) {
+				return error("failed to get plugin status");
+			}
+
+			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches)) {
+				return error("unable to parse WP plugin info");
+			}
+
+			return error("@XXX @TODO");
 		}
 
 		/**

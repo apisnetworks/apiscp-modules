@@ -654,8 +654,9 @@
 			}*/
 
 			$ssl = strtoupper($ssl);
-			if ($maxconn == 0)
+			if (!$maxconn) {
 				$maxconn = 5;
+			}
 			$host = trim($host);
 			if ($host != 'localhost') {
 				if (!ip2long($host) && !preg_match(Regex::SQL_MYSQL_IP_WILDCARD, $host)) {
@@ -710,8 +711,6 @@
 				 ?,
 				 ?);");
 
-			$ssl = $cipher = $issuer = $subject = "";
-			$maxquery = $maxupdates = $maxconn = 0;
 			$stmt->bind_param("sssssssiii", $host, $user, $password, $ssl, $cipher,
 				$issuer, $subject, $maxquery, $maxupdates, $maxconn);
 			$stmt->execute();
@@ -1206,14 +1205,15 @@
 				$mergeopts['cipher_type'] = 'ANY';
 			}
 
-			if (isset($mergeopts['max_user_connections']) && ($mergeopts['max_user_connections'] < 1))
+			if ($mergeopts['max_user_connections'] < 1) {
 				$mergeopts['max_user_connections'] = 5;
+			}
 
-			if ($mergeopts['max_user_connections'] < 0 || $mergeopts['max_questions'] < 0 || $mergeopts['max_updates'] < 0)
-				return error("Max connections, queries, and updates must be greater than 0");
-			else if (isset($opts['max_user_connections']) && $opts['max_user_connections'] > 10)
+			if ($mergeopts['max_questions'] < 0 || $mergeopts['max_updates'] < 0) {
+				return error("Max queries and updates must be greater than 0");
+			} else if (isset($opts['max_user_connections']) && $opts['max_user_connections'] > 10) {
 				return error("Must file a ticket justifying need.  Check index placements first.");
-			else if (!is_null($mergeopts['password']) && strlen($mergeopts['password']) < self::MIN_PASSWORD_LENGTH) {
+			} else if (!is_null($mergeopts['password']) && strlen($mergeopts['password']) < self::MIN_PASSWORD_LENGTH) {
 				return error("password must be at least %d characters long", self::MIN_PASSWORD_LENGTH);
 			}
 			$conn = $this->_connect_root();

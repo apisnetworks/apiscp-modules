@@ -104,7 +104,9 @@
 					$uid = $this->user_id;
 				}
 				$fullpath = $this->domain_fs_path() . '/' . $path;
-				mkdir($fullpath);
+				if(!mkdir($fullpath)) {
+					return error("z'huh!? failed to create doc root?");
+				}
 				chown($fullpath, (int)$uid);
 				chgrp($fullpath, (int)$gid);
 				$index = $fullpath . '/index.html';
@@ -120,33 +122,31 @@
 			return file_exists($this->domain_fs_path() . '/' . $path);
 		}
 
-		public function add_alias($alias)
+		/**
+		 * Add hostname to account configuration
+		 *
+		 * add_alias() implies that prereq checks have been made,
+		 * including duplication checks
+		 *
+		 * @param string $alias
+		 * @return bool
+		 */
+		protected function add_alias($alias)
 		{
 			if (!IS_CLI) {
-				$status = $this->query('aliases_add_alias', $alias);
-				return $status;
+				return error(__METHOD__ . ' should be called from backend');
 			}
 
 			$alias = strtolower($alias);
 			if (!preg_match(Regex::DOMAIN, $alias)) {
 				return error($alias . ": invalid domain");
 			}
-			$domains = (array)$this->get_service_value('aliases', 'aliases');
 
-			if (in_array($alias, $domains)) {
-				return error("domain `%s' already attached to account", $alias);
-			}
-			if (preg_match('/^' . preg_quote($alias) . ' = site(?!' . $this->site_id . ')/m', file_get_contents('/etc/virtualhosting/mappings/domainmap')))
-				return error("`%s': domain is hosted by another account", $alias);
-			else if ($this->shared_domain_hosted($alias)) {
-				return error("domain `%s' already attached to account", $alias);
-			}
 			$aliases = (array)$this->get_service_value('aliases', 'aliases');
-
 			array_push($aliases, $alias);
 
 			return $this->set_config_journal('aliases', 'enabled', 1) &&
-			$this->set_config_journal('aliases', 'aliases', $aliases);
+				$this->set_config_journal('aliases', 'aliases', $aliases);
 		}
 
 		/**
@@ -494,37 +494,8 @@
 				return error("Primary domain may not be replicated as a shared domain");
 			}
 
-			if ($this->shared_domain_exists($domain))
-				return error("domain `$domain' exists");
-
-			if ($this->shared_domain_hosted($domain))
-				return error("`%s': domain is already hosted by another account", $domain);
-
-			if (!$this->dns_domain_on_account($domain) /** domain under same invoice */&&
-				!$this->_verify_dns($domain) && !$this->_verify_url($domain))
-			{
-				$nameservers = $this->dns_get_authns_from_host($domain);
-				$cpnameservers = $this->dns_get_hosting_nameservers();
-				$hash = $this->_get_url_hash($domain);
-				$script = $hash . '.html';
-				return error("`%s': domain has DNS records delegated to nameservers %s. " .
-					"Domain cannot be added to this account for security. Complete one of the following options to " .
-					"verify ownership:" . "\r\n\r\n" .
-					"(1) Change nameservers to %s within the domain registrar" . "\r\n" .
-					"(2) Upload a html file to your old hosting provider accessible via http://%s/%s with the content:\r\n\t%s" . "\r\n" .
-					"(3) Create a temporary DNS record named %s.%s with an `A' resource record that points to %s" . "\r\n\r\n" .
-					"Please contact your previous hosting provider for assistance with performing any of " .
-					"these verification options.",
-					$domain,
-					join(", ", $nameservers),
-					join(", ", $cpnameservers),
-					$domain,
-					$script,
-					$hash,
-					self::DNS_VERIFICATION_RECORD,
-					$domain,
-					$this->common_get_ip_address()
-				);
+			if (!$this->_verify($domain)) {
+				return false;
 			}
 			return $this->query('aliases_add_shared_domain_backend', $domain, $path);
 		}
@@ -595,6 +566,41 @@
 			return false;
 		}
 
+		protected function _verify($domain) {
+			if ($this->shared_domain_exists($domain))
+				return error("domain `$domain' exists");
+
+			if ($this->shared_domain_hosted($domain))
+				return error("`%s': domain is already hosted by another account", $domain);
+
+			if (!$this->dns_domain_on_account($domain) /** domain under same invoice */&&
+				!$this->_verify_dns($domain) && !$this->_verify_url($domain))
+			{
+				$nameservers = $this->dns_get_authns_from_host($domain);
+				$cpnameservers = $this->dns_get_hosting_nameservers();
+				$hash = $this->challenge_token($domain);
+				$script = $hash . '.html';
+				return error("`%s': domain has DNS records delegated to nameservers %s. " .
+					"Domain cannot be added to this account for security. Complete one of the following options to " .
+					"verify ownership:" . "\r\n\r\n" .
+					"(1) Change nameservers to %s within the domain registrar" . "\r\n" .
+					"(2) Upload a html file to your old hosting provider accessible via http://%s/%s with the content:\r\n\t%s" . "\r\n" .
+					"(3) Create a temporary DNS record named %s.%s with an `A' resource record that points to %s" . "\r\n\r\n" .
+					"Please contact your previous hosting provider for assistance with performing any of " .
+					"these verification options.",
+					$domain,
+					join(", ", $nameservers),
+					join(", ", $cpnameservers),
+					$domain,
+					$script,
+					$hash,
+					self::DNS_VERIFICATION_RECORD,
+					$domain,
+					$this->common_get_ip_address()
+				);
+			}
+			return true;
+		}
 		/**
 		 * Ensure a domain is not already hosted through Apis
 		 *
@@ -610,7 +616,7 @@
 			 *
 			 * @XXX DNS checks can be bypassed via API: BAD
 			 */
-			if (is_debug() || $this->_is_bypass($domain)) {
+			if ($this->_is_bypass($domain)) {
 				return true;
 			}
 			// domain not hosted, 5 second timeout
@@ -667,6 +673,9 @@
 		 */
 		protected function _is_bypass($domain)
 		{
+			if (is_debug() || constant('DOMAINS_NO_DNS_CHECK')) {
+				return true;
+			}
 			if (!file_exists(self::BYPASS_FILE)) {
 				return false;
 			}
@@ -678,7 +687,7 @@
 
 		protected function _verify_url($domain)
 		{
-			$hash = $this->_get_url_hash($domain);
+			$hash = $this->challenge_token($domain);
 			$url = 'http://' . $domain . '/' . $hash . '.html';
 			if (extension_loaded('curl')) {
 				$adapter = new HTTP_Request2_Adapter_Curl();
@@ -717,7 +726,13 @@
 			return trim(strip_tags($content)) == $hash;
 		}
 
-		protected function _get_url_hash($domain)
+		/**
+		 * Get challenge token to verify ownership of domain
+		 *
+		 * @param string $domain
+		 * @return string
+		 */
+		public function challenge_token($domain)
 		{
 			$str = $domain . fileinode($this->domain_info_path());
 			// get a bit of entropy from
