@@ -22,6 +22,7 @@
 		// primary domain document root
 		const MAIN_DOC_ROOT = '/var/www/html';
 		const HTTP_RELOAD_CMD = '/etc/init.d/httpd reload';
+		const APACHE_HOME = '/etc/httpd';
 		const WEB_USERNAME = 'apache';
 
 		protected $service_cache;
@@ -766,10 +767,12 @@
 
 			$checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
 			if (is_link($checkpath)) {
+				// take the referent always
 				$checkpath = realpath($checkpath);
 				if (strncmp($prefix, $checkpath, strlen($prefix))) {
 					return error("docroot for `%s/%s' exceeds site root", $hostname, $path);
 				}
+				$docroot = substr($checkpath, strlen($prefix));
 			}
 			if (!file_exists($checkpath)) {
 				$subpath = dirname($checkpath);
@@ -924,7 +927,7 @@
 			}
 
 			$this->query('file_fix_apache_perms_backend', $location);
-			$file = $this->http_config_dir() . '/dav';
+			$file = $this->site_config_dir() . '/dav';
 			if (file_exists($file) &&
 				preg_match('}' . $this->domain_fs_path() . $location . '"?[/\s]*>}', file_get_contents($file))
 			) {
@@ -950,7 +953,7 @@
 		{
 			if (!IS_CLI)
 				return $this->query('web_unbind_dav', $location);
-			$file = $this->http_config_dir() . '/dav';
+			$file = $this->site_config_dir() . '/dav';
 			$dav_config = file_get_contents($file);
 			$lines = explode("\n", $dav_config);
 			$i = 0;
@@ -976,7 +979,7 @@
 		public function list_dav_locations()
 		{
 			$dav_locations = array();
-			$file = $this->http_config_dir() . '/dav';
+			$file = $this->site_config_dir() . '/dav';
 			if (!file_exists($file))
 				return $dav_locations;
 			$fp = fopen($file, 'r');
@@ -1053,7 +1056,8 @@
 
 		public function _reload($why = null)
 		{
-			if (!$why || $why === "aliases" || $why === "letsencrypt") {
+			if (in_array($why, [null, "php", "aliases", "letsencrypt"]))
+			{
 				return $this->_reloadApache();
 			}
 		}
@@ -1076,9 +1080,13 @@
 
 		}
 
-		public function http_config_dir()
+		public function site_config_dir()
 		{
-			return '/etc/httpd/conf/' . $this->site;
+			return $this->config_dir() . '/' . $this->site;
+		}
+
+		public function config_dir() {
+			return self::APACHE_HOME . '/conf';
 		}
 
 		public function _delete_user($user)

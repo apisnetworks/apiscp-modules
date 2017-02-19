@@ -574,7 +574,8 @@
 			if (version_compare(platform_version(), '6.5', '>=')) {
 				$spoolpath = $this->domain_shadow_path() . self::CRON_SPOOL;
 				if (!file_exists($spoolpath)) {
-					mkdir($spoolpath, 0700, true);
+					mkdir($spoolpath, 0755, true);
+					chmod($spoolpath, 0700);
 					chown($spoolpath, 'root');
 				}
 			}

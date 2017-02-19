@@ -307,6 +307,7 @@
 								sleep(1);
 								return $this->_exec($cmd, $args);
 							}
+							error("attempted to renew 3 times, but got nonce error!");
 						}
 						$fn = 'error';
 						$ret['success'] = false;

@@ -673,7 +673,7 @@
 		 */
 		protected function _is_bypass($domain)
 		{
-			if (is_debug() || constant('DOMAINS_NO_DNS_CHECK')) {
+			if (defined('DOMAINS_NO_DNS_CHECK') && constant('DOMAINS_NO_DNS_CHECK')) {
 				return true;
 			}
 			if (!file_exists(self::BYPASS_FILE)) {
@@ -732,10 +732,9 @@
 		 * @param string $domain
 		 * @return string
 		 */
-		public function challenge_token($domain)
+		public function challenge_token()
 		{
-			$str = $domain . fileinode($this->domain_info_path());
-			// get a bit of entropy from
+			$str = fileinode($this->domain_info_path());
 			return sha1($str);
 		}
 

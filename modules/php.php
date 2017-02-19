@@ -16,7 +16,7 @@
 	 * Class Php_Module
 	 * @package core
 	 */
-	class Php_Module extends Module_Skeleton
+	class Php_Module extends Module_Support_Php
 	{
 		const COMPOSER_LOCATION = '/usr/bin/composer.phar';
 
@@ -306,6 +306,92 @@
 			return file_exists(self::COMPOSER_LOCATION);
 		}
 
+		/**
+		 * Enable fallback interpreter support
+		 *
+		 * @param null|string $mode specific personality in multi-personality environments
+		 * @return bool
+		 */
+		public function enable_fallback($mode = null) {
+			if (!IS_CLI) {
+				return $this->query('php_enable_fallback', $mode);
+			}
+			if (!$mode) {
+				$mode = $this->getPersonalities();
+			}
+
+			$file = file_get_contents($this->web_config_dir() . '/virtual/' .
+				$this->site);
+			// @todo helper function?
+			$config = preg_replace(Regex::compile(
+				Regex::PHP_COMPILABLE_STRIP_NONHTTP_APACHE_CONTAINER,
+				['port' => 80]
+			), '', $file);
+			$serverip = $this->common_get_ip_address();
+			$in = $serverip . ':80';
+			foreach ((array)$mode as $m) {
+				if (!$this->personalityExists($m)) {
+					error("unknown personality `%s' - not enabling", $m);
+					continue;
+				}
+				$port = $this->getPersonalityPort($m);
+				$out = $serverip . ':' . $port;
+				$newconfig = str_replace($in, $out, $config);
+				$confpath = $this->getPersonalityPathFromPersonality($m, $this->site);
+				file_put_contents($confpath, $newconfig) && info("enabled fallback for `%s'", $m);
+			}
+			Util_Account_Hooks::run('reload', ['php']);
+			return true;
+		}
+
+		/**
+		 * Verify if fallback enabled for given personality
+		 *
+		 * @param string|null $mode
+		 * @return bool
+		 */
+		public function fallback_enabled($mode = null) {
+			if (is_null($mode)) {
+				$mode = $this->getPersonalities();
+				$mode = array_pop($mode);
+			}
+			return file_exists($this->getPersonalityPathFromPersonality($mode, $this->site));
+		}
+
+		public function get_fallbacks() {
+			return $this->getPersonalities();
+		}
+
+		/**
+		 * Disable PHP fallback support
+		 *
+		 * @return bool
+		 */
+		public function disable_fallback($mode = '') {
+			if (!IS_CLI) {
+				return $this->query('php_disable_fallback');
+			}
+			if ($mode) {
+				$personalities = [$mode];
+			} else {
+				$personalities = $this->getPersonalities();
+			}
+			foreach ($personalities as $personality) {
+				if (!$this->personalityExists($personality)) {
+					error("unknown personality `%s', skipping", $personality);
+					continue;
+				}
+				$path = $this->getPersonalityPathFromPersonality($personality, $this->site);
+				if (file_exists($path)) {
+					unlink($path);
+				} else {
+					warn("fallback `%s' not enabled", $personality);
+				}
+			}
+			// defer reloading to a later date
+			return true;
+		}
+
 		public function _housekeeping()
 		{
 			// composer.phar seems standard nowadays..
@@ -330,6 +416,10 @@
 
 			info("installed %s!", basename(self::COMPOSER_LOCATION));
 			return true;
+		}
+
+		public function _delete() {
+			$this->disable_fallback();
 		}
 	}
 

@@ -2834,14 +2834,14 @@
 		 * @param string|int $user user to set on buildup (default: current user on non CLI)
 		 * @return bool
 		 */
-		public function shadow_buildup_backend($path, $user, $perm = 0755) {
+		public function shadow_buildup_backend($path, $user = 'root', $perm = 0755) {
 			$shadowprefix = $this->domain_shadow_path();
 			$prefix = $this->domain_fs_path();
 			/**
 			 * Flexible parsing on path input
 			 */
 			if (!strncmp($path, $prefix, strlen($prefix))) {
-				$path = substr($path, $prefix);
+				$path = substr($path, strlen($prefix));
 			}
 			if (strncmp($path, $shadowprefix, strlen($shadowprefix))) {
 				$path = $this->make_shadow_path($path);

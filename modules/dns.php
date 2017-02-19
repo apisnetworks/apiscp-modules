@@ -89,6 +89,8 @@
 			$this->exportedFunctions = array(
 				'*'                      => PRIVILEGE_SITE,
 				'get_whois_record'       => PRIVILEGE_ALL,
+				'get_records_by_rr'      => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
+				'get_records'            => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
 				'record_exists'          => PRIVILEGE_ALL,
 				'remove_zone_backend'    => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				'get_all_domains'        => PRIVILEGE_ADMIN,
@@ -647,21 +649,61 @@
 		 */
 		public function get_authns_from_host($host)
 		{
-			$nameservers = array(self::RECURSIVE_NAMESERVER);
+			$nameservers = [self::RECURSIVE_NAMESERVER];
 			$authns = silence(function() use ($host, $nameservers) {
 				return dns_get_record($host, static::record2const('ns'), $nameservers);
 			});
-			if (!$authns) {
+			if ($authns) {
+				// domain is properly delegated, nameserver returns affirmative
+				$tmp = array();
+				foreach ($authns as $a) {
+					if ($a['type'] == 'NS') {
+						$tmp[] = $a['target'];
+					}
+				}
+				return $tmp;
+			}
+
+			// domain delegated to hosting nameservers, but hosting servers don't
+			// have dns provisioned yet for domain
+			//
+			// crawl
+			$resolver = new Net_DNS2_Resolver([
+				'nameservers' => $nameservers,
+				'recurse' => true
+			]);
+			try {
+				$nameservers = $this->get_authns_from_host_recursive($host, $resolver);
+			} catch (Net_DNS2_Exception $e) {
+				warn("NS lookup failed for `%s': %s", $host, $e->getMessage());
 				return array();
 			}
-			$tmp = array();
-			foreach ($authns as $a) {
-				if ($a['type'] == 'NS') {
-					$tmp[] = $a['target'];
-				}
+			return $nameservers;
+		}
 
+		private function get_authns_from_host_recursive($host, Net_DNS2_Resolver $resolver, $seen = '') {
+			$components = explode(".", $host);
+			$nameservers = null;
+			try {
+				$lookup = array_pop($components) . '.' . $seen;
+				$res = $resolver->query($lookup, 'NS');
+				if ($res->answer) {
+					$nameservers = array_filter(array_map(function($arr) { return gethostbyname($arr->nsdname); }, $res->answer));
+					$resolver->setServers($nameservers);
+				}
+			} catch (Net_DNS2_Exception $e) {
+				if ($components) {
+					// resolver chain broken
+					warn("failed to recurse on `%s': %s", $lookup, $e->getMessage());
+				}
+				return array();
 			}
-			return $tmp;
+			if (!$components) {
+				return array_map(function ($a) { return $a->nsdname; }, $res->authority);
+			}
+			$resolver->recurse = 0;
+			return $this->get_authns_from_host_recursive(join(".", $components), $resolver, $lookup);
+
 		}
 
 		/**
@@ -867,7 +909,7 @@
 		public function add_record($zone, $subdomain, $rr, $param, $ttl = self::DNS_TTL)
 		{
 			if (is_debug()) {
-				return info("not setting DNS record in development mode");
+				//return info("not setting DNS record in development mode");
 			}
 
 			if (!$this->owned_zone($zone))
@@ -1030,10 +1072,8 @@
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				return error("malformed domain `%s'", $domain);
 			}
-			// IMPORTANT:
-			// if the server trusts
 			$dns = mute(function () use ($domain) {
-				return static::get_records_external(null, 'ns', $domain);
+				return static::get_authns_from_host($domain);
 			});
 			$found = false;
 			if (!$dns) {
@@ -1044,7 +1084,7 @@
 				$ns = array_pop($ns);
 			}
 			foreach ($dns as $r) {
-				if (rtrim($r['parameter'], '.') == $ns) {
+				if (rtrim($r, '.') == $ns) {
 					$found = true;
 					break;
 				}
@@ -1338,7 +1378,7 @@
 
 		/**
 		 * Release PTR assignment from an IP
-		 * 
+		 *
 		 * @param        $ip
 		 * @param string $domain confirm PTR rDNS matches domain
 		 * @return bool

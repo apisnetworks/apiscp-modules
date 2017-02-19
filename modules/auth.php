@@ -69,6 +69,8 @@
 		{
 			if (!$this->password_permitted($password, $user)) {
 				return error("weak password disallowed");
+			} else if ($this->is_demo()) {
+				return error("cannot change password in demo mode");
 			}
 			$crypted = $this->crypt($password);
 			return $this->change_cpassword($crypted, $user, $domain);
@@ -286,14 +288,14 @@
 		/**
 		 * Generate an API key
 		 *
-		 * Generates a 512-bit SOAP key for use with invoking the Web Services
+		 * Generates a 256-bit SOAP key for use with invoking the Web Services
 		 * in apnscp esprit.  The key is a hexadecimal-encoded value traditionally
 		 * split into groups of 8, or 96 bits per bunch, delimited by a '-'.  When
 		 * authenticating, this is the format preferred, but this function will
 		 * instead return the 512-bit key gumped into one big string.  At this time
 		 * you are limited to just 10 keys.
 		 *
-		 * @return string 512-bit SOAP key
+		 * @return string 256-bit SOAP key
 		 */
 		public function create_api_key($comment = null)
 		{
@@ -303,7 +305,7 @@
 			if (strlen($comment) > 255) {
 				warn("api key comment truncated beyond 255 characters");
 			}
-			$key = md5(uniqid($rand, true));
+			$key = hash("sha256", uniqid($rand, true));
 
 			$invoice = null;
 			if (!($this->permission_level & PRIVILEGE_ADMIN)) {
@@ -584,7 +586,7 @@
 			} else if (!$this->aliases_bypass_exists($domain) &&
 				$this->dns_gethostbyname_t($domain) != $this->common_get_ip_address() &&
 				$this->dns_get_records_external('', 'any', $domain) &&
-				!$this->dns_domain_uses_nameservers($domain)
+				!$this->dns_domain_uses_nameservers($domain) // whois check in the future
 			) {
 				$currentns = join(",", $this->dns_get_authns_from_host($domain));
 				$hostingns = join(",", $this->dns_get_hosting_nameservers());
