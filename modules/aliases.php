@@ -649,9 +649,15 @@
 		 */
 		protected function domain_is_delegated($domain)
 		{
+			if ($this->dns_domain_uses_nameservers($domain)) {
+				return true;
+			}
 			$ns = $this->dns_get_authns_from_host($domain);
 			// no nameservers set, treat this as addable
-			if (!$ns) {
+			// some nameservers return records, some fail if the
+			// target domain is not registered... may need workaround in future
+			// query WHOIS?
+			if (is_null($ns)) {
 				return -1;
 			}
 			$hostingns = $this->dns_get_hosting_nameservers();

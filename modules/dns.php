@@ -645,7 +645,7 @@
 		 * )
 		 *
 		 * @param string $host hostname
-		 * @return array authoritative nameservers
+		 * @return array|null authoritative nameservers or resolver chain incomplete
 		 */
 		public function get_authns_from_host($host)
 		{
@@ -681,6 +681,16 @@
 			return $nameservers;
 		}
 
+		/**
+		 * Fallback authoritative NS lookup
+		 *
+		 * Crawl the entire TLD hierarchy to find the last known nameserver
+		 *
+		 * @param string $host
+		 * @param Net_DNS2_Resolver $resolver
+		 * @param string            $seen
+		 * @return array|null nameservers or null if resolve failed before reaching end
+		 */
 		private function get_authns_from_host_recursive($host, Net_DNS2_Resolver $resolver, $seen = '') {
 			$components = explode(".", $host);
 			$nameservers = null;
@@ -696,7 +706,7 @@
 					// resolver chain broken
 					warn("failed to recurse on `%s': %s", $lookup, $e->getMessage());
 				}
-				return array();
+				return null;
 			}
 			if (!$components) {
 				return array_map(function ($a) { return $a->nsdname; }, $res->authority);
@@ -1079,18 +1089,13 @@
 			if (!$dns) {
 				return $found;
 			}
-			$ns = $this->get_hosting_nameservers();
-			if (is_array($ns)) {
-				$ns = array_pop($ns);
-			}
-			foreach ($dns as $r) {
-				if (rtrim($r, '.') == $ns) {
-					$found = true;
-					break;
+			$hostingns = $this->get_hosting_nameservers();
+			foreach ($dns as $ns) {
+				if (in_array($ns, $hostingns)) {
+					return true;
 				}
 			}
-			return $found;
-
+			return false;
 		}
 
 		/**
