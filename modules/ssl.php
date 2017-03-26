@@ -43,6 +43,7 @@
 				'is_self_signed'           => PRIVILEGE_ALL,
 				'key_exists'               => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'parse_certificate'        => PRIVILEGE_ALL,
+				'permitted'                => PRIVILEGE_ALL,
 				'privkey_info'             => PRIVILEGE_ALL,
 				'request_info'             => PRIVILEGE_ALL,
 				'resolve_chain'            => PRIVILEGE_ALL,
@@ -781,6 +782,12 @@
 
 		}
 
+		/**
+		 * Check if certificate issuer matches requestor
+		 *
+		 * @param $crt
+		 * @return bool|void
+		 */
 		public function is_self_signed($crt)
 		{
 			$crt = $this->parse_certificate($crt);
@@ -826,6 +833,7 @@
 			if (!$serial) {
 				$serial = sprintf("%s", date_format(new DateTime(), 'YmdHis'));
 			}
+			$serial = (int)$serial;
 			if (floatval($serial) != $serial) {
 				return error("non-numeric `%s' serial specified", $serial);
 			}
@@ -1045,7 +1053,7 @@
 
 		private function _getSSLExtraConfig()
 		{
-			return $this->web_http_config_dir() . '.ssl/custom';
+			return $this->web_site_config_dir() . '.ssl/custom';
 		}
 
 		public function _create()

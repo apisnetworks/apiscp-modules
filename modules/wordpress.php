@@ -31,8 +31,12 @@
 
 		const VERSION_CHECK_URL = 'https://api.wordpress.org/core/version-check/1.7/';
 		protected $_aclList = array(
-			'min' => array('/wp-content', '/.htaccess', '/wp-config.php'),
-			'max' => array('/wp-content/uploads', '/wp-content/cache')
+			'min' => array(
+				'/wp-content', '/.htaccess', '/wp-config.php'
+			),
+			'max' => array(
+				'/wp-content/uploads', '/wp-content/cache', '/wp-content/wflogs'
+			)
 		);
 		private $_versionCache = array();
 
@@ -78,6 +82,10 @@
 				$opts['autoupdate'] = true;
 			}
 
+			if (!isset($opts['squash'])) {
+				$opts['squash'] = false;
+			}
+
 			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
 				return error("invalid email address `%s' specified", $opts['email']);
 			} else {
@@ -100,7 +108,7 @@
 				$vertmp = $version ? $version : 'LATEST';
 				return error("failed to download WP version `%s', error: %s",
 					$vertmp,
-					$ret['stdout']
+					coalesce($ret['stdout'], $ret['stderr'])
 				);
 			}
 			$db = $this->_suggestDB($hostname);
@@ -200,7 +208,9 @@
 			if (!is_debug()) {
 				Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
 			}
-
+			if ($opts['squash']) {
+				parent::squash($docroot);
+			}
 			info("WordPress installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;
 		}
@@ -245,7 +255,9 @@
 				$ftpcredentials['password'] = '';
 			}
 
-			$xtraphp = "\n" . '<<EOF ' . "\n" .
+			$xtraphp = '<<EOF ' . "\n" .
+				"// defer updates to CP" . "\n" .
+				"define('WP_AUTO_UPDATE_CORE', false); " ."\n" .
 				"define('FTP_USER',%(ftpuser)s);" . "\n" .
 				"define('FTP_HOST', %(ftphost)s);" . "\n" .
 				($ftpcredentials['password'] ?
@@ -258,7 +270,7 @@
 				'user'     => $dbcredentials['user'],
 				'ftpuser'  => $ftpcredentials['user'],
 				'ftphost'  => 'localhost',
-				'ftppass'  => $ftpcredentials['password']
+				'ftppass'  => $ftpcredentials['password'],
 			);
 
 
@@ -595,8 +607,8 @@
 		 */
 		public function update_all($hostname, $path = '')
 		{
-			return $this->update($hostname, $path) && $this->update_plugins($hostname, $path) &&
-			$this->update_themes($hostname, $path) || error("failed to update all components");
+			return $this->update_themes($hostname, $path) && $this->update_plugins($hostname, $path) &&
+			$this->update($hostname, $path) || error("failed to update all components");
 		}
 
 		/**

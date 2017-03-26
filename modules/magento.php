@@ -110,7 +110,7 @@
 
 			$args['vername'] = 'apnscp-mirror-' . $args['version'];
 			if ($args['version'][0] > 1 && !$this->get_key()) {
-				return error("Magento Connect key must be setup first, do so via Account > Change Information");
+				return error("Magento Connect key must be setup first, do so via Account > Settings");
 			}
 
 			$args['baseurl'] = 'http://' . $hostname;

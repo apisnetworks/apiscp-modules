@@ -203,7 +203,6 @@
 			} else if (!$this->can_descend($destination_path, true)) {
 				return error($dest . ": unable to write to directory");
 			}
-
 			if ($archive_stat instanceof Exception)
 				return $archive_stat;
 			else if ($destination_stat instanceof Exception && !$destination_stat instanceof FileError)
@@ -211,7 +210,6 @@
 
 			mkdir($tmp_path);
 			chmod($tmp_path, 0700);
-
 			$ret = $class->extract_files($archive_path, $tmp_path);
 			if ($ret instanceof Exception) return $ret;
 
@@ -642,13 +640,13 @@
 			if (!$path) return $path;
 
 			$cache_key = $this->site_id . "|" . dirname($file);
-			$apc_key = "acl:" . $cache_key;
+			$apcu_key = "acl:" . $cache_key;
 			$acl_dir = $path;
 
 			// check apc backend cache
 			if (!isset(self::$acl_cache[$cache_key])) {
 				$acl_dir = dirname($path);
-				$cache = apc_fetch($apc_key, $success);
+				$cache = apcu_fetch($apcu_key, $success);
 				if ($success) {
 					$cache = unserialize($cache);
 					self::$acl_cache = array_merge(self::$acl_cache,
@@ -738,7 +736,7 @@
 				);
 			}
 
-			apc_add($apc_key, serialize($acl_cache), 1800);
+			apcu_add($apcu_key, serialize($acl_cache), 1800);
 			self::$acl_cache = array_merge(self::$acl_cache, $acl_cache);
 			return self::$acl_cache[$cache_key]['aclinfo'];
 		}
@@ -2628,7 +2626,7 @@
 		 */
 		public function set_acls($file, $user = null, $permission = null, $xtra = array())
 		{
-			if (!IS_CLI && !is_debug()) {
+			if (!IS_CLI) {
 				return $this->query('file_set_acls', $file, $user, $permission, $xtra);
 			}
 			if (!is_null($permission) && ctype_digit($permission)) {

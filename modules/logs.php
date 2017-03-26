@@ -57,7 +57,7 @@
 		public function list_logfiles()
 		{
 			$logs = array();
-			$path = $this->web_http_config_dir() . '/custom_logs';
+			$path = $this->web_site_config_dir() . '/custom_logs';
 			if (!file_exists($path)) {
 				$logs['*']['*'] = 'access_log';
 				return $logs;
@@ -152,7 +152,7 @@
 				return error($file . ": Invalid logfile");
 
 			$data = array();
-			$path = $this->web_http_config_dir() . '/custom_logs';
+			$path = $this->web_site_config_dir() . '/custom_logs';
 			if (!file_exists($path)) {
 				$data['*']['*'] = 'access_log';
 			} else {
@@ -254,7 +254,7 @@
 		public function remove_logfile($domain, $subdomain)
 		{
 			if (!IS_CLI) return $this->query('logs_remove_logfile', $domain, $subdomain);
-			$path = $this->web_http_config_dir() . '/custom_logs';
+			$path = $this->web_site_config_dir() . '/custom_logs';
 			$data = file_get_contents($path);
 			$data = $this->render_log_data_as_array($data);
 

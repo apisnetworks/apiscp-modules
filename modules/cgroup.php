@@ -21,6 +21,8 @@
 		const CGROUP_LOCATION = '/.socket/cgroup';
 		const CGROUP_ACCOUNT_CONFIG = '/etc/cgconfig.d/cgconfig.conf';
 		const MAX_MEMORY = 16384;
+		const DEFAULT_MEMORY = 512;
+		const DEFAULT_CPU = 10240;
 		/** in MB */
 		const MAX_PROCS = 25;
 
@@ -53,7 +55,7 @@
 			if (!version_compare(platform_version(), 5, '>=')) {
 				return;
 			}
-			$path = $this->web_http_config_dir();
+			$path = $this->web_site_config_dir();
 			$file = $path . '/cgroup';
 			$config = '<IfModule cgroup_module>' .
 				"\n\t" . "cgroup " . $this->site .
@@ -224,7 +226,7 @@
 				'used'     => null,
 				'peak'     => null,
 				'free'     => null,
-				'limit'    => null,
+				'limit'    => $this->get_service_value('cgroup', 'memory', self::DEFAULT_MEMORY)*1024*1024*1024,
 				'procs'    => array(),
 				'detailed' => array()
 			);
@@ -234,9 +236,6 @@
 			}
 			$stats['used'] = (int)file_get_contents($path . '/memory.usage_in_bytes');
 			$stats['peak'] = (int)file_get_contents($path . '/memory.max_usage_in_bytes');
-			$stats['limit'] = ($val = $this->get_service_value('cgroup', 'memlimit')) ?
-				$val : (double)file_get_contents($path . '/memory.limit_in_bytes');
-			$stats['limit'] = (int)min($stats['limit'], self::MAX_MEMORY * 1024 * 1024);
 			$stats['free'] = (int)($stats['limit'] - $stats['used']);
 			$stats['procs'] = array_map(function ($a) {
 				return (int)$a;
@@ -259,11 +258,10 @@
 				'used'     => null,
 				'system'   => null,
 				'free'     => null,
-				'limit'    => null,
+				'limit'    => $this->get_service_value('cgroup','cpu', self::DEFAULT_CPU),
 				'user'     => null,
 				'procs'    => array(),
-				'maxprocs' => ($val = $this->get_service_value('cgroup', 'proclimit')) ?
-					$val : self::MAX_PROCS
+				'maxprocs' => $this->get_service_value('cgroup', 'proclimit', self::MAX_PROCS)
 			);
 			$path = self::CGROUP_LOCATION . '/' . 'cpuacct/' . $this->get_cgroup();
 			if (!file_exists($path) || !is_readable($path . '/cgroup.procs')) {
@@ -274,8 +272,6 @@
 			$tmp = file($path . '/cpuacct.stat', FILE_IGNORE_NEW_LINES);
 			$stats['user'] = (float)substr($tmp[0], strpos($tmp[0], " ") + 1) / CPU_CLK_TCK;
 			$stats['system'] = (float)substr($tmp[1], strpos($tmp[1], " ") + 1) / CPU_CLK_TCK;
-			$stats['limit'] = ($val = $this->get_service_value('cgroup', 'cpulimit')) ?
-				$val : ($stats['used'] * 2);
 			$stats['free'] = (int)($stats['limit'] - $stats['used']);
 			$stats['procs'] = array_map(function ($a) {
 				return (int)$a;

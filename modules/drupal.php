@@ -29,7 +29,7 @@
 		const VERSION_CHECK_URL = 'https://updates.drupal.org/release-history';
 
 		protected $_aclList = array(
-			'min' => array('/sites/*/files')
+			'max' => array('/sites/*/files')
 		);
 
 		/**

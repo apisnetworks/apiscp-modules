@@ -77,9 +77,9 @@
 
 							$results[$j] = array();
 							$results[$j]['disk'] = $ar_buf[0];
-							$results[$j]['size'] = $ar_buf[1];
-							$results[$j]['used'] = $ar_buf[2];
-							$results[$j]['free'] = $ar_buf[3];
+							$results[$j]['size'] = (int)$ar_buf[1];
+							$results[$j]['used'] = (int)$ar_buf[2];
+							$results[$j]['free'] = (int)$ar_buf[3];
 							$results[$j]['percent'] = round(($results[$j]['used'] * 100) / $results[$j]['size']) . '%';
 							$results[$j]['mount'] = $ar_buf[5];
 							($fstype[$ar_buf[5]]) ? $results[$j]['fstype'] = $fstype[$ar_buf[5]] : $results[$j]['fstype'] = $fsdev[$ar_buf[0]];

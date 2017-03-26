@@ -292,12 +292,12 @@
 		public function version()
 		{
 			$key = 'php.version';
-			$ver = apc_fetch($key);
+			$ver = apcu_fetch($key);
 			if ($ver) return $ver;
 			$cmd = Util_Process::exec('/usr/bin/php -v 2> /dev/null');
 			preg_match('/^PHP ([0-9]+\.[0-9]+\.[0-9]+)/m', $cmd['output'], $match);
 			$ver = $match[1];
-			apc_add($key, $ver, 86400);
+			apcu_add($key, $ver, 86400);
 			return $ver;
 		}
 
@@ -419,7 +419,11 @@
 		}
 
 		public function _delete() {
-			$this->disable_fallback();
+			foreach ($this->get_fallbacks() as $fallback) {
+				if ($this->fallback_enabled($fallback)) {
+					$this->disable_fallback($fallback);
+				}
+			}
 		}
 	}
 

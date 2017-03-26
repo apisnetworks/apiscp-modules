@@ -273,13 +273,12 @@
 			}
 			$procpath = self::PROC_PATH;
 			$dir = opendir($procpath);
-			$groupid = $this->group_id;
 			$procs = array();
 			while (false !== ($file = readdir($dir))) {
 				$path = $procpath . '/' . $file;
 				if (!is_dir($path) || $file === ".." || $file === ".") {
 					continue;
-				} else if (filegroup($path) !== $groupid) {
+				} else if (filegroup($path) !== $this->group_id) {
 					continue;
 				}
 				$procs[] = $file;
@@ -396,8 +395,9 @@
 			}
 			// capture & extract the safe command, then sudo
 			$proc->setOption('umask', 0022)->
-			setOption('timeout', self::MAX_WAIT_TIME)->
-			setOption('user', $this->username);
+				setOption('timeout', self::MAX_WAIT_TIME)->
+				setOption('user', $this->username)->
+				setOption('home', true);
 			// temp fix, last arg is checked for user/domain substitution,
 			// wordpress sets user for example
 			$ret = $proc->run($cmd, $args);

@@ -18,6 +18,7 @@
 	 */
 	class Admin_Module extends Module_Skeleton
 	{
+		const ADMIN_CONFIG = '/etc/appliance/appliance.ini';
 
 		/**
 		 * {{{ void __construct(void)
@@ -120,6 +121,42 @@
 					$class, $service);
 			}
 			return $meta[$class];
+		}
+
+		/**
+		 * Get appliance admin email
+		 *
+		 * @return string|null
+		 */
+		public function get_email() {
+			$ini = $this->_get_admin_config();
+			return array_key_exists('adminemail', $ini) ? $ini['adminemail'] : null;
+		}
+
+		/**
+		 * Set appliance admin email
+		 *
+		 * @param string $email
+		 * @return bool
+		 */
+		public function set_email($email) {
+			if (!IS_CLI) {
+				return $this->query('admin_set_email', $email);
+			}
+			if (!preg_match(Regex::EMAIL, $email)) {
+				return error("invalid email `%s'", $email);
+			}
+			$ini = $this->_get_admin_config();
+			$ini['adminemail'] = $email;
+			$data = '[DEFAULT]' . "\n" . implode("\n", array_key_map(function ($k, $v) {return $k . ' = ' . $v; }, $ini)) . "\n";
+			return (bool)file_put_contents(self::ADMIN_CONFIG, $data);
+		}
+
+		protected function _get_admin_config() {
+			if (!file_exists(self::ADMIN_CONFIG)) {
+				return [];
+			}
+			return parse_ini_file(self::ADMIN_CONFIG);
 		}
 
 	}

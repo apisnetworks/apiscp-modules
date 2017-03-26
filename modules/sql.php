@@ -697,7 +697,7 @@
 				 x509_issuer,
 				 x509_subject,
 				 max_questions,
-				 max_updates,
+				 max_updates,			  
 				 max_user_connections)
 			VALUES
 				(?,
@@ -896,7 +896,7 @@
 			foreach (array_keys($opts_copy) as $name) {
 				$opts[] = (isset($valid_opts[$name])) ? 'Y' : 'N';
 			}
-			array_walk($opts_copy, create_function('&$key, &$val', '$key = $val."_priv";'));
+			array_walk($opts_copy, function(&$key, $val) { $key = $val."_priv"; });
 			$conn->query("REPLACE INTO db (" . join($opts_copy, ", ") . ", `host`, `db`, `user`) VALUES ('" . join($opts, "', '") . "', '" . $host . "', '" . $db . "', '" . $user . "');");
 
 			$ar = $conn->affected_rows;
@@ -2634,7 +2634,7 @@
 
 		}
 
-		public function pgsql_version()
+		public function pgsql_version($pretty = false)
 		{
 			$db = PostgreSQL::initialize();
 			$handle = $db->getHandler();
@@ -2644,8 +2644,11 @@
 			}
 
 			$version = pg_version($handle);
-			if (!isset($version['server']))
+			if (!isset($version['server'])) {
 				return null;
+			} else if ($pretty) {
+				return $version['server'];
+			}
 			$varr = explode(".", $version['server']);
 			$version = $varr[0] * 10000;
 			if (isset($varr[1])) {

@@ -21,10 +21,10 @@
 		protected $_db;
 
 		// @ignore
-		const FROM_ADDRESS = 'help@apisnetworks.com';
-		const REPLY_ADDRESS = 'help+tickets@apisnetworks.com';
-		const FROM_NAME = 'Apis Networks Support';
-		const FROM_NO_REPLY_ADDRESS = 'noreply@apisnetworks.com';
+		const FROM_ADDRESS = 'help@hostineer.com';
+		const REPLY_ADDRESS = 'help+tickets@hostineer.com';
+		const FROM_NAME = 'Hostineer Support';
+		const FROM_NO_REPLY_ADDRESS = 'noreply@hostineer.com';
 		const TICKET_STCLOSE = 'close';
 		const TICKET_STAPPEND = 'append';
 		const TICKET_STOPEN = 'open';
@@ -35,7 +35,7 @@
 
 		// @var string
 		// @ignore
-		const COPY_ADMIN = 'help@apisnetworks.com';
+		const COPY_ADMIN = 'help@hostineer.com';
 
 		// @ignore
 		const SHORT_COPY_ADMIN = CRM_SHORT_COPY_ADMIN;
@@ -776,9 +776,10 @@
 		/**
 		 * Attach notes to an open ticket
 		 *
-		 * @param int    id      ticket id
-		 * @param string data    ticket data
-		 * @param array  options state, priority, sender, email
+		 * @param int    $id      ticket id
+		 * @param string $data    ticket data
+		 * @param array  $options state, priority, sender, email
+		 * @param array  $attachments optional attachments
 		 *
 		 * @return int response id
 		 */
@@ -791,12 +792,14 @@
 				'sender'   => 'admin',
 				'email'    => true,
 			);
+
 			$options = array_merge($default, $options);
 			if (is_debug()) {
 				$options['email'] = true;
 			}
-			if (!$data && !$attachments && $options['state'] != self::TICKET_STCLOSE)
+			if (!$data && !$attachments && $options['state'] != self::TICKET_STCLOSE) {
 				return error("No data");
+			}
 			$id = intval($id);
 			if ($options['state'] != "append" && $options['state'] != "new"
 				&& $options['state'] != self::TICKET_STCLOSE
@@ -1045,8 +1048,8 @@
 					$inreplyto,
 					$meta['priority'],
 					$meta['reference'],
-					"https://cp.apisnetworks.com/apps/troubleticket?view&id=" . $id,
-					$meta['server'] . ".apisnetworks.com",
+					"https://cp.hostineer.com/apps/troubleticket?view&id=" . $id,
+					$meta['server'] . ".hostineer.com",
 					$meta['server'],
 					$meta['username'],
 					$meta['reference'],
@@ -1089,14 +1092,14 @@
 			$ids = $this->_get_response_ids($id);
 			$lastID = null;
 			$references = array_map(function ($a) use ($ref) {
-				return '<' . $ref . '-' . $a . '@apisnetworks.com>';
+				return '<' . $ref . '-' . $a . '@hostineer.com>';
 			}, $ids);
 
 			array_pop($ids);
 			if ($ids) {
 				$lastID = array_pop($ids);
 			}
-			$headers["Message-ID"] = "<" . $ref . '-' . $rid . '@apisnetworks.com>';
+			$headers["Message-ID"] = "<" . $ref . '-' . $rid . '@hostineer.com>';
 			$headers["References"] = join(',', $references);
 
 			/**
@@ -1108,7 +1111,7 @@
 			if (!$lastID) {
 				$rid = 0;
 			}
-			$headers["In-Reply-To"] = "<" . $ref . '-' . $rid . '@apisnetworks.com>';
+			$headers["In-Reply-To"] = "<" . $ref . '-' . $rid . '@hostineer.com>';
 			$headers = $mime->headers($headers, true);
 
 			$admintemplate = $sitetemplate = null;
@@ -1784,9 +1787,9 @@
 				"%data%" . "\n\n" .
 				"This ticket may be re-opened during the next 4 weeks.  " .
 				"Access the ticket from the " . ($html ? "<a href='%url%'>control panel</a>" : "control panel") . ", then change the state to \"Reopen\" to add additional notes." . "\n\n" .
-				"Thank you for choosing Apis Networks!" . "\n" .
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">";
+				"Thank you for choosing Hostineer!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@hostineer.com">' : '') .
+				"help@hostineer.com" . ($html ? '</a>' : '') . ">";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
 			}
@@ -1808,8 +1811,8 @@
     <tr>
         <td></td>
         <td class="container" width="600">
-            <h1 id="logo" style="height:40px;width: 200px;display: block; margin: 5px auto 0 auto;">
-                <img src="https://apisnetworks.com/images/logo/logo-40px.png" style="margin-left: 15px;"/>
+            <h1 id="logo" style="height:50px;width: 256px;display: block; margin: 5px auto 0 auto;">
+                <img src="https://hostineer.com/images/logo/hostineer-light-small.png" style="margin-left: 15px;"/>
             </h1>
             <div class="content" style="padding:0 0 20px;">
                 <table class="main" width="100%" cellpadding="0" cellspacing="0">                                      
@@ -1917,14 +1920,14 @@
                                 <!--NEW-->                              
                                 <tr>
                                     <td class="content-block" style="padding:0 0 20px;">
-                                        <a href="%url%" class="btn-primary" style="text-decoration:none;color:#FFF;background-color:#349f48;border:solid #349f48;border-width:10px 20px;line-height:2;font-weight:bold;text-align:center;cursor:pointer;display:inline-block;border-radius:5px;text-transform:capitalize;">Respond to Ticket</a> &ndash; or just reply to this email!
+                                        <a href="%url%" class="btn-primary" style="text-decoration:none;color:#FFF;background-color:#993950;border:solid #993950;border-width:10px 20px;line-height:2;font-weight:bold;text-align:center;cursor:pointer;display:inline-block;border-radius:5px;text-transform:capitalize;">Respond to Ticket</a> &ndash; or just reply to this email!
                                     </td>
                                 </tr>
                                 <!--END-->
                                 <!--APPEND-->                              
                                 <tr>
                                     <td class="content-block" style="padding:0 0 20px;">
-                                        <a href="%url%" style="text-decoration:none;color:#FFF;background-color:#349f48;border:solid #349f48;border-width:10px 20px;line-height:2;font-weight:bold;text-align:center;cursor:pointer;display:inline-block;border-radius:5px;text-transform:capitalize;" class="btn-primary">Respond to Ticket</a> &ndash; or just reply to this email!
+                                        <a href="%url%" style="text-decoration:none;color:#FFF;background-color:#993950;border:solid #993950;border-width:10px 20px;line-height:2;font-weight:bold;text-align:center;cursor:pointer;display:inline-block;border-radius:5px;text-transform:capitalize;" class="btn-primary">Respond to Ticket</a> &ndash; or just reply to this email!
                                     </td>
                                 </tr>
                                 <!--END-->
@@ -1937,9 +1940,9 @@
                                 <!--END-->
                                 <tr>
                                     <td class="content-block" style="padding:0 0 20px;">
-                                        Thanks for choosing Apis Networks!
+                                        Thanks for choosing Hostineer!
                                         <br />
-                                        <a href="mailto:help@apisnetworks.com">help@apisnetworks.com</a> &bull; <a href="https://twitter.com/apisnetworks">@apisnetworks</a> &bull; <a href="http://kb.apisnetworks.com">Knowledge Base</a>
+                                        <a href="mailto:help@hostineer.com">help@hostineer.com</a> &bull; <a href="https://twitter.com/hostineer">@hostineer</a> &bull; <a href="http://kb.hostineer.com">Knowledge Base</a>
                                     </td>
                                 </tr>
                             </table>
@@ -1976,7 +1979,7 @@ EOF;
 				return $this->_get_ticket_created_template_html();
 			}
 			$response =
-				"A new support ticket has been opened with Apis Networks." .
+				"A new support ticket has been opened with Hostineer." .
 				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				($html ? '<h3>Ticket Info</h3>' : "INFO:") .
 				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
@@ -2013,10 +2016,10 @@ EOF;
 				($html ? '<hr />' : "\n" . "--------------------------------------------" . "\n") .
 				"%data%" . "\n\n" .
 				"You may log into apnscp to view and update this ticket." . "\n\n" .
-				"Thank you for choosing Apis Networks!" . "\n" .
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
-				($html ? '<a href="http://twitter.com/apisnetworks">' : '') . "@apisnetworks" .
+				"Thank you for choosing Hostineer!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@hostineer.com">' : '') .
+				"help@hostineer.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
+				($html ? '<a href="http://twitter.com/hostineer">' : '') . "@hostineer" .
 				($html ? '</a>' : '') . " - follow us on Twitter for outage notifications";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
@@ -2056,10 +2059,10 @@ EOF;
 				"------------------" . "\n" .
 				"%inreplyto%\n\n" .
 				"You may log into apnscp to view and update this ticket." . "\n\n" .
-				"Thank you for choosing Apis Networks!" . "\n" .
-				"Support Staff <" . ($html ? '<a href="mailto:help@apisnetworks.com">' : '') .
-				"help@apisnetworks.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
-				($html ? '<a href="http://twitter.com/apisnetworks">' : '') . "@apisnetworks" .
+				"Thank you for choosing Hostineer!" . "\n" .
+				"Support Staff <" . ($html ? '<a href="mailto:help@hostineer.com">' : '') .
+				"help@hostineer.com" . ($html ? '</a>' : '') . ">" . "\n\n" .
+				($html ? '<a href="http://twitter.com/hostineer">' : '') . "@hostineer" .
 				($html ? '</a>' : '') . " - follow us on Twitter for outage notifications";
 			if ($html) {
 				$response = $this->_htmlHeader() . nl2br($response) . $this->_htmlFooter();
@@ -2220,6 +2223,20 @@ EOF;
 		public function get_disallowed_attachment_extensions()
 		{
 			return array('exe', 'scr', 'com', 'bat');
+		}
+
+		/**
+		 * Trouble tickets enabled
+		 * 
+		 * @return bool
+		 */
+		public function enabled() {
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				return true;
+			} else if ($this->permission_level & PRIVILEGE_SITE) {
+				return !!$this->get_config('billing','invoice');
+			}
+			return false;
 		}
 
 		public function append_ticket_via_email($hash, $response, $sender, array $attachments = array())

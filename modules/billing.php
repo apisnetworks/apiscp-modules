@@ -153,7 +153,7 @@
 				return $this->get_config('billing', 'parent_invoice');
 			$key = $this->get_config('siteinfo', 'domain') . ':billing:invoice';
 
-			$invoice = apc_fetch($key, $success);
+			$invoice = apcu_fetch($key, $success);
 			if ($success) return $invoice;
 			else if (!IS_APIS) return -1;
 			Error_Reporter::report("unknown invoice for " . $this->domain);
@@ -177,7 +177,7 @@
 					subscription_data.type = 'Webhosting'");
 			if (!$rs || $rs->num_rows < 1) return -1;
 			$invoice = $rs->fetch_object()->invoice;
-			apc_store($key, $invoice);
+			apcu_store($key, $invoice);
 			return $invoice;
 		}
 

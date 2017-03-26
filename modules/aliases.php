@@ -104,7 +104,7 @@
 					$uid = $this->user_id;
 				}
 				$fullpath = $this->domain_fs_path() . '/' . $path;
-				if(!mkdir($fullpath)) {
+				if (!mkdir($fullpath)) {
 					return error("z'huh!? failed to create doc root?");
 				}
 				chown($fullpath, (int)$uid);
@@ -809,7 +809,7 @@
 
 			// domain name change via auth_change_domain()
 			if ($domainold !== $domainnew) {
-				// domain changed via Account > Change Information
+				// domain changed via Account > Settings
 				if ($this->_is_bypass($domainnew)) {
 					$this->_remove_bypass($domainnew);
 				}

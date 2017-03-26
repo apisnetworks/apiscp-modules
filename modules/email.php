@@ -26,11 +26,14 @@
 		const MAILBOX_ENABLED = 'e';
 		const MAILBOX_SINGLE = '1';
 		const VACATION_RE = '^\s*include "\$HOME/\.vacationrc"';
-		const VACATION_RECIPE = '/^(?:X-Original-To|Delivered-To): (.+)/
+		const VACATION_RECIPE = '# Change to 1 to auto-reply to forwarded emails or BCCs 
+REPLYALL=0
+FLAGS=""
+/^(?:X-Original-To|Delivered-To): (.+)/
 TOADDR=$MATCH1
-if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC\'d
+if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure we are not BCC\'d
 {
-	 cc "| mailbot -c \'UTF-8\' -N -A \'From: $TOADDR\' -t $HOME/.vacation.msg -d .vacation.db /usr/sbin/sendmail -t -i -f \'\'"
+	 cc "| mailbot $FLAGS -c \'UTF-8\' -N -A \'From: $TOADDR\' -t $HOME/.vacation.msg -d .vacation.db /usr/sbin/sendmail -t -i -f \'\'"
 }';
 		// webmail installations
 		const POSTFIX_CMD = '/usr/sbin/postfix';
@@ -777,7 +780,7 @@ if (!/^X-Spam-Flag: YES/ && /^(?:To|Cc):.*${TOADDR}/) # Make sure we are not BCC
 					$hostname = trim($hostname, ".");
 					$ip = $this->dns_gethostbyname_t($hostname, 5000);
 					if ($ip && $ip != $myip) {
-						warn("MX record for `%s' is custom and thus will not be removed", $domain);
+						warn("MX record for `%s' points to third-party server and thus will not be removed from local DNS", $domain);
 						return -1;
 					}
 					// purge MX record from DNS

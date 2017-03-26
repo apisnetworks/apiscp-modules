@@ -228,20 +228,6 @@
 			$cp_enable = !isset($options['cp']) || $options['cp'] != 0;
 			$ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
 
-			$svc_list = array();
-			if ($ftp_enable) {
-				$svc_list[] = 'proftpd=1';
-			}
-			if ($smtp_enable) {
-				$svc_list[] = 'smtp=1';
-			}
-			if ($imap_enable) {
-				$svc_list[] = 'imap=1';
-			}
-			if ($ssh_enable) {
-				$svc_list[] = 'ssh=1';
-			}
-
 			if (!$ftp_enable) {
 				warn("FTP service not enabled.  User will not be permitted FTP access");
 			}
@@ -253,7 +239,6 @@
 				info("Email not enabled for user");
 			}
 			$cmd = '/usr/local/bin/AddVirtUser cpasswd=%(password)s %(site)s %(user)s %(gecos)s %(quota)d';
-			$cmd .= ' ' . join($svc_list, ' ');
 			$status = Util_Process_Safe::exec($cmd,
 				array('password' => $password,
 				      'site'     => $this->site,
@@ -264,7 +249,6 @@
 			);
 			// exit code is 0 or 1 from AddVirtUser
 			if ($status['success']) {
-
 				Error_Reporter::clear_buffer();
 			}
 			// 1 signifies added with warnings
@@ -274,22 +258,35 @@
 				return false;
 			}
 			// Ensim unconditionally grants IMAP/SMTP access
-			if (!$imap_enable) {
-				$this->email_deny_user($user, 'imap');
-			} else {
-				$this->email_permit_user($user, 'imap');
-			}
-			if (!$smtp_enable) {
-				$this->email_deny_user($user, 'smtp');
-			} else {
-				$this->email_permit_user($user, 'smtp');
-			}
-			if (!$cp_enable) {
-				$this->auth_deny_user($user, 'cp');
-			} else {
-				$this->auth_permit_user($user, 'cp');
+			if (!$ssh_enable) {
+				$this->ssh_deny_user($user);
+			} else if (!$this->ssh_user_enabled($user)) {
+				$this->ssh_permit_user($user);
 			}
 
+			if (!$ftp_enable) {
+				$this->ftp_deny_user($user);
+			} else if (!$this->ftp_user_enabled($user)) {
+				$this->ftp_permit_user($user);
+			}
+
+			if (!$imap_enable) {
+				$this->email_deny_user($user, 'imap');
+			} else if (!$this->email_user_enabled($user, 'imap')) {
+				$this->email_permit_user($user, 'imap');
+			}
+
+			if (!$smtp_enable) {
+				$this->email_deny_user($user, 'smtp');
+			} else if (!$this->email_user_enabled($user, 'smtp')) {
+				$this->email_permit_user($user, 'smtp');
+			}
+
+			if (!$cp_enable) {
+				$this->auth_deny_user($user, 'cp');
+			} else if (!$this->auth_user_enabled($user, 'cp')) {
+				$this->auth_permit_user($user, 'cp');
+			}
 
 			if (!$this->exists($user)) {
 				return false;
@@ -493,23 +490,14 @@
 			if (file_exists($prefix . $newhome)) {
 				return error("proposed home directory `%s' already exists", $newhome);
 			}
-			$auth = Auth::profile();
-			// make a symlink to the original home to workaround fs checks
-			// during the rename process
-			//rename($prefix . $pwd['home'], $prefix . $newhome);
-			$this->file_symlink($pwd['home'], $newhome);
-			if (!Util_Account_Hooks::run('edit_user', array($user, $newuser))) {
-				return error("unable to fully rename user, hook failed");
-			}
-			$this->file_delete($newhome);
-			// rename user in gecos
+
 			return $this->usermod_driver($user,
 				array(
 					'username'  => $newuser,
 					'home'      => $newhome,
 					'move_home' => true
 				)
-			) && $this->flush();
+			);
 		}
 
 		/**
@@ -529,7 +517,7 @@
 			$code = $cache->getResultCode();
 			if ($code) {
 				$msg = $cache->getResultMessage();
-				return ($msg == 'NOT FOUND') || error($msg);
+				return ($msg === 'NOT FOUND') || error($msg);
 			}
 			return true;
 		}
@@ -613,13 +601,27 @@
 				}
 				$cmd_str .= ' ' . $attr2flag[$attr] . ' ' . ($attr_val ? escapeshellarg($attr_val) : '');
 			}
-
+			$oldpwd = $this->getpwnam($user);
 			$cmd = Util_Process::exec($cmd_str . ' ' . $user);
 			if ($cmd['success'] && $newuser) {
 				$userpath = $this->domain_info_path() . '/users/';
 				if (file_exists($userpath . '/' . $user)) {
 					rename($userpath . '/' . $user, $userpath . '/' . $newuser);
 				}
+			}
+
+			// user changed
+			if (isset($attributes['username']) && $attributes['username'] !== $user) {
+				// make a symlink to the original home to workaround fs checks
+				// during the rename process
+				//rename($prefix . $pwd['home'], $prefix . $newhome);
+				//$this->file_symlink($pwd['home'], $newhome);
+				if (!Util_Account_Hooks::run('edit_user', array($user, $newuser, $oldpwd))) {
+					return error("unable to fully rename user, hook failed");
+				}
+				//$this->file_delete($newhome);
+				// rename user in gecos
+				$this->flush();
 			}
 			return $cmd['success'];
 		}
@@ -962,6 +964,10 @@
 			}
 		}
 
+		public function _edit_user($userold, $usernew, $pwd) {
+			$this->user_flush();
+		}
+		
 		/**
 		 * Remove historical quota data
 		 *

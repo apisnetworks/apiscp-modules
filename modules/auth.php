@@ -428,7 +428,7 @@
 				$data = explode(':', trim(fread($fp, 1024)));
 				if ($data[0] != $this->username) return false;
 			}
-			if (!$data) return false;
+			if (!$data) {return false; }
 			if (!isset($data[1])) {
 				$str = $this->domain_fs_path() . '/etc/shadow' . "\r\n" .
 					$this->username . "\r\n";
@@ -437,7 +437,6 @@
 			}
 			$salt = join('$', explode('$', $data[1]));
 			fclose($fp);
-
 			if ($salt[1] == 2) {
 				if (!function_exists('password_hash')) {
 					return error("bad shadow source, blowfish not supported");
@@ -508,7 +507,7 @@
 
 			while (($data = $q->fetch_object()) != false) {
 				$logins[] = array(
-					'ip' => long2ip($data->ip),
+					'ip' => long2ip((int)$data->ip),
 					'ts' => $data->login_date
 				);
 			}
@@ -613,13 +612,11 @@
 		{
 			// needs to be broken out into separate support function...
 			$userkey = md5($user . $domain);
-			if (!isset($_SESSION['preferences'][self::LOGIN_KEY])) {
-				return true;
+			$arrkey = self::LOGIN_KEY . '.' . $userkey;
+			if (\Preferences::exists($arrkey)) {
+				\Preferences::forget($arrkey);
 			}
 
-			if (isset($_SESSION['preferences'][self::LOGIN_KEY][$userkey])) {
-				$_SESSION['preferences'][self::LOGIN_KEY][$userkey] = null;
-			}
 			return true;
 		}
 

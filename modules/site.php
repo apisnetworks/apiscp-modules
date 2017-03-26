@@ -19,12 +19,12 @@
 	 */
 	class Site_Module extends Module_Support_Auth
 	{
-		const MIN_STORAGE_AMNESTY = 2592000;
+		const MIN_STORAGE_AMNESTY = QUOTA_STORAGE_WAIT;
 
 		// time in seconds between amnesty requests
-		const AMNESTY_DURATION = 43200;
+		const AMNESTY_DURATION = QUOTA_STORAGE_DURATION;
 		// 24 hours
-		const AMNESTY_MULTIPLIER = 1;
+		const AMNESTY_MULTIPLIER = QUOTA_STORAGE_BOOST;
 
 		// increase storage by 100% max
 		private $user_srvc_cache = array();
@@ -339,7 +339,7 @@
 			$token = strtolower($token);
 			$calctoken = $this->_calculateToken($this->site);
 			if (!$token) {
-				// allow wiping via AJAX, Account > Change Information
+				// allow wiping via AJAX, Account > Settings
 				if (defined('AJAX') && AJAX) return $calctoken;
 				$msg = "This is the most nuclear of options. " .
 					"Respond with the following token `%s' to confirm";
@@ -409,7 +409,7 @@
 			}
 
 			$last = $this->common_get_service_value('diskquota', 'amnesty');
-			$now = isset($_SERVER['REQUEST_TIME']) ? $_SERVER['REQUEST_TIME'] : time();
+			$now = coalesce($_SERVER['REQUEST_TIME'], time());
 			if (self::MIN_STORAGE_AMNESTY > ($now - $last)) {
 				$aday = self::MIN_STORAGE_AMNESTY / 86400;
 				return error("storage amnesty may be requested once every %d days, %d days remaining",
@@ -419,9 +419,10 @@
 			}
 
 			$storage = $this->common_get_service_value('diskquota', 'quota');
-			$newstorage = $storage + $storage * self::AMNESTY_MULTIPLIER;
+			$newstorage = $storage * self::AMNESTY_MULTIPLIER;
 			$acct = new Util_Account_Editor();
-			$acct->setConfig('diskquota', 'quota', $newstorage)->setConfig('diskquota', 'amnesty', $now);
+			$acct->setConfig('diskquota', 'quota', $newstorage)->
+				setConfig('diskquota', 'amnesty', $now);
 			$ret = $acct->edit();
 			if ($ret !== true) {
 				Error_Reporter::report(var_export($ret, true));

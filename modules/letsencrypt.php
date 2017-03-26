@@ -39,7 +39,7 @@
 		{
 			parent::__construct();
 
-			if (is_debug()) {
+			if (defined('LETSENCRYPT_DEBUG') && constant('LETSENCRYPT_DEBUG')) {
 				$this->activeServer = self::LETSENCRYPT_TESTING_SERVER;
 			} else {
 				$this->activeServer = self::LETSENCRYPT_SERVER;
@@ -105,7 +105,8 @@
 					Crm_Module::COPY_ADMIN,
 					"renewal failed",
 					SERVER_NAME_SHORT . ': ' . $this->site . "\r\n\r\n" .
-					var_export($cns, true)
+					var_export($cns, true) . "\r\n\r\n" .
+					"Run 'cmd -d " . $this->site . " letsencrypt_renew' from cli"
 				);
 				return error("failed to renew certificate");
 			}

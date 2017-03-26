@@ -180,8 +180,17 @@
 			return substr($key, strlen($this->_getWatchCachePrefix()));
 		}
 
+		/**
+		 *
+		 * @param string $path resolved shadow path
+		 * @return array|bool|void
+		 */
 		private function _watch_generate($path)
 		{
+			if (!is_readable($path)) {
+				error("path `%s' is not readable by other", $this->file_unmake_shadow_path($path));
+				return array();
+			}
 			$dh = opendir($path);
 			if (!$dh) {
 				return array();

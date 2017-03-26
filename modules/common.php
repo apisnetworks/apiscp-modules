@@ -95,6 +95,27 @@
 		}
 
 		/**
+		 * string get_email (void)
+		 *
+		 * Return the configured email address for a given user
+		 *
+		 * @privilege PRIVILEGE_ALL
+		 * @return string|null
+		 */
+		public function get_email() {
+			if ($this->permission_level & PRIVILEGE_SITE) {
+				return $this->get_admin_email();
+			}
+			if ($this->permission_level & PRIVILEGE_USER) {
+				$prefs = $this->get_user_preferences();
+				return isset($prefs['email']) ? $prefs['email'] : null;
+			}
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				return $this->admin_get_email();
+			}
+
+		}
+		/**
 		 * string get_admin_email (void)
 		 *
 		 * Returns the administrative e-mail associated to an account
@@ -119,12 +140,13 @@
 		 * @param string $mSrvcType The type of service to lookup
 		 * @param string $mSrvcName A name of a corresponding value for a named
 		 *                          service in $mSrvcType
+		 * @param string $default   Optional default if svc type/name not set
 		 *
 		 * @return mixed
 		 */
-		public function get_service_value($mSrvcType, $mSrvcName = null)
+		public function get_service_value($mSrvcType, $mSrvcName = null, $default = null)
 		{
-			$srvcVal = parent::get_service_value($mSrvcType, $mSrvcName);
+			$srvcVal = parent::get_service_value($mSrvcType, $mSrvcName, $default);
 			return $srvcVal;
 		}
 
@@ -577,11 +599,11 @@
 							break;
 						case 'cache size':
 							$key = 'cache';
-							$val += isset($procs[$key]) ? $procs[$key] : 0;
+							$val = array_get($procs, $key, 0);
 							break;
 						case 'bogomips':
 							$key = 'bogomips';
-							$val += isset($procs[$key]) ? $procs[$key] : 0;
+							$val = array_get($procs, $key, 0);
 							break;
 						default:
 							continue;
@@ -808,13 +830,14 @@
 		{
 			if (!IS_CLI) {
 				$ret = $this->query('common_save_preferences', $prefs);
-				if ($ret) {
-					$_SESSION['preferences'] = $prefs;
-				}
+				\Session::set(\Preferences::SESSION_KEY, $prefs);
 				return $ret;
 			}
-			// make sure this gets saved
-			$_SESSION['preferences'] = $prefs;
+			// make sure this gets saved in the backend too
+			// session data is only resync'd if the worker
+			// session id changes during its service life
+			\Session::set(\Preferences::SESSION_KEY, $prefs);
+
 			// potential race condition
 			$cache = Cache_User::spawn();
 			$cache->delete($this->_getPreferencesKey());

@@ -1080,6 +1080,10 @@
 
 		}
 
+		public function http_config_dir() {
+			deprecated_func('use site_config_dir');
+			return $this->site_config_dir();
+		}
 		public function site_config_dir()
 		{
 			return $this->config_dir() . '/' . $this->site;
