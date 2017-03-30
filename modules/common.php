@@ -847,12 +847,11 @@
 		public function set_user_preferences($user, array $prefs)
 		{
 			if (!IS_CLI) return $this->query('common_set_user_preferences', $user, $prefs);
-
 			if ($user !== $this->username && !$this->user_exists($user)) {
 				return error("unable to save preferences, invalid user `%s' specified", $user);
 			}
 			$path = $this->domain_info_path() . '/users/' . $user;
-			return file_put_contents($path, serialize($prefs)) !== false;
+			return file_put_contents($path, serialize($prefs), LOCK_EX) !== false;
 		}
 
 		/**

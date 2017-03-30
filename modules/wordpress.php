@@ -82,9 +82,12 @@
 				$opts['autoupdate'] = true;
 			}
 
-			if (!isset($opts['squash'])) {
-				$opts['squash'] = false;
+			$squash = array_get($opts, 'squash', false);
+			if ($squash && $this->permission_level&PRIVILEGE_USER) {
+				warn("must squash privileges as secondary user");
+				$squash = true;
 			}
+			$opts['squash'] = $squash;
 
 			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
 				return error("invalid email address `%s' specified", $opts['email']);
@@ -102,10 +105,15 @@
 				$args['version'] = null;
 			}
 
+			// ensure the docroot is owned by the target uid to permit installation
+			// correct it at the end
+			if (!$squash) {
+				$this->file_chown($docroot, $this->user_id);
+			}
 			$ret = $this->_exec($docroot, 'core %(mode)s %(version)s', $args);
 
 			if (!$ret['success']) {
-				$vertmp = $version ? $version : 'LATEST';
+				$vertmp = $version ?? 'LATEST';
 				return error("failed to download WP version `%s', error: %s",
 					$vertmp,
 					coalesce($ret['stdout'], $ret['stderr'])
@@ -127,18 +135,8 @@
 				'password' => $dbpass
 			);
 
-			if (!$this->sql_create_mysql_database($db)) {
-				return error("failed to create suggested db `%s'", $db);
-			} else if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-				$this->sql_delete_mysql_database($db);
-				return error("failed to create suggested user `%s'", $dbuser);
-			} else if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db, array('read' => true, 'write' => true))) {
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				$this->sql_delete_mysql_database($db);
-				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-			}
-			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
-				info("added database backup task for `%s'", $db);
+			if (!parent::setupDatabase($credentials)) {
+				return false;
 			}
 
 			if (!$this->_generateNewConfig($hostname, $docroot, $credentials)) {
@@ -189,7 +187,8 @@
 				'version'    => $version,
 				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => 'min'
+				'fortify'    => 'max',
+				'options'    => $opts
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -208,8 +207,9 @@
 			if (!is_debug()) {
 				Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
 			}
-			if ($opts['squash']) {
-				parent::squash($docroot);
+
+			if (!$opts['squash']) {
+				parent::unsquash($docroot);
 			}
 			info("WordPress installed - confirmation email with login info sent to %s", $opts['email']);
 			return true;

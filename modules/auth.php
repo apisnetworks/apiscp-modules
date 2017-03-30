@@ -306,7 +306,6 @@
 				warn("api key comment truncated beyond 255 characters");
 			}
 			$key = hash("sha256", uniqid($rand, true));
-
 			$invoice = null;
 			if (!($this->permission_level & PRIVILEGE_ADMIN)) {
 				$invoice = $this->billing_get_invoice();

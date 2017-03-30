@@ -105,6 +105,13 @@
 				$opts['title'] = '';
 			}
 
+			$squash = array_get($opts, 'squash', false);
+			if ($squash && $this->permission_level&PRIVILEGE_USER) {
+				warn("must squash privileges as secondary user");
+				$squash = true;
+			}
+			$opts['squash'] = $squash;
+
 			$args = array(
 				'mode'    => 'site:install',
 				'docroot' => $docroot,
@@ -152,21 +159,15 @@
 			$args['dbpass'] = $dbpass;
 			$args['dbname'] = $db;
 			$args['dbdriver'] = 'mysqli';
-			//version_compare($version, '3.0', '>=') ? 'pdomysql' : 'mysqli';
+			if (!parent::setupDatabase(['db' => $db, 'user' => $dbuser, 'password' => $dbpass])) {
+				return false;
+			}
+			// ensure the docroot is owned by the target uid to permit installation
+			// correct it at the end
+			if (!$squash) {
+				$this->file_chown($docroot, $this->user_id);
+			}
 
-			if (!$this->sql_create_mysql_database($db)) {
-				return error("failed to create suggested db `%s'", $db);
-			} else if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-				$this->sql_delete_mysql_database($db);
-				return error("failed to create suggested user `%s'", $dbuser);
-			} else if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db, array('read' => true, 'write' => true))) {
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				$this->sql_delete_mysql_database($db);
-				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-			}
-			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
-				info("added database backup task for `%s'", $db);
-			}
 			$ret = $this->_exec($docroot, 'site:download --www=%(docroot)s %(version)s --clone=false -- ""', $args);
 			$this->_fixMySQLSchema($docroot);
 			if ($ret['success']) {
@@ -229,7 +230,8 @@
 				'version'    => $version,
 				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => $fortifymode
+				'fortify'    => $fortifymode,
+				'options'     => $opts
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -248,6 +250,9 @@
 			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Joomla! Installed", $msg, $hdrs);
 			info("Joomla! installed - confirmation email with login info sent to %s", $opts['email']);
+			if (!$opts['squash']) {
+				parent::unsquash($docroot);
+			}
 			return true;
 		}
 

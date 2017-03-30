@@ -420,16 +420,23 @@
 					"converting to fqdn `%s'", $host);
 			}
 			$myip = $this->common_get_ip_address();
-			$http = new HTTP_Request2('http://' . $myip);
-			$http->setHeader('Host', $host);
-			$status = $http->send()->getStatus();
-			if ($status < 200 || $status >= 500) {
-				warn("inconsistent status `%d' returned, reverted control file %s",
-					$status,
-					$controlpath
-				);
+			try {
+				$http = new HTTP_Request2('http://' . $myip);
+				$http->setHeader('Host', $host);
+				$status = $http->send()->getStatus();
+				if ($status < 200 || $status >= 500) {
+					warn("inconsistent status `%d' returned, reverted control file %s",
+						$status,
+						$controlpath
+					);
+					$this->file_put_file_contents($controlpath, $olddata);
+					return false;
+				}
+			} catch (\Exception $e) {
 				$this->file_put_file_contents($controlpath, $olddata);
-				return false;
+				return error("unable to connect to server to test control file, reverting. Error message: `%s'",
+					$e->getMessage()
+				);
 			}
 			return true;
 		}

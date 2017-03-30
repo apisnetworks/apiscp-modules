@@ -18,6 +18,8 @@
 	 */
 	class Webhook_Module extends Module_Skeleton
 	{
+		const PREFERENCES_KEY = 'webhooks';
+
 		public $exportedFunctions;
 
 		public function __construct()

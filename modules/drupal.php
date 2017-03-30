@@ -72,6 +72,13 @@
 				$opts['autoupdate'] = true;
 			}
 
+			$squash = array_get($opts, 'squash', false);
+			if ($squash && $this->permission_level&PRIVILEGE_USER) {
+				warn("must squash privileges as secondary user");
+				$squash = true;
+			}
+			$opts['squash'] = $squash;
+
 			if (!isset($opts['dist'])) {
 				$opts['profile'] = 'standard';
 				$opts['dist'] = 'drupal';
@@ -111,11 +118,17 @@
 			if ($this->file_file_exists($docroot)) {
 				$this->file_delete($docroot, true);
 			}
+
 			$this->file_purge();
 			$ret = $this->file_rename($tmpdir . '/drupal', $docroot);
 			$this->file_delete($tmpdir, true);
 			if (!$ret) {
 				return error("failed to move Drupal install to `%s'", $docroot);
+			}
+			// ensure the docroot is owned by the target uid to permit installation
+			// correct it at the end
+			if (!$squash) {
+				$this->file_chown($docroot, $this->user_id);
 			}
 
 			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
@@ -160,21 +173,11 @@
 			$credentials = array(
 				'db'       => $db,
 				'user'     => $dbuser,
-				'password' => $dbpass
+				'password' => $dbpass,
 			);
 
-			if (!$this->sql_create_mysql_database($db)) {
-				return error("failed to create suggested db `%s'", $db);
-			} else if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-				$this->sql_delete_mysql_database($db);
-				return error("failed to create suggested user `%s'", $dbuser);
-			} else if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db, array('read' => true, 'write' => true))) {
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				$this->sql_delete_mysql_database($db);
-				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-			}
-			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
-				info("added database backup task for `%s'", $db);
+			if (!parent::setupDatabase($credentials)) {
+				return false;
 			}
 
 			$dburi = 'mysqli://' . $credentials['user'] . ':' .
@@ -235,7 +238,7 @@
 
 			$files = array_map(function ($f) use ($docroot) {
 				return $docroot . '/' . ltrim($f, "/");
-			}, $this->_aclList['min']);
+			}, $this->_aclList['max']);
 			$this->file_touch($docroot . '/.htaccess');
 			$users = array(
 				array(Web_Module::WEB_USERNAME => 7),
@@ -252,7 +255,8 @@
 				'version'    => $opts['version'],
 				'hostname'   => $hostname,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => 'min'
+				'fortify'    => 'max',
+				'options'     => $opts
 			);
 			$this->_map('add', $docroot, $params);
 			if (false === strpos($hostname, ".")) {
@@ -276,6 +280,9 @@
 			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Drupal Installed", $msg, $hdrs);
 			info("Drupal installed - confirmation email with login info sent to %s", $opts['email']);
+			if (!$opts['squash']) {
+				parent::unsquash($docroot);
+			}
 			return true;
 		}
 

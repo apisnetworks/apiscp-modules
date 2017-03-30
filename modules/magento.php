@@ -118,6 +118,13 @@
 				$args['baseurl'] .= '/' . $path;
 			}
 
+			$squash = array_get($opts, 'squash', false);
+			if ($squash && $this->permission_level&PRIVILEGE_USER) {
+				warn("must squash privileges as secondary user");
+				$squash = true;
+			}
+			$opts['squash'] = $squash;
+
 			$db = $this->_suggestDB($hostname);
 			if (!$db) {
 				return false;
@@ -128,19 +135,8 @@
 				return false;
 			}
 			$dbpass = $this->_suggestPassword();
-
-			if (!$this->sql_create_mysql_database($db)) {
-				return error("failed to create suggested db `%s'", $db);
-			} else if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-				$this->sql_delete_mysql_database($db);
-				return error("failed to create suggested user `%s'", $dbuser);
-			} else if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db, array('read' => true, 'write' => true))) {
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				$this->sql_delete_mysql_database($db);
-				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-			}
-			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
-				info("added database backup task for `%s'", $db);
+			if (!parent::setupDatabase(['db' => $db, 'username' => $dbuser, 'password' => $dbpass])) {
+				return false;
 			}
 
 			$args['dbuser'] = $dbuser;
@@ -153,6 +149,11 @@
 				$magerunver = 2;
 			}
 
+			// ensure the docroot is owned by the target uid to permit installation
+			// correct it at the end
+			if (!$squash) {
+				$this->file_chown($docroot, $this->user_id);
+			}
 
 			// copy custom config to user
 			$magerunconf = $this->_copyMagerunConfig($magerunver);
@@ -265,6 +266,9 @@
 				"control panel password!";
 			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
 			Mail::send($opts['email'], "Magento Installed", $msg, $hdrs);
+			if (!$opts['squash']) {
+				parent::unsquash($docroot);
+			}
 			return true;
 		}
 

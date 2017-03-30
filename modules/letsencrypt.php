@@ -202,7 +202,7 @@
 					warn("hostname `%s' IP `%s' doesn't match hosting IP `%s', "
 						. "skipping request",
 						$host,
-						$this->dns_gethostbyname_t($host, 500),
+						$this->dns_gethostbyname_t($host, 1500),
 						$myip
 					);
 					continue;
@@ -358,7 +358,7 @@
 		 */
 		private function _verifyIP($hostname, $myip)
 		{
-			$ip = $this->dns_gethostbyname_t($hostname, 500);
+			$ip = $this->dns_gethostbyname_t($hostname, 1500);
 			return $ip && $ip == $myip;
 		}
 

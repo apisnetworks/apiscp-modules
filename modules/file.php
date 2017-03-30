@@ -1394,7 +1394,7 @@
 		 * bool chown(string, string[, bool = false])
 		 *
 		 * @param mixed  $mFile      array of filenames or single filename
-		 * @param string $mUser      target uid
+		 * @param int|string $mUser  target uid or username
 		 * @param bool   $mRecursive recursively chown
 		 * @return bool
 		 */
@@ -1405,8 +1405,12 @@
 			$validUsers = array_keys($this->user_get_users());
 			$validUsers[] = 'apache';
 
-			if ($this->tomcat_enabled())
+			if ($this->tomcat_enabled()) {
 				$validUsers[] = $this->tomcat_system_user();
+			}
+			if (is_int($mUser)) {
+				$mUser = $this->user_get_username_from_uid($mUser);
+			}
 			if (!in_array($mUser, $validUsers))
 				return error("invalid user `" . $mUser . "'");
 			else if (!is_array($mFile))
@@ -2853,16 +2857,17 @@
 					break;
 				}
 
-			} while (false !== ($tok = strtok("/")));
-			$remaining = strtok("/");
-			if (!$remaining) {
+			} while (false !== ($tok = strtok('/')));
+
+			if (false === $tok) {
 				return true;
 			}
-			mkdir($parent, $perm, true);
+
 			do {
-				chown($chkpath, $user) && chgrp($chkpath, $this->group_id);
+				mkdir($chkpath, $perm) && chown($chkpath, $user) && chgrp($chkpath, $this->group_id);
+				$remaining = strtok('/');
 				$chkpath .= $remaining;
-			} while (false !== ($remaining = strtok("/")));
+			} while (false !== $remaining);
 
 			// and drop OverlayFS cache
 			return $this->purge();
