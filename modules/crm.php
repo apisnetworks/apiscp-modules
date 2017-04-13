@@ -18,24 +18,24 @@
 	 */
 	class Crm_Module extends Module_Skeleton
 	{
-		protected $_db;
+		protected static $_db;
 
 		// @ignore
-		const FROM_ADDRESS = 'help@hostineer.com';
-		const REPLY_ADDRESS = 'help+tickets@hostineer.com';
-		const FROM_NAME = 'Hostineer Support';
-		const FROM_NO_REPLY_ADDRESS = 'noreply@hostineer.com';
+		const FROM_ADDRESS = CRM_FROM_ADDRESS;
+		const REPLY_ADDRESS = CRM_REPLY_ADDRESS;
+		const FROM_NAME = CRM_FROM_NAME;
+		const FROM_NO_REPLY_ADDRESS = CRM_FROM_NO_REPLY_ADDRESS;
 		const TICKET_STCLOSE = 'close';
 		const TICKET_STAPPEND = 'append';
 		const TICKET_STOPEN = 'open';
 		const MAX_SMS_LENGTH = 150;
-		private $_priorities = array('normal', 'high', 'outage');
+		const PRIORITIES = array('normal', 'high', 'outage');
 		// lowercase list of ticket subject priorities that cannot change
-		private $_lowPrioritySubjects = array('billing');
+		const LOW_PRIORITY_SUBJECTS = array('billing');
 
 		// @var string
 		// @ignore
-		const COPY_ADMIN = 'help@hostineer.com';
+		const COPY_ADMIN = CRM_FROM_ADDRESS;
 
 		// @ignore
 		const SHORT_COPY_ADMIN = CRM_SHORT_COPY_ADMIN;
@@ -67,8 +67,9 @@
 
 		private function _connect()
 		{
-			if ($this->_db instanceof PDO)
-				return $this->_db;
+			if (self::$_db instanceof PDO) {
+				return self::$_db;
+			}
 			Error_Reporter::suppress_php_error('PDO::.*');
 			$db = self::$CRM_SERVER_DATABASE;
 			$host = self::$CRM_SERVER_HOST;
@@ -76,26 +77,22 @@
 			$password = self::$CRM_SERVER_PASSWORD;
 			$dsn = 'mysql:dbname=' . $db . ';host=' . $host;
 			try {
-				$this->_db = new PDO($dsn, $user, $password);
+				self::$_db = new PDO($dsn, $user, $password);
 			} catch (PDOException $e) {
 				Error_Reporter::report("unable to connect to ticket db - falling back" . $e->getMessage());
-				$this->_db = null;
-				if (!IS_ISAPI)
-					error("unable to connect to ticket database - use " . self::FROM_ADDRESS);
+				self::$_db = null;
+				if (!IS_ISAPI) {
+					error("unable to connect to ticket database - use %s", self::FROM_ADDRESS);
+				}
 				return false;
 			}
-			return $this->_db;
+			return self::$_db;
 
-		}
-
-		public function __destruct()
-		{
-			$this->_db = null;
 		}
 
 		public function connected()
 		{
-			$db = self::_connect();
+			$db = $this->_connect();
 			return $db instanceof PDO;
 		}
 
@@ -1231,7 +1228,7 @@
 		public function get_priorities()
 		{
 
-			return $this->_priorities;
+			return self::PRIORITIES;
 		}
 
 		private function _getRestrictor()
@@ -1258,7 +1255,7 @@
 			// permit priority change if subject is low priority
 			$priorities = $this->get_priorities();
 			$isLow = ($newpriority == $priorities[0]);
-			if (!$isLow && in_array(strtolower($subject), $this->_lowPrioritySubjects))
+			if (!$isLow && in_array(strtolower($subject), self::LOW_PRIORITY_SUBJECTS))
 				return error("cannot escalate priority on low priority issue");
 			if (!$this->_isValidPriority($newpriority))
 				return error("invalid priority `$newpriority'");
@@ -1506,7 +1503,7 @@
 			$q = "SELECT MAX(response_id) AS response
                  FROM ticket_responses WHERE ticket_id IN(" . join(",", $ticket_id) .
 				") HAVING(response IS NOT NULL)";
-			$db = $this->_db;
+			$db = self::_connect();
 			if (!($rs = $db->query($q))) {
 				return null;
 			} else if ($rs->rowCount() < 1)

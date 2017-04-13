@@ -807,7 +807,11 @@
 			if ($user !== $this->username && !$this->user_exists($user)) {
 				return error("cannot get preferences - user `%s' does not exist", $user);
 			}
-			$path = $this->domain_info_path() . '/users/' . $user;
+			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER)) {
+				$path = $this->domain_info_path() . '/users/' . $user;
+			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
+				$path = implode(DIRECTORY_SEPARATOR, [\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
+			}
 			if (!file_exists($path)) {
 				return array();
 			}
@@ -850,7 +854,13 @@
 			if ($user !== $this->username && !$this->user_exists($user)) {
 				return error("unable to save preferences, invalid user `%s' specified", $user);
 			}
-			$path = $this->domain_info_path() . '/users/' . $user;
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				// @xxx support multiple admins?
+				$path = \Admin_Module::ADMIN_HOME . '/' . \Admin_Module::ADMIN_CONFIG . '/' . $user;
+			} else if ($this->permission_level & (PRIVILEGE_USER|PRIVILEGE_SITE)) {
+				$path = $this->domain_info_path() . '/users/' . $user;
+
+			}
 			return file_put_contents($path, serialize($prefs), LOCK_EX) !== false;
 		}
 

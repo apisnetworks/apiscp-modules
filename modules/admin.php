@@ -18,8 +18,10 @@
 	 */
 	class Admin_Module extends Module_Skeleton
 	{
-		const ADMIN_CONFIG = '/etc/appliance/appliance.ini';
-
+		const ADMIN_HOME = '/etc/appliance';
+		// @var string under ADMIN_HOME
+		const ADMIN_CONFIG = '.config/';
+		const ADMIN_CONFIG_LEGACY = '/etc/appliance/appliance.ini';
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -130,7 +132,7 @@
 		 */
 		public function get_email() {
 			$ini = $this->_get_admin_config();
-			return array_key_exists('adminemail', $ini) ? $ini['adminemail'] : null;
+			return $ini['adminemail'] ?? null;
 		}
 
 		/**
@@ -149,16 +151,21 @@
 			$ini = $this->_get_admin_config();
 			$ini['adminemail'] = $email;
 			$data = '[DEFAULT]' . "\n" . implode("\n", array_key_map(function ($k, $v) {return $k . ' = ' . $v; }, $ini)) . "\n";
-			return (bool)file_put_contents(self::ADMIN_CONFIG, $data);
+			\Preferences::set('email', $email);
+			return (bool)file_put_contents(self::ADMIN_CONFIG_LEGACY, $data);
 		}
 
 		protected function _get_admin_config() {
-			if (!file_exists(self::ADMIN_CONFIG)) {
+			if (!file_exists(self::ADMIN_CONFIG_LEGACY)) {
 				return [];
 			}
-			return parse_ini_file(self::ADMIN_CONFIG);
+			return parse_ini_file(self::ADMIN_CONFIG_LEGACY);
 		}
 
+		public function _housekeeping() {
+			$configHome = static::ADMIN_HOME . '/' . self::ADMIN_CONFIG;
+			if (!is_dir($configHome)) {
+				mkdir($configHome) && chmod($configHome, 0700);
+			}
+		}
 	}
-
-?>

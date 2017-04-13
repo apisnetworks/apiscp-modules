@@ -566,10 +566,10 @@
 			if (!file_exists($tmp)) {
 				Error_Reporter::print_debug_bt();
 			}
-			return symlink($docroot, $prefix . $subdomain_path) &&
-			lchown($prefix . $subdomain_path, $user) &&
-			lchgrp($prefix . $subdomain_path, $this->group_id);
 
+			return symlink($docroot, $prefix . $subdomain_path) &&
+				Util_PHP::lchown($prefix . $subdomain_path, $user) &&
+				Util_PHP::lchgrp($prefix . $subdomain_path, $this->group_id);
 		}
 
 		private function _makeSubdomainPath($subdomain)
@@ -860,7 +860,6 @@
 			$offset = 0;
 			$level_sep = strpos($host, '.');
 			do {
-
 				$subdomain = substr($host, $offset, $level_sep - $offset);
 				$domain = substr($host, $level_sep + 1);
 				if (isset($domain_lookup[$domain])) break;

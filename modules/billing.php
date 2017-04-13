@@ -155,7 +155,6 @@
 
 			$invoice = apcu_fetch($key, $success);
 			if ($success) return $invoice;
-			else if (!IS_APIS) return -1;
 			Error_Reporter::report("unknown invoice for " . $this->domain);
 			$rs = self::$billing_db->query("
 			SELECT
@@ -1429,12 +1428,11 @@
 				return error($expmonth . "-" . $expyear . ": invalid expiration date");
 			}
 
-			$salt = $this->_generateSalt();
-			$cid_hash = $this->_makeHash($number, $salt);
+			$cid_hash = $this->_makeHash($number);
 
 			$query = "INSERT INTO credit_cards " .
 				"(cid, cc, expdate, cvm, fraud_score, avs, salt) " .
-				"VALUES('" . $cid_hash . "','" . $number . "','" . $exp . "'," . $cvm . ", 0,NULL, X'" . bin2hex($salt) . "');";
+				"VALUES('" . $cid_hash . "','" . $number . "','" . $exp . "'," . $cvm . ", 0,NULL, NULL);";
 			$rs = $db->query($query);
 			if (!$rs || $db->error) {
 				Error_Reporter::report(__LINE__ . ": " . $db->error);
@@ -1488,18 +1486,9 @@
 			return $sum % 10 == 0;
 		}
 
-		private function _generateSalt()
+		private function _makeHash($cc)
 		{
-			$salt = mcrypt_create_iv(16, MCRYPT_DEV_URANDOM);
-			if (!$salt) {
-				return mt_rand(1e16, 1e17);
-			}
-			return $salt;
-		}
-
-		private function _makeHash($cc, $salt)
-		{
-			return hash_hmac('sha512', $cc, $salt);
+			return password_hash($cc, PASSWORD_BCRYPT);
 		}
 
 		public function change_billing_information($firstname, $lastname, $company = null,

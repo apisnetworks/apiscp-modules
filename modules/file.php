@@ -1260,81 +1260,99 @@
 		 * bool delete_backend (mixed, [bool = FALSE])
 		 *
 		 * @see delete()
+		 *
+		 * @param array $files   files to remove
+		 * @param bool  $recurse recurse into directories
+		 * @param int   $depth   current depth
+		 * @return bool
 		 */
-		public function delete_backend($files, $recurse, $depth = 1)
+		public function delete_backend(array $files, $recurse, $depth = 1)
 		{
-			$link = '';
-			$ret = $ok = 1;
+			// @var int return value
+			$ret = 1;
+			// @var int
+			$ok = 1;
+			// @var int length to truncate
 			$truncate = 0;
 			$optimized = $this->_optimizedShadowAssertion &&
 				($this->permission_level & PRIVILEGE_SITE);
 
 			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				if ($optimized) {
-					$truncate = strlen($this->domain_shadow_path());
-				} else {
-					$truncate = strlen($this->domain_fs_path());
-				}
+				$truncate = strlen($this->domain_fs_path());
 			}
-
+			$shadow = $optimized ? $this->domain_shadow_path() : null;
 			foreach ($files as $wcfile) {
-				if (!isset($wcfile[5]))
-					throw new FileError("Something's wrong, aborting! " . var_export($wcfile));
+				// at least something under /etc
+				if (!isset($wcfile[5])) {
+					\Error_Reporter::report('Critical file error - IN:' . var_export($files, true) .
+						"\n\nOUT:" . var_export($wcfile, true));
+					fatal("Something's wrong, aborting! ");
+				}
 				$link = '';
-				$exdir = $optimized ? $this->make_shadow_path($wcfile, $link) :
-					$this->make_path($wcfile, $link);
+				$exdir = $this->make_path($wcfile, $link);
 
-				if (!$exdir) continue;
-				$globmatch = glob($exdir, GLOB_NOSORT);
-
-				/**
-				 * Dangling symlinks fail, manually construct
-				 * the array
-				 */
-				if (!$globmatch && is_link($exdir))
+				if (!$exdir) {
+					continue;
+				} else if (is_link($exdir)) {
+					// prevent glob("foo" -> ../../tmp);
 					$globmatch = array($exdir);
-				for ($i = 0, $n = sizeof($globmatch); $i < $n;
-				     $i++, $ret &= $ok) {
+				} else {
+					$globmatch = glob($exdir, GLOB_NOSORT);
+				}
+
+
+				for ($i = 0, $n = count($globmatch); $i < $n;
+				     $i++, $ret &= $ok)
+				{
 					$ok = 0;
-					$path = $globmatch[$i];
+					$rmpath = $chkpath = $globmatch[$i];
+					$file = $rmpath;
+
 					// local file name
-					if ($truncate) $file = substr($path, $truncate);
-					else $file = $path;
-					// recursive deletion is not enabled, delete
-					// link instead
-					if (!$path || !file_exists($path) && !is_link($path)) {
+					if ($truncate) {
+						$file = substr($globmatch[$i], $truncate);
+					}
+					// check file on shadow instead of fst/
+					if ($optimized) {
+						$chkpath = $shadow . $file;
+					}
+
+					$is_link = is_link($chkpath);
+					// file outside truncate path or chkpath does not exist/is not link
+					if ( !$file || (!file_exists($chkpath) && !$is_link) ) {
 						$ok = 1;
 						continue;
 					}
+
 					if (!$optimized) {
 						// perform stat only on secondary users or old platforms
 						$stat = $this->stat(dirname($file));
-
 						if ($stat instanceof Exception) {
-							Error_Reporter::handle_exception($stat);
+							\Error_Reporter::handle_exception($stat);
 							error($file . ": cannot delete- stat failed");
+							continue;
+						}
+						/**
+						 * let OSA obliterate symlinks if they want to on their layer, only do stat check on non-OSA
+						 */
+						if (!$stat['can_execute'] || !$stat['can_write'])
+						{
+							warn($file . ": cannot remove directory- permission denied");
 							continue;
 						}
 					}
 
-					// remove a symlink, do not follow
-					if (is_link($path)) { //&& (!$recurse || $depth > 1)) {
-						unlink($path);
-						$ok = 1;
-						continue;
-					}
-
-					$is_dir = is_dir($path);
+					$is_dir = is_dir($chkpath);
 					// file is a directory, enumerate its children, delete,
 					// and if successful (directory is non-empty), remove this
 					// directory
-					if ($is_dir) {
+					if (!$is_link && $is_dir) {
 						if (!$recurse) {
 							warn($file . ": cannot remove directory without " .
 								"recursive option");
 							continue;
 						}
-						$dh = opendir($path);
+						$dh = opendir($rmpath);
 						if (!$dh) {
 							error($file . ": cannot open directory");
 							continue;
@@ -1342,23 +1360,24 @@
 
 						$dirfiles = array();
 						while (false !== ($dirent = readdir($dh))) {
-							if ($dirent != '.' && $dirent != '..')
+							if ($dirent != '.' && $dirent != '..') {
 								$dirfiles[] = $file . '/' . $this->_glob_escape($dirent);
+							}
 						}
 						closedir($dh);
 						$ok = $this->delete_backend($dirfiles, $recurse, $depth + 1);
 						// cannot remove directory if subdir has files
-						if (!$ok) continue;
+						if (!$ok) {
+							continue;
+						}
 					}
-					if (!$optimized && (!$stat['can_execute'] || !$stat['can_write'])) {
-						warn($file . ": cannot remove directory- permission denied");
-						continue;
-					}
-					if ($is_dir === true && !rmdir($path) ||
-						$is_dir === false && !unlink($path)
-					) {
+					if ((( $is_link || !$is_dir ) && !unlink($rmpath)) ||
+						($is_dir === true && !rmdir($rmpath)))
+					{
 						$errmsg = Error_Reporter::get_last_php_msg();
-						if ($errmsg) warn($file . ": cannot remove- " . $errmsg);
+						if ($errmsg) {
+							warn("%s: cannot remove- %s", $file, $errmsg);
+						}
 						continue;
 					}
 
@@ -2057,7 +2076,7 @@
 
 			//debug(self::convert_absolute_relative($dest_path, $src_path)." -> ".$dest_path);
 			symlink($link, $dest_path);
-			return lchown($dest_path, $this->user_id) && lchgrp($dest_path, $this->group_id);
+			return Util_PHP::lchown($dest_path, $this->user_id) && Util_PHP::lchgrp($dest_path, $this->group_id);
 		}
 
 		/**

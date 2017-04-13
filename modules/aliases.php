@@ -69,9 +69,17 @@
 				Error_Reporter::report("Bad stat response: " . var_export($stat, true));
 			}
 
-			if (!$user) {
+			if (!$user && $stat['uid'] < \User_Module::MIN_UID) {
 				return error("unable to determine ownership of docroot `%s' for `%s'",
 					$path, $domain);
+			} else if (!$user) {
+				warn("invalid uid `%d' detected on `%s', squashed to account uid `%d'",
+					$stat['uid'],
+					$domain,
+					$this->user_id
+				);
+				$this->file_chown($path, $this->user_id, true);
+				$user = $this->user_id;
 			}
 
 			$ret = $this->add_alias($domain);
@@ -566,7 +574,8 @@
 			return false;
 		}
 
-		protected function _verify($domain) {
+		protected function _verify($domain)
+		{
 			if ($this->shared_domain_exists($domain))
 				return error("domain `$domain' exists");
 
@@ -634,7 +643,7 @@
 				return true;
 			}
 			$record = self::DNS_VERIFICATION_RECORD . '.' . $domain;
-			$tmp = $this->dns_gethostbyname_t($record, 500);
+			$tmp = $this->dns_gethostbyname_t($record, 1500);
 			if ($tmp && $tmp == $myip) {
 				return true;
 			}
@@ -679,7 +688,7 @@
 		 */
 		protected function _is_bypass($domain)
 		{
-			if (defined('DOMAINS_NO_DNS_CHECK') && constant('DOMAINS_NO_DNS_CHECK')) {
+			if (defined('DOMAINS_DNS_CHECK') && !constant('DOMAINS_DNS_CHECK')) {
 				return true;
 			}
 			if (!file_exists(self::BYPASS_FILE)) {
@@ -718,7 +727,7 @@
 					case 403:
 						return error("Verification URL request forbidden by server");
 					case 404:
-						return error("Verification URL not found on server");
+						return false;
 					case 302:
 						return error("Verification URL request moved to different location, ", $response->getDefaultReasonPhrase());
 					default:

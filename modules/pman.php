@@ -381,7 +381,7 @@
 			if (isset($options['tee'])) {
 				if ($options['tee'][0] != '/') {
 					// relative file listed, assume /tmp
-					$options['tee'] = sys_get_temp_dir() . '/' . $options['tee'];
+					$options['tee'] = TEMP_DIR . '/' . $options['tee'];
 				}
 				if (file_exists($options['tee']) || is_link($options['tee'])) {
 					// verify not trying to stream something like /etc/shadow

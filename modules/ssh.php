@@ -79,8 +79,10 @@
 
 		public function _housekeeping()
 		{
-			dlog("Loading terminal...");
-			Service_Terminal::autostart();
+			if (SSH_EMBED_TERMINAL) {
+				dlog("Loading terminal...");
+				Service_Terminal::autostart();
+			}
 
 
 		}
@@ -95,5 +97,3 @@
 			}
 		}
 	}
-
-?>

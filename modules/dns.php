@@ -321,6 +321,9 @@
 
 		private function _get_zone_information_raw_raw($domain)
 		{
+			if (!self::MASTER_NAMESERVER) {
+				return error("Cannot fetch zone information for `%s': no master nameserver configured in config.ini", $domain);
+			}
 			$data = Util_Process::exec("dig -t AXFR -y '" . self::$dns_key . "' @" . self::MASTER_NAMESERVER . " " . $domain);
 			return $data['success'] ? $data['output'] : false;
 		}
@@ -1484,6 +1487,8 @@
 		{
 			if (is_debug()) {
 				return info("not creating DNS zone for `%s' in development mode", $domain);
+			} else if (!self::MASTER_NAMESERVER) {
+				return error("rndc not configured in conf/config.ini. Cannot add zone `%s'", $domain);
 			}
 			$buffer = Error_Reporter::flush_buffer();
 			$res = $this->_get_zone_information_raw($domain);
@@ -1636,6 +1641,9 @@
 
 		private static function __send($cmd)
 		{
+			if (!self::MASTER_NAMESERVER) {
+				return false;
+			}
 			$key = explode(':', self::$dns_key);
 			$cmd = 'server ' . self::MASTER_NAMESERVER . "\n" .
 				'key ' . $key[0] . ' ' . $key[1] . "\n" .

@@ -427,6 +427,7 @@
 				$data = explode(':', trim(fread($fp, 1024)));
 				if ($data[0] != $this->username) return false;
 			}
+			fclose($fp);
 			if (!$data) {return false; }
 			if (!isset($data[1])) {
 				$str = $this->domain_fs_path() . '/etc/shadow' . "\r\n" .
@@ -435,16 +436,7 @@
 				return false;
 			}
 			$salt = join('$', explode('$', $data[1]));
-			fclose($fp);
-			if ($salt[1] == 2) {
-				if (!function_exists('password_hash')) {
-					return error("bad shadow source, blowfish not supported");
-				}
-				return password_hash($password, constant('PASSWORD_BCRYPT'), array('salt' => $salt));
-
-			}
-			$crypted = crypt($password, substr($data[1], 0, (strrpos($data[1], '$') + 1)));
-			return $salt == $crypted;
+			return password_verify($password, $salt);
 		}
 
 		/**
@@ -497,7 +489,7 @@
 
 			$q = $this->mysql->query("SELECT
 				UNIX_TIMESTAMP(`login_date`) AS login_date,
-				`ip` FROM `login_log`
+				INET_NTOA(`ip`) AS ip FROM `login_log`
 				WHERE
 				`domain` = '" . $this->domain . "'
 				AND `username` = '" . $this->username . "'
@@ -506,7 +498,7 @@
 
 			while (($data = $q->fetch_object()) != false) {
 				$logins[] = array(
-					'ip' => long2ip((int)$data->ip),
+					'ip' => $data->ip,
 					'ts' => $data->login_date
 				);
 			}
