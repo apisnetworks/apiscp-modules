@@ -462,8 +462,37 @@
                     $this->_remove_bypass($domainnew);
                 }
             }
-
+            $aliasesnew = array_get(Auth::conf('aliases', 'new'), 'aliases', []);
+            $aliasescur = array_get(Auth::conf('aliases', 'cur'), 'aliases', []);
+			$add = array_diff($aliasesnew, $aliasescur);
+            $rem = array_diff($aliasescur, $aliasesnew);
+            $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+            foreach ($add as $a) {
+                $db->insert($a, $this->site);
+            }
+            foreach ($rem as $r) {
+            	$db->delete($r);
+            }
+            $db->close();
             return;
+        }
+
+        public function _create() {
+	        $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+	        $conf = array_get(Auth::conf('aliases'), 'aliases', []);
+	        foreach ($conf as $domain) {
+		        $db->insert($domain, $this->site);
+	        }
+	        $db->close();
+        }
+
+        public function _delete() {
+	        $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+	        $conf = array_get(Auth::conf('aliases'), 'aliases', []);
+	        foreach ($conf as $domain) {
+	        	$db->delete($domain);
+	        }
+	        $db->close();
         }
 
         public function _edit_user($user, $usernew)
@@ -736,6 +765,9 @@
             file_put_contents($map_file,
                 preg_replace('/^' . preg_quote($domain, '/') . '\b.+$[\r\n]*/m', '', $map)
             );
+            $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+            $db->delete($domain);
+            $db->close();
             return $this->_generate_map();
         }
 
@@ -771,10 +803,9 @@
             if (!file_exists($this->domain_fs_path() . $path)) {
                 warn($path . ': directory does not exist');
             }
+            $map = '';
             if (file_exists($map_file)) {
                 $map = file_get_contents($map_file);
-            } else {
-                $map = '';
             }
             $path = rtrim($path, '/');
             if (!preg_match('/^' . preg_quote($domain) . '\b.+$[\r\n]*/m', $map)) {

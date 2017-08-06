@@ -78,7 +78,7 @@
                 return error("data is not base64-encoded");
             }
 
-            $data = unserialize(base64_decode($data));
+            $data = \Util_PHP::unserialize(base64_decode($data));
             if (!$data) {
                 return error("invalid data to import");
             }
@@ -98,7 +98,7 @@
          * Unattended file change calcuation
          *
          * @param        $path
-         * @param        $token1 initial reference token (@see watch)
+         * @param        $id1 initial reference token (@see watch)
          * @param string $mode   whether to lock or unlock changed files
          * @return bool
          *
@@ -244,38 +244,35 @@
                 if (isset($meta['size'])) {
                     // file grew
                     $adjfiles[$f] = true;
+                } else if (isset($meta['ctime'])) {
+                    // file created
+                    $dir = dirname($f);
+                    $adjdirs[$dir] = true;
+                } else if (substr($f, -1) === ".") {
+	                // mtime
+                    // file removed or added
+                    $adjdirs[dirname($f)] = true;
                 } else {
-                    if (isset($meta['ctime'])) {
-                        // file created
-                        $dir = dirname($f);
-                        $adjdirs[$dir] = true;
-                    } else { // mtime
-                        if (substr($f, -1) === ".") {
-                            // file removed or added
-                            $adjdirs[dirname($f)] = true;
-                        } else {
-                            // file modified in place
-                            $adjfiles[$f] = true;
-                        }
-                    }
+                    // file modified in place
+                    $adjfiles[$f] = true;
                 }
             }
             $filtered = array_filter(
                 array_merge(array_keys($adjdirs), array_keys($adjfiles)),
                 function ($d) use ($path) {
-                    return !strncmp($d, $path, strlen($path));
+                    return 0 === strpos($d, $path);
                 }
             );
 
             if ($mode === 'lock') {
                 $this->file_chown($filtered, $username);
-                return $this->file_set_acls($filtered, null, array(File_Module::ACL_NO_RECALC_MASK));
+                return $this->file_set_acls($filtered, null);
             }
 
             // unlocked
             $this->file_chown($path, $username, true);
             if (!$this->file_set_acls($path, null,
-                array(File_Module::ACL_NO_RECALC_MASK, File_Module::ACL_MODE_RECURSIVE))
+                array(File_Module::ACL_MODE_RECURSIVE))
             ) {
                 warn("failed to release apache acls on `%s'", $path);
             }
@@ -293,7 +290,7 @@
                 array($username => 7),
                 array($username => 'drwx')
             );
-            return $this->file_set_acls($filtered, $users, array(File_Module::ACL_NO_RECALC_MASK));
+            return $this->file_set_acls($filtered, $users);
         }
 
         private function _getWatchCachePrefix()

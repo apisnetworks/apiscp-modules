@@ -251,6 +251,7 @@
             $imap_enable = isset($options['imap']) && $options['imap'] != 0;
             $ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
             $cp_enable = !isset($options['cp']) || $options['cp'] != 0;
+            $dav_enable = !isset($options['dav']) || $options['dav'] != 0;
             $ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
 
             if (!$ftp_enable) {
@@ -329,6 +330,11 @@
                 if (!$this->auth_user_enabled($user, 'cp')) {
                     $this->auth_permit_user($user, 'cp');
                 }
+            }
+
+            if ($dav_enable) {
+            	// dav not implicitly on
+                $this->auth_permit_user($user, 'dav');
             }
 
             if (!$this->exists($user)) {

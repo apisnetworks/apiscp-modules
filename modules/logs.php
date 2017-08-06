@@ -237,18 +237,24 @@
             }
             $proc = new Util_Process_Chroot($this->domain_fs_path());
             $ret = $proc->run('/usr/sbin/logrotate %s %s', ['-d', '/etc/logrotate.conf']);
-            if (!$ret['success']) {
-                return error("logrotate check failed: %s", $ret['stderr']);
-            }
-            // additional non-fatal markup can appear in logrotate config
+            // additional non-fatal markup can appear in logrotate config, logrotate -d
+			// returns 0 irrespective on v6 platforms, 1 on error on v6.5+ platforms...
+	        // including case below; manually parse debug output
             $errs = array();
             foreach (explode("\n", $ret['stderr']) as $line) {
-                if (!strncmp($line, "error:", 6)) {
-                    $errs[] = $line;
-                    warn($line);
+                if (0 !== strpos($line, "error:")) {
+	                continue;
+                } else if (0 === strpos($line, "error: error opening /")) {
+	                /**
+	                 * even if missingok is set, logrotate will complain
+	                 * if a file to be removed is missing in dry-run mode
+	                 */
+                    continue;
                 }
+                $errs[] = $line;
+                warn($line);
             }
-            return count($errs) > 0 ? -1 : 1;
+            return count($errs) === 0;
         }
 
         public function set_logrotate($data)

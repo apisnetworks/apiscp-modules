@@ -465,14 +465,6 @@
             if (!in_array($svc, $this->_pam_services())) {
                 return error("unknown service `$svc'");
             }
-            return $this->user_permitted($user, $svc);
-        }
-
-        public function user_permitted($user, $svc = 'cp')
-        {
-            if (!in_array($svc, $this->_pam_services())) {
-                return error("unknown service `$svc'");
-            }
             // admin is always permitted to CP
             if ($svc == "cp" && ($this->permission_level & PRIVILEGE_SITE) &&
                 $user == $this->username
@@ -484,6 +476,11 @@
                 }
             }
             return Util_Pam::check_entry($user, $svc);
+        }
+
+        public function user_permitted($user, $svc = 'cp')
+        {
+            return $this->user_enabled($user, $svc);
         }
 
         /**
@@ -775,6 +772,11 @@
             return (bool)$rs;
         }
 
+	    public function _create()
+	    {
+		    $this->rebuildMap();
+	    }
+
         public function _edit()
         {
             $conf_new = Auth::profile()->conf->new;
@@ -783,6 +785,7 @@
                 'old' => $conf_cur['siteinfo']['admin_user'],
                 'new' => $conf_new['siteinfo']['admin_user']
             );
+	        $this->rebuildMap();
             if ($user['old'] == $user['new']) {
                 return;
             }
@@ -791,7 +794,7 @@
 
         public function deny_user($user, $svc = 'cp')
         {
-            return Util_Pam::remove_entry($user, 'cp');
+            return Util_Pam::remove_entry($user, $svc);
         }
 
         /**
@@ -1100,7 +1103,7 @@
 
         private function _pam_services()
         {
-            return array('cp');
+            return array('cp', 'dav');
         }
 
         public function _housekeeping() {
@@ -1108,9 +1111,9 @@
             // git hook, but to-do
             $rstwrapper = INCLUDE_PATH . '/bin/scripts/reset_password';
             chown($rstwrapper, 'root');
-            chgrp($rstwrapper, 'nobody');
+            chgrp($rstwrapper, WS_GID);
             chmod($rstwrapper, 04750);
+            // convert domain map over to TokyoCabinet
+            $this->rebuildMap();
         }
     }
-
-?>

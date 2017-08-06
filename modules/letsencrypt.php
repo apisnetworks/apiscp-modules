@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -65,7 +66,7 @@
          */
         public function supported()
         {
-            return version_compare(platform_version(), '5', '>=');
+            return version_compare((string)platform_version(), '5', '>=');
         }
 
         /**
@@ -180,9 +181,9 @@
 
                 if (self::INCLUDE_ALT_FORM) {
                     $altform = null;
-                    if (0 === strpos($host, "www.")) {
+                    if (0 === strpos($host, 'www.')) {
                         // add www.example.com if example.com given
-                        $altform = "www." . $host;
+                        $altform = 'www.' . $host;
                     } else {
                         // add example.com if www.example.com given
                         $altform = substr($host, 4);
@@ -291,7 +292,15 @@
 
             $matches = array();
             $fn = null;
-            preg_match_all(Regex::LETSENCRYPT_ACME_CMD_MESSAGE, $ret['stdout'], $matches, PREG_SET_ORDER);
+            preg_match_all(Regex::LETSENCRYPT_ACME_CMD_MESSAGE, coalesce($ret['stdout'], $ret['stderr']), $matches, PREG_SET_ORDER);
+
+            if (!count($matches)) {
+            	return $ret['success'] ?:
+	                error("letsencrypt failed, exit code: %d, stdout: %s, stderr: %s",
+		                $ret['return'], $ret['stdout'], $ret['stderr']
+	                );
+            }
+
             foreach ($matches as $m) {
                 $cls = $m['cls'];
                 $msg = $m['msg'];
@@ -318,9 +327,8 @@
                         break;
                 }
                 if ($fn) {
-                    call_user_func($fn, $msg);
+                    $fn($msg);
                 }
-
             }
             return $ret['success'];
         }

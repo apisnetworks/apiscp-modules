@@ -25,6 +25,10 @@
         const MYSQL_DATADIR = '/var/lib/mysql';
         const PGSQL_DATADIR = '/var/lib/pgsql';
         const MIN_PASSWORD_LENGTH = 3;
+
+        // maximum number of simultaneous connections to a given DB
+	    // higher increases the risk of monopolization
+        const PER_DATABASE_CONNECTION_LIMIT = 20;
         /**
          * @var int minimum db prefix length, to reduce collisions on server xfers
          */
@@ -36,9 +40,10 @@
          * up the ulimit fsize or not before exporting a db
          */
         const DB_BIN2TXT_MULT = 1.5;
+        protected const PGSQL_PERMITTED_EXTENSIONS = ['pg_trgm', 'hstore'];
+
         private static $mysql_admin_pass;
         private $_tempUsers = array('mysql' => array(), 'pgsql' => array());
-        private $_permittedPgsqlExtensions = array('pg_trgm', 'hstore');
 
         /**
          * {{{ void __construct(void)
@@ -1804,17 +1809,17 @@
             }
             if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
                 return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
-            } else {
-                if ($maxconn < 0) {
-                    return error("Max connections, queries, and updates must be greater than -1");
-                }
+            } else if ($maxconn < 0) {
+                return error("Max connections, queries, and updates must be greater than -1");
             }
+			$vendor = Opcenter\Database\PostgreSQL::vendor();
 
-            $rs = $this->pgsql->query("CREATE ROLE \"" . $user . "\" WITH NOCREATEDB NOCREATEROLE NOCREATEUSER LOGIN NOINHERIT CONNECTION LIMIT " . $maxconn . " UNENCRYPTED PASSWORD '" . $password . "';");
+            $rs = $this->pgsql->query($vendor->createUser($user, $password));
 
             if ($rs->error) {
                 return error("user creation for `%s' failed", $user);
             }
+            $this->pgsql->query($vendor->setMaxConnections($user, $maxconn));
             return true;
         }
 
@@ -1849,7 +1854,7 @@
             if (version_compare(platform_version(), '6', '>=')) {
                 $template = "TEMPLATE = template1";
             }
-            $this->pgsql->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->_get_tablespace() . "\" CONNECTION LIMIT = 5");
+            $this->pgsql->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->_get_tablespace() . "\" CONNECTION LIMIT = " . static::PER_DATABASE_CONNECTION_LIMIT);
             if ($this->pgsql->error) {
                 return error("error while creating database: %s", $this->pgsql->error);
             }
@@ -1920,7 +1925,7 @@
 
         private function _getPermittedPgsqlExtensions()
         {
-            return $this->_permittedPgsqlExtensions;
+            return static::PGSQL_PERMITTED_EXTENSIONS;
         }
 
         /**
@@ -2444,6 +2449,10 @@
             if ($file[0] !== '/' && $file[0] !== '.' && $file[0] !== '~') {
                 $file = '/tmp/' . $file;
             }
+	        $pdir = dirname($file);
+            if (!$this->file_file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
+                return error("failed to create parent directory, `%s'", $pdir);
+            }
             $path = $this->file_make_path($file);
             if (!$path) {
                 return error("invalid file `%s'", $file);
@@ -2703,6 +2712,11 @@
             if (!$path) {
                 return error("invalid file `%s'", $file);
             }
+
+	        $pdir = dirname($file);
+	        if (!$this->file_file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
+		        return error("failed to create parent directory, `%s'", $pdir);
+	        }
 
             if (!in_array($db, $this->list_pgsql_databases())) {
                 return error("invalid database `%s'", $db);
@@ -3230,10 +3244,6 @@
 
         public function _create()
         {
-            if (!version_compare(platform_version(), '6.5', '>=')) {
-                return;
-            }
-
             $conf = Auth::profile()->conf->new;
             if ($conf['mysql']['enabled']) {
                 $this->installDatabaseService('mysql');
@@ -3251,16 +3261,14 @@
 
         public function _edit()
         {
-            $conf = Auth::profile()->conf;
-            if (version_compare(platform_version(), '6.5', '>=')) {
-                if ($conf->new['mysql']['enabled'] && !$conf->cur['mysql']['enabled']) {
-                    $this->installDatabaseService('mysql');
-                }
+		    $conf = Auth::profile()->conf;
+	        if ($conf->new['mysql']['enabled'] && !$conf->cur['mysql']['enabled']) {
+	            $this->installDatabaseService('mysql');
+	        }
 
-                if ($conf->new['pgsql']['enabled'] && !$conf->cur['pgsql']['enabled']) {
-                    $this->installDatabaseService('pgsql');
-                }
-            }
+	        if ($conf->new['pgsql']['enabled'] && !$conf->cur['pgsql']['enabled']) {
+	            $this->installDatabaseService('pgsql');
+	        }
 
 
             $conf_cur = $conf->cur['mysql'];

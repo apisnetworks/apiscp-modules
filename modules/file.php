@@ -31,7 +31,7 @@
         const ACL_NO_RECALC_MASK = 'n';
         const ACL_FLAGS = '-PRbdkxn';
         // under apnscp root
-        const DOWNLOAD_SKIP_LIST = '/etc/file_download_skiplist.txt';
+        const DOWNLOAD_SKIP_LIST = '/conf/file_download_skiplist.txt';
 
         private static $registered_extensions = array(
             'zip'     => 'zip',
@@ -65,7 +65,7 @@
         // don't recalculate effective rights mask
         private $clearstat = false;
         // all valid ACL flags
-        private $_optimizedShadowAssertion = false;
+        private $_optimizedShadowAssertion;
 
         /**
          * {{{ void __construct(void)
@@ -352,9 +352,10 @@
          * Returns a path outside the chroot'd environment
          *
          * @TODO tokenize
+         *
          * @param  string $path
          * @param  string $link translated symbolic link path
-         * @throws FileError when an invalid path is detected
+         * @return string|false
          */
         public function make_path($path, &$link = '')
         {
@@ -461,18 +462,17 @@
             $link_type = 0;
             $path = $shadow ? $this->make_shadow_path($file, $link) :
                 $this->make_path($file, $link);
-            if ($path instanceof Exception) {
-                return $path;
+            if (!$path) {
+                return error("failed to translate path `%s'", $path);
             }
 
             $filemtime = -1;
             if (!$link && !file_exists($path)) {
                 return array();
             }
+            $prefix = '';
             if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
                 $prefix = $shadow ? $this->domain_shadow_path() : $this->domain_fs_path();
-            } else {
-                $prefix = '';
             }
             // real path
             if ($link) {
@@ -662,6 +662,20 @@
             return $this->user_get_username_from_uid($uid);
         }
 
+	    /**
+	     * Calculate etag of a file
+	     *
+	     * @param string $file
+	     * @return null|string
+	     */
+        public function etag($file) {
+            $stat = $this->file_stat($file);
+            if (!$stat) {
+	            return null;
+            }
+            return sha1($stat['inode'] . $stat['size'] . $stat['mtime']);
+        }
+
         /**
          * Perform ACL lookup on files
          *
@@ -814,6 +828,58 @@
             return self::$acl_cache[$cache_key]['aclinfo'];
         }
 
+	    /**
+	     * Make a protected file ephemerally accessible by apnscp
+	     *
+	     * @xxx dangerous
+	     * File is removed on script end
+	     *
+	     * @param string $file
+	     * @param string $mode read or write
+	     * @return string file
+	     */
+        public function expose($file, $mode = 'read') {
+			if (!IS_CLI) {
+				$clone = $this->query('file_expose', $file, $mode);
+				// always ensure this
+				if ($clone) {
+					register_shutdown_function(function($clone, $prefix)  {
+						if (file_exists($prefix . $clone)) {
+							unlink($prefix . $clone);
+						}
+					}, $clone, $this->domain_fs_path());
+				}
+
+				return $clone;
+			}
+
+			if ($mode !== 'read' && $mode !== 'write') {
+				return error("unknown mode `%s'", $mode);
+			}
+
+			$stat = $this->stat_backend($file);
+            if (!$stat['can_' . $mode]) {
+                return error("cannot access file `%s'", $file);
+	        } else if ($stat['file_type'] !== 'file') {
+            	return error("file `%s' is not a regular file", $file);
+            }
+	        $tmppath = $this->make_path(TEMP_DIR);
+	        $tempnam = tempnam($tmppath, 'ex');
+	        unlink($tempnam);
+	        $path = $this->make_path($file);
+	        link($path, $tempnam);
+	        if ($stat['inode'] !== fileinode($tempnam)) {
+	        	error("possible race condition, expected ino `%d', got `%d' - removing `%s'",
+			        $stat['inode'], fileinode($tempnam), $tempnam);
+	        	unlink($tempnam);
+	        	return false;
+	        }
+	        chown($tempnam, WS_UID);
+	        clearstatcache(true, $path);
+	        $this->_purgeCache($file);
+	        return $this->unmake_path($tempnam);
+        }
+
         /**
          * Resolve path as shadow
          *
@@ -936,12 +1002,10 @@
             if (($this->permission_level & PRIVILEGE_SITE) == PRIVILEGE_SITE ||
                 ($this->permission_level & PRIVILEGE_USER) == PRIVILEGE_USER
             ) {
-                if (stristr($mPath, '/home/virtual/' . $this->domain)) {
+                if (0 === strpos($mPath, '/home/virtual/' . $this->domain)) {
                     $offset = strlen('/home/virtual/' . $this->domain);
-                } else {
-                    if (stristr($mPath, $this->domain_fs_path())) {
-                        $offset = strlen($this->domain_fs_path());
-                    }
+                } else if (0 === strpos($mPath, $this->domain_fs_path())) {
+                    $offset = strlen($this->domain_fs_path());
                 }
             }
             return str_replace('//', '/', '/' . substr($mPath, $offset));
@@ -1007,7 +1071,7 @@
             if (false !== $stat) {
                 return $stat;
             }
-            $shadow = version_compare(platform_version(), '4.5', '>=');
+            $shadow = true;
             return $this->query('file_stat_backend', $file, $shadow);
         }
 
@@ -1132,7 +1196,12 @@
                 if (!$source || !$dest) {
                     return error("invalid source or destination");
                 }
-                return $this->query('file_copy', $source, $dest, $force, $recursive, $prune);
+                $res = $this->query('file_copy', $source, $dest, $force, $recursive, $prune);
+                if ($res) {
+                	$this->_purgeCache($source);
+	                $this->_purgeCache($dest);
+                }
+                return $res;
             }
             if ($this->permission_level & PRIVILEGE_SITE) {
                 $optimized = $this->_optimizedShadowAssertion;
@@ -1356,28 +1425,22 @@
          */
         private function _purgeCache($files)
         {
-            $it = new ArrayIterator($files);
             $purged = array();
             $siteid = $this->site_id;
-            while ($it->valid()) {
-                $f = $it->current();
-                $dir = dirname($f);
-                $hash = md5($dir);
-                $key = $it->key();
-                $it->offsetUnset($key);
-                $it->next();
-                if (isset($purged[$hash])) {
-                    continue;
-                }
-                self::$stat_cache[$siteid][$hash] = null;
-                $this->cached->delete('s:' . $hash);
-                $purged[$hash] = 1;
-                // has not been previously removed
-            }
-            if ($it->count() >= 1) {
-                $this->clearstat = true;
-            }
+        	foreach ((array)$files as $f) {
+		        $dir = dirname($f);
+		        $hash = md5($dir);
+		        if (isset($purged[$hash])) {
+			        continue;
+		        }
+		        self::$stat_cache[$siteid][$hash] = null;
+		        $this->cached->delete('s:' . $hash);
+		        $purged[$hash] = 1;
+	        }
 
+        	if (count($purged) > 1) {
+        		$this->clearstat = true;
+	        }
             return;
         }
 
@@ -1787,48 +1850,27 @@
         }
 
         /**
-         * string get_mime_type (string)
          * Determines the MIME type of a file through the file shell command
          *
-         * @param string $mFile
+         * @param string $file
+         * @return string|null mime type
          *
          */
-        public function get_mime_type($mFile, $mFormat = 'normal')
+        public function get_mime_type($file): ?string
         {
+            $path = $this->make_path($file);
             if (!IS_CLI) {
-                $path = $this->make_path($mFile);
                 if (!$path || ($path instanceof Exception) || !file_exists($path) || !is_readable($path)) {
-                    $mimestatus = $this->query('file_get_mime_type', $mFile, $mFormat);
-                } else {
-                    $mimestatus = Util_Process_Safe::exec('file %s %s',
-                        ($mFormat == 'html' ? '-i' : '-b'),
-                        $path,
-                        array(0, -1));
+                    return $this->query('file_get_mime_type', $file);
                 }
-                if (!$mimestatus) {
-                    return false;
-                }
-                return ($mFormat == 'html') ? trim(substr(strstr($mimestatus['output'], ':'), 2)) : $mimestatus;
+                return mime_content_type($path);
             }
 
-            $path = $this->make_path($mFile);
-
-            if ($path instanceof Exception) {
-                return $path;
-            } else {
-                if (!is_file($path)) {
-                    return new FileError($mFile . " is not a file");
-                }
+            $stat = $this->stat($file);
+            if (!$stat || !$stat['can_read']) {
+                return null;
             }
-            if (!is_readable($path)) {
-                return new FileError("Unable to read " . $mFile);
-            }
-
-            $mimestatus = Util_Process_Safe::exec('file %s %s',
-                ($mFormat == 'html' ? '-i' : '-b'),
-                $path,
-                array(0, -1));
-            return $mimestatus;
+	        return mime_content_type($path);
         }
 
         /**
@@ -2326,8 +2368,12 @@
         public function rename($from, $to, $files = array())
         {
             if (!IS_CLI) {
-                return $this->query('file_rename', $from,
+                $res = $this->query('file_rename', $from,
                     $to, $files);
+                if ($res) {
+                	$this->_purgeCache([$from, $to]);
+                }
+                return $res;
             }
             if (!is_array($files) || !$files) {
                 return $this->move($from, $to);
@@ -2404,7 +2450,11 @@
         {
             // @TODO algorithm is sloppy
             if (!IS_CLI) {
-                return $this->query('file_move', $src, $dest, (bool)$overwrite);
+                $res = $this->query('file_move', $src, $dest, (bool)$overwrite);
+                if ($res) {
+                	$this->_purgeCache($src);
+                }
+                return $res;
             }
 
             if (!$src || !$dest) {

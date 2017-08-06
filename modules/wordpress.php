@@ -666,7 +666,16 @@
          */
         public function fortify($hostname, $path = '', $mode = 'max')
         {
-            parent::fortify($hostname, $path, $mode);
+            if (!parent::fortify($hostname, $path, $mode)) {
+            	return false;
+            }
+            if ($mode === 'min') {
+            	// allow direct access on min to squelch FTP dialog
+            	$path = $this->_normalizePath($hostname, $path) . '/wp-admin/includes/file.php';
+            	if (file_exists($this->domain_fs_path() . $path)) {
+            		$this->file_chown($path, \Web_Module::WEB_USERNAME);
+	            }
+            }
         }
 
         /**

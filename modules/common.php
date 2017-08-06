@@ -852,6 +852,11 @@
             return $prefs['timezone'];
         }
 
+	    /**
+	     * Absolute filesystem base path
+	     *
+	     * @return string
+	     */
         public function get_base_path()
         {
             if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
@@ -910,7 +915,6 @@
                         $file = $prefix . '/current/' . $cfg;
                     }
                     $data = Util_Conf::parse_ini($file);
-
                     if (false === $data) {
                         return error($cfg . ": parse error");
                     }
@@ -966,6 +970,14 @@
         {
             return 'globalprf';
         }
-    }
 
-?>
+        public function _housekeeping() {
+        	if (STYLE_ALLOW_CUSTOM) {
+        		// @todo permissions should be corrected in build...
+        		$path = public_path() . \Frontend\Css\StyleManager::THEME_PATH;
+        		if (is_dir($path)) {
+        		    chown($path, WS_UID);
+		        }
+	        }
+        }
+    }

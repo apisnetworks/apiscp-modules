@@ -129,9 +129,10 @@
                     }
                     $bw_rs = $bw_rs->fetch_object();
                     // @BUG account has no bandwidth enddate
-                    if (!$bw_rs->begindate) {
+                    if (!$bw_rs || !$bw_rs->begindate) {
                         $ret = $this->_autofix_bandwidth($site_id, $this->get_service_value('bandwidth', 'rollover'));
                         if (!$ret) {
+                        	warn("failed to autofix bandwidth for site `%d'", $this->site_id);
                             return false;
                         }
                         return $this->get_bandwidth_usage($type);
@@ -474,6 +475,36 @@
             Util_Filesystem_Collector::collect();
 
         }
-    }
 
-?>
+	    public function _create()
+	    {
+		    $conf = Auth::conf('siteinfo');
+		    $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+		    if (!$db->exists($conf['domain'])) {
+			    // @TODO remove once Opcenter is done
+			    $db->set($conf['domain'], $this->site);
+		    }
+		    $db->close();
+	    }
+
+	    public function _delete()
+	    {
+		    $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+		    $domain = array_get(Auth::conf('siteinfo'), 'domain', []);
+		    $db->delete($domain);
+		    $db->close();
+	    }
+
+	    public function _edit() {
+            $new = Auth::conf('siteinfo', 'new');
+            $cur = Auth::conf('siteinfo', 'cur');
+            if ($new['domain'] === $cur['domain']) {
+            	return;
+            }
+            // domain rename
+            $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+            $db->delete($cur['domain']);
+            $db->insert($new['domain'], $this->site);
+            $db->close();
+	    }
+    }

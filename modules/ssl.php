@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -225,6 +226,8 @@
             $prefix = $this->domain_fs_path();
             $crtfile = $prefix . self::CRT_PATH . '/server.crt';
             $keyfile = $prefix . self::KEY_PATH . '/server.key';
+            // cert overwritten or moved
+            $overwrite = false;
             // backup just in case
             foreach (array($crtfile, $keyfile) as $file) {
                 /**
@@ -239,11 +242,10 @@
                     chown($dir, 'root');
                     chgrp($dir, $this->group_id);
                     chmod($dir, 0700);
-                } else {
-                    if (file_exists($file)) {
-                        $old = file_get_contents($file);
-                        file_put_contents($file . '-old', $old);
-                    }
+                } else if (file_exists($file)) {
+                	$overwrite = true;
+                    $old = file_get_contents($file);
+                    file_put_contents($file . '-old', $old);
                 }
             }
             $this->file_purge();
@@ -283,13 +285,12 @@
             }
 
             // pre-flight checks done, let's install
-            //if (!$this->get_service_value('openssl','enabled')) {
-            $cmd = new Util_Account_Editor();
-            $cmd->setConfig('openssl', 'enabled', 1);
-
-            // ensure HTTP config is rebuild
-            $cmd->edit();
-            //}
+            if (!$overwrite || !$this->get_service_value('openssl','enabled')) {
+	            $cmd = new Util_Account_Editor();
+	            $cmd->setConfig('openssl', 'enabled', 1);
+                // ensure HTTP config is rebuild
+                $cmd->edit();
+            }
 
             $proc = new Util_Process_Batch();
             if (!$proc->idPending("SSL_HTTP_RELOAD")) {
@@ -304,7 +305,7 @@
 
         public function permitted()
         {
-            return version_compare(platform_version(), '6', '>=') || !$this->get_service_value('ipinfo', 'namebased');
+            return version_compare(platform_version(), '5', '>=') || !$this->get_service_value('ipinfo', 'namebased');
         }
 
         /**
@@ -834,28 +835,20 @@
             );
             if (!preg_match(Regex::DOMAIN_WC, $host)) {
                 return error("invalid hostname `%s'", $host);
-            } else {
-                if ($sinfo['countryName'] && (!ctype_alpha($sinfo['countryName']) ||
-                        strlen($sinfo['countryName']) != 2)
-                ) {
-                    return error("invalid 2-character country `%s'",
-                        $sinfo['countryName']);
-                } else {
-                    if (!$sinfo['stateOrProvinceName']) {
-                        return error("no state value specified");
-                    } else {
-                        if (!$sinfo['localityName']) {
-                            return error("missing state/locality name");
-                        } else {
-                            if (strlen($sinfo['emailAddress']) > 0 &&
-                                !preg_match(Regex::EMAIL, $sinfo['emailAddress'])
-                            ) {
-                                return error("invalid e-mail address `%s'",
-                                    $sinfo['emailAddress']);
-                            }
-                        }
-                    }
-                }
+            } else if ($sinfo['countryName'] && (!ctype_alpha($sinfo['countryName']) ||
+                strlen($sinfo['countryName']) != 2))
+            {
+                return error("invalid 2-character country `%s'",
+                    $sinfo['countryName']);
+            } else if (!$sinfo['stateOrProvinceName']) {
+                return error("no state value specified");
+            } else if (!$sinfo['localityName']) {
+                return error("missing state/locality name");
+            } else if (strlen($sinfo['emailAddress']) > 0 &&
+                !preg_match(Regex::EMAIL, $sinfo['emailAddress']))
+            {
+                return error("invalid e-mail address `%s'",
+                    $sinfo['emailAddress']);
             }
             foreach ($sinfo as $k => $v) {
                 if (!$v) {
@@ -1111,31 +1104,34 @@
         {
             $conf_new = Auth::profile()->conf->new;
             $conf_cur = Auth::profile()->conf->cur;
-            $certdir = $this->domain_fs_path() . self::CRT_PATH;
-            $renameWrapper = function ($mode) use ($certdir) {
+            $domainprefix = $this->domain_fs_path();
+            $renameWrapper = function ($mode) use ($domainprefix) {
+            	$certdir = $domainprefix . self::CRT_PATH;
                 if ($mode === 'disable') {
                     foreach (glob($certdir . '/*.crt') as $cert) {
                         rename($cert, $cert . '-disabled');
                         info("disabled certificate " . basename($cert));
                     }
-                } else {
-                    $pkeyfile = dirname($certdir) . self::KEY_PATH . '/server.key';
-                    if (!file_exists($pkeyfile)) {
-                        // cert won't work without private key
-                        return false;
+                    return;
+                }
+                $pkeyfile = $domainprefix . self::KEY_PATH . '/server.key';
+                if (!file_exists($pkeyfile)) {
+                    // cert won't work without private key
+                    return false;
+                }
+                $pkey = file_get_contents($pkeyfile);
+                foreach (glob($certdir . '/*.crt-disabled') as $cert) {
+                    $crt = file_get_contents($cert);
+                    $file = basename($cert);
+                    // server.crt is hardcoded SSL CRT
+                    if ($file === "server.crt" && !$this->valid($crt, $pkey)) {
+                        info("removing dangling certificate `%s' that does not match pkey modulus", $cert);
+                        unlink($cert);
+                        // using certificate will break site
+                        continue;
                     }
-                    $pkey = file_get_contents($pkeyfile);
-                    foreach (glob($certdir . '/*.crt-disabled') as $cert) {
-                        $crt = file_get_contents($cert);
-                        if (!$this->valid($crt, $pkey)) {
-                            info("removing dangling certificate `%s' that does not match pkey modulus", $cert);
-                            unlink($cert);
-                            // using certificate will break site
-                            continue;
-                        }
-                        rename($cert, substr($cert, 0, -9));
-                        info("enabled certificate " . substr(basename($cert), 0, -9));
-                    }
+                    rename($cert, substr($cert, 0, -9));
+                    info("enabled certificate " . substr(basename($cert), 0, -9));
                 }
             };
 
@@ -1143,10 +1139,8 @@
                 // Luna and on do things differently
                 if (!$conf_new['openssl']['enabled']) {
                     $renameWrapper('disable');
-                } else {
-                    if ($conf_new['openssl']['enabled'] && !$conf_cur['openssl']['enabled']) {
-                        $renameWrapper('enable');
-                    }
+                } else if ($conf_new['openssl']['enabled'] && !$conf_cur['openssl']['enabled']) {
+                    $renameWrapper('enable');
                 }
                 return;
             }
