@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -48,14 +49,17 @@
             return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
         }
 
-        public function _edit_user($user, $usernew)
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
-            if (!$this->enabled() || !$this->user_enabled($user)) {
+	        if ($userold === $usernew) {
+		        return;
+	        }
+
+            if (!$this->enabled() || !$this->user_enabled($userold)) {
                 return true;
             }
-
             // @TODO nuke active ssh sessions?
-            Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
+            Util_Pam::remove_entry($userold, self::PAM_SVC_NAME);
             Util_Pam::add_entry($usernew, self::PAM_SVC_NAME);
             return true;
         }

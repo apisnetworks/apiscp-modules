@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -91,29 +92,29 @@
             }
             $fp = fopen($spool, 'r');
             $cronjobs = array();
-            while (!feof($fp)) {
-                $line = fgets($fp);
-                if (preg_match(Regex::CRON_TASK, $line, $matches)) {
-                    if (!empty($matches['token'])) {
-                        list($min, $hour, $dom, $month, $dow) = $this->_parseCronToken($matches['token']);
-                    } else {
-                        $min = $matches['min'];
-                        $hour = $matches['hour'];
-                        $dom = $matches['dom'];
-                        $month = $matches['month'];
-                        $dow = $matches['dow'];
-                    }
-                    $cmd = $matches['cmd'];
-                    $cronjobs[] = array(
-                        "minute"       => $min,
-                        "hour"         => $hour,
-                        "day_of_month" => $dom,
-                        "month"        => $month,
-                        "day_of_week"  => $dow,
-                        "cmd"          => $cmd,
-                        "disabled"     => (bool)$matches['disabled']
-                    );
+            while (false !== ($line = fgets($fp))) {
+                if (!preg_match(Regex::CRON_TASK, $line, $matches)) {
+	                continue;
                 }
+                if (!empty($matches['token'])) {
+                    list($min, $hour, $dom, $month, $dow) = $this->_parseCronToken($matches['token']);
+                } else {
+                    $min = $matches['min'];
+                    $hour = $matches['hour'];
+                    $dom = $matches['dom'];
+                    $month = $matches['month'];
+                    $dow = $matches['dow'];
+                }
+                $cmd = $matches['cmd'];
+                $cronjobs[] = array(
+                    "minute"       => $min,
+                    "hour"         => $hour,
+                    "day_of_month" => $dom,
+                    "month"        => $month,
+                    "day_of_week"  => $dow,
+                    "cmd"          => $cmd,
+                    "disabled"     => (bool)$matches['disabled']
+                );
             }
             return $cronjobs;
         }
@@ -478,8 +479,7 @@
             $tempFile = tempnam($this->domain_fs_path() . "/tmp", "apnscp");
             $tmpfp = fopen($tempFile, "w");
             $done = false;
-            while (!feof($fp)) {
-                $line = fgets($fp);
+            while (false !== ($line = fgets($fp))) {
                 if (preg_match(Regex::CRON_TASK, $line, $matches)) {
                     if (!$done &&
                         $matches['cmd'] === $cmd &&
@@ -578,9 +578,12 @@
             return $this->_edit_user($userold, $usernew);
         }
 
-        public function _edit_user($user, $usernew)
+        public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
-            $oldspool = $this->get_spool_file($user);
+        	if ($userold === $usernew) {
+        		return;
+	        }
+            $oldspool = $this->get_spool_file($userold);
             $newspool = $this->get_spool_file($usernew);
             if (file_exists($oldspool)) {
                 rename($oldspool, $newspool);
@@ -588,12 +591,12 @@
             if (!$this->get_service_value('ssh', 'enabled')) {
                 return true;
             } else {
-                if (!$this->user_permitted($user)) {
+                if (!$this->user_permitted($userold)) {
                     return true;
                 }
             }
 
-            $this->_deny_user_real($user);
+            $this->_deny_user_real($userold);
             $this->_permit_user_real($usernew);
 
             $this->restart();
@@ -710,7 +713,7 @@
                     }
                     $status = Util_Process::exec($kill_cmd,
                         9);
-                    if (version_compare(PLATFORM_VERSION, '4.5') < 0) {
+                    if (version_compare(platform_version(), '4.5') < 0) {
                         unlink($this->domain_fs_path() . '/usr/sbin/crond');
                         unlink($this->domain_fs_path() . '/usr/bin/crontab');
                     }
@@ -861,5 +864,3 @@
                 error("failed to set cron contents for `%s': %s", $user, $retData['error']);
         }
     }
-
-?>

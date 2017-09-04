@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -29,7 +30,7 @@
         public function __construct()
         {
             parent::__construct();
-            if (version_compare(platform_version(), 5, '<')) {
+            if (version_compare((string)platform_version(), "5", '<')) {
                 return;
             }
             $this->exportedFunctions = array(
@@ -52,7 +53,7 @@
 
         public function _create()
         {
-            if (!version_compare(platform_version(), 5, '>=')) {
+            if (!version_compare(platform_version(), '5', '>=')) {
                 return;
             }
             $path = $this->web_site_config_dir();

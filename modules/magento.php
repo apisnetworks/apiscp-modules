@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -443,22 +444,10 @@
          * @param null $version
          * @return int|string
          */
-        public function is_current($version = null)
-        {
-            $latest = $this->_getLastestVersion();
-            if (!$version) {
-                return $version;
-            }
-            if (version_compare($version, $latest, '=')) {
-                return 1;
-            } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            }
-        }
+	    public function is_current($version = null)
+	    {
+		    return parent::is_current($version);
+	    }
 
         /**
          * Change Magento admin credentials
@@ -745,7 +734,7 @@
          */
         public function _housekeeping()
         {
-            if (version_compare(platform_version(), '4.5', '<=')) {
+            if (version_compare((string)platform_version(), '4.5', '<=')) {
                 // platform is too damn old
                 return;
             }
@@ -786,7 +775,7 @@
          *
          * @return array
          */
-        private function _getVersions()
+        protected function _getVersions()
         {
             $key = 'magento.versions';
             $cache = Cache_Super_Global::spawn();
@@ -809,7 +798,7 @@
          *
          * @return string
          */
-        private function _getLastestVersion($branch = null)
+        protected function _getLastestVersion($branch = null)
         {
             $versions = $this->_getVersions();
             if (!$versions) {

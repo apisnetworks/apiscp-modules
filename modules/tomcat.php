@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -138,7 +139,8 @@
 
             $conf_cur = Auth::profile()->conf->cur[$key];
             $conf_new = Auth::profile()->conf->new[$key];
-            if ($conf_new == $conf_cur) {
+
+            if ($conf_new === $conf_cur) {
                 return;
             }
             $log = '/var/log/catalina.out';

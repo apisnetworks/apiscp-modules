@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -153,8 +154,11 @@
             return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
         }
 
-        public function _edit_user($user, $usernew, $pwd)
+	    public function _edit_user(string $user, string $usernew, array $pwd)
         {
+        	if ($user === $usernew) {
+        		return;
+	        }
             if (!$this->user_enabled($user)) {
                 return true;
             }

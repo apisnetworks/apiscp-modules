@@ -437,18 +437,9 @@ declare(strict_types=1);
         {
             $conf_new = Auth::profile()->conf->new;
             $conf_cur = Auth::profile()->conf->cur;
-            if (version_compare(platform_version(), '6', '>=')) {
-                if (!$conf_new['openssl']['enabled']) {
-                    $this->_delete();
-                }
-            } else {
-                if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
-                    !$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']
-                ) {
-                    $this->_delete();
-                }
+            if (!$conf_new['openssl']['enabled']) {
+                $this->_delete();
             }
-
         }
 
         public function _delete()

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -203,7 +204,7 @@
                 return $this->query('misc_changelog');
             }
             $path = '/usr/local/apnscp_esprit';
-            if (version_compare(platform_version(), 5, '>=')) {
+            if (version_compare(platform_version(), '5', '>=')) {
                 $path = '/usr/local/apnscp';
             }
             $proc = Util_Process::exec('/usr/bin/svn log '
@@ -265,7 +266,9 @@
             try {
                 $http->send();
             } catch (Exception $e) {
-                dlog("WARN: failed to purge pagespeed cache, " . $e->getMessage());
+                dlog("WARN: failed to purge pagespeed cache, %s. Is `%s' reachable?",
+	                $e->getMessage(),
+	                dirname($url));
             }
             return true;
         }

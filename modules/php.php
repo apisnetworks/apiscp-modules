@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
     /**
      *  +------------------------------------------------------------+
@@ -44,7 +45,7 @@
             }
 
             $args = '-d display_errors=0 -d track_errors=1 -d include_path=/usr/local/share/pear:/usr/share/pear';
-            if (version_compare(PLATFORM_VERSION, '4.5', '<')) {
+            if (version_compare(platform_version(), '4.5', '<')) {
                 $args .= ' -d disable_functions=ini_set';
             }
             $pearcmd = '/usr/share/pear/pearcmd.php';

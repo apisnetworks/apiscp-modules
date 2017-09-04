@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -461,19 +462,7 @@
          */
         public function is_current($version = null)
         {
-            $latest = $this->_getLatestVersion();;
-            if (!$version) {
-                return $version;
-            }
-            if (version_compare($version, $latest, '=')) {
-                return 1;
-            } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            }
+            return parent::is_current($version);
         }
 
         /**
@@ -825,25 +814,11 @@
         }
 
         /**
-         * Get latest Joomla release
-         *
-         * @return string
-         */
-        private function _getLatestVersion()
-        {
-            $versions = $this->_getVersions();
-            if (!$versions) {
-                return null;
-            }
-            return array_pop($versions);
-        }
-
-        /**
          * Get all current major versions
          *
          * @return array
          */
-        private function _getVersions()
+        protected function _getVersions()
         {
             $key = 'joomla.versions';
             $cache = Cache_Super_Global::spawn();
@@ -869,7 +844,7 @@
             // client may override tz, propagate to bin
             $tz = date_default_timezone_get();
             $cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-                ' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::JOOMLA_CLI;
+                ' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::JOOMLA_CLI;
             if (!is_array($args)) {
                 $args = func_get_args();
                 array_shift($args);
@@ -986,7 +961,8 @@
                 return false;
             }
 
-            if (version_compare($version, $juext['update']['targetplatform']['@attributes']['version'], "<")) {
+            $updatever = (string)$juext['update']['targetplatform']['@attributes']['version'];
+            if (version_compare((string)$version, $updatever, "<")) {
                 return true;
             }
 

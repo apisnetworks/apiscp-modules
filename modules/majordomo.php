@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -151,7 +152,7 @@
         {
             $aclprefix = $prefix = $this->domain_fs_path();
 
-            if (version_compare(PLATFORM_VERSION, "4.5", '>=')) {
+            if (version_compare(platform_version(), "4.5", '>=')) {
                 $aclprefix = $this->domain_shadow_path();
             }
             if (file_exists($prefix . '/var/lib/majordomo/lists/' . $list)) {

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -18,6 +19,7 @@
      *
      */
     class Site_Module extends Module_Support_Auth
+	    implements Opcenter\Contracts\Hookable
     {
         const MIN_STORAGE_AMNESTY = QUOTA_STORAGE_WAIT;
 
@@ -507,4 +509,56 @@
             $db->insert($new['domain'], $this->site);
             $db->close();
 	    }
+
+	    /**
+	     * Configuration verification
+	     *
+	     * @param \Opcenter\Service\ConfigurationContext $ctx
+	     * @return bool
+	     */
+	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool {
+	    	if (0 === strpos($ctx['domain'], "www.")) {
+	    		/** sigh... */
+	    		$ctx['domain'] = substr($ctx['domain'], 4);
+		    }
+
+	    	if (!preg_match(Regex::DOMAIN, $ctx['domain'])) {
+	    		return error("invalid domain `%s'", $ctx['domain']);
+		    } else if ($id = \Auth::get_site_id_from_domain($ctx['domain'])) {
+	    		return error("domain `%s' already attached to site id `%d'",
+				    $ctx['domain'], $id);
+		    }
+
+		    if ($id = \Auth::get_site_id_from_admin($ctx['admin_user'])) {
+	    		return error("username `%s' is already in use by site id `%d'",
+				    $ctx['admin_user'], $id);
+		    } else if (!preg_match(Regex::USERNAME, $ctx['admin_user'])) {
+	    		return error("invalid username `%s' specified", $ctx['admin_user']);
+		    }
+
+		    if (empty($ctx['admin'])) {
+				$ctx['admin'] = \Opcenter\Role\User::gen_admin();
+		    } else if (posix_getpwnam($ctx['admin'])) {
+				return error("system user `%s' already exists", $ctx['admin']);
+		    }
+			return true;
+	    }
+
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd) {
+			if ($usernew === $userold) {
+				return;
+			}
+	    }
+
+	    public function _create_user(string $user)
+	    {
+		    // TODO: Implement _create_user() method.
+	    }
+
+	    public function _delete_user(string $user)
+	    {
+		    // TODO: Implement _delete_user() method.
+	    }
+
+
     }

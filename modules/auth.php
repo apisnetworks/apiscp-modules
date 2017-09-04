@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -16,7 +17,7 @@
      *
      * @package core
      */
-    class Auth_Module extends Module_Support_Auth
+    class Auth_Module extends Module_Support_Auth implements \Opcenter\Contracts\Hookable
     {
         const API_KEY_LIMIT = 10;
         const API_USER_SYNC_COMMENT = "apnscp user sync";
@@ -24,6 +25,8 @@
         const PWOVERRIDE_KEY = 'pwoverride';
         // recognized browser storage key, cookies don't like "."
         const LOGIN_KEY = 'sectoken';
+        // tunable minimum acceptable password length
+        const MIN_PW_LENGTH = AUTH_MIN_PW_LENGTH;
 
         private static $domain_db;
 
@@ -86,10 +89,8 @@
         {
             if (!$this->password_permitted($password, $user)) {
                 return error("weak password disallowed");
-            } else {
-                if ($this->is_demo()) {
-                    return error("cannot change password in demo mode");
-                }
+            } else if ($this->is_demo()) {
+                return error("cannot change password in demo mode");
             }
             $crypted = $this->crypt($password);
             return $this->change_cpassword($crypted, $user, $domain);
@@ -97,79 +98,19 @@
 
         public function password_permitted($password, $user = null)
         {
-            if (is_debug()) {
-                return true;
-            }
-            if (!$user) {
-                $user = $this->username;
-            }
-            $disallowed = array(
-                'test',
-                'password',
-                'letmein',
-                'qwerty',
-                '1234',
-                '12345',
-                '123456',
-                $user
-            );
-            if (false !== array_search($password, $disallowed) || strlen($password) < 7) {
-                return error("password is weak");
-            } else {
-                if (preg_match('/.{0,4}' . $user . '.{0,4}/i', $password)) {
-                    return error("password cannot be same as username");
-                }
-            }
-            /**
-             * At least 7 characters long + require 2 of 3 classes:
-             * - at least 1 uppercase
-             * - at least 1 lowercase
-             * - at least 1 numeric
-             */
-            return true;
+            return \Opcenter\Auth\Shadow::strong($password, $user);
         }
 
         /**
          * Encrypt a password using the strongest hash
          *
-         * @param type $password
-         * @param type $salt
+         * @param string $password
+         * @param string|null $salt
+         * @return string
          */
         public function crypt($password, $salt = null)
         {
-            if (!$salt) {
-                $salt = $this->_generate_salt();
-            } else {
-                if ($salt[0] != '$') {
-                    return error("malformed salt `%s'", $salt);
-                } else {
-                    if (!$this->_hash_support($salt[1])) {
-                        return error("unknown hash requested `%s'", $salt[1]);
-                    } else {
-                        return crypt($password, $salt);
-                    }
-                }
-            }
-            // let the API autoselect the best possible hash
-            $platform_hashes = array(
-                'CRYPT_SHA512'   => '6',
-                'CRYPT_SHA256'   => '5',
-                'CRYPT_BLOWFISH' => '2a',
-                'CRYPT_MD5'      => '1'
-            );
-            $hash = $marker = null;
-            foreach ($platform_hashes as $h => $m) {
-                if ($this->_hash_supported($m)) {
-                    $hash = $h;
-                    $marker = $m;
-                    break;
-                }
-            }
-            if (!$hash) {
-                return error("no suitable hashes supported on platform");
-            }
-            $salt = '$' . $marker . '$' . $salt;
-            return crypt($password, $salt);
+            return \Opcenter\Auth\Shadow::crypt($password, $salt);
         }
 
         public function change_cpassword($cpassword, $user = null, $domain = null)
@@ -290,14 +231,12 @@
             if ($this->permission_level & PRIVILEGE_ADMIN) {
                 $site_id = null;
                 $invoice = null;
+            } else if ($this->permission_level & PRIVILEGE_RESELLER) {
+                $site_id = null;
+                $invoice = $this->billing_get_invoice();
             } else {
-                if ($this->permission_level & PRIVILEGE_RESELLER) {
-                    $site_id = null;
-                    $invoice = $this->billing_get_invoice();
-                } else {
-                    $site_id = $this->site_id;
-                    $invoice = $this->billing_get_invoice();
-                }
+                $site_id = $this->site_id;
+                $invoice = $this->billing_get_invoice();
             }
             $stmt->bind_param("ssds", $key, $this->username, $site_id, $invoice);
             if (!$stmt->execute()) {
@@ -358,9 +297,9 @@
                 if (!$fp) {
                     return false;
                 }
-                while (!feof($fp)) {
-                    $data = explode(':', trim(fgets($fp)));
-                    if ($data[0] == $this->username) {
+                while (false !== ($line = fgets($fp))) {
+                    $data = explode(':', trim($line));
+                    if ($data[0] === $this->username) {
                         break;
                     }
                 }
@@ -447,7 +386,7 @@
 				ORDER BY id DESC " . $limitStr);
             $q->fetch_object();
 
-            while (($data = $q->fetch_object()) != false) {
+            while (($data = $q->fetch_object()) !== null) {
                 $logins[] = array(
                     'ip' => $data->ip,
                     'ts' => $data->login_date
@@ -585,14 +524,10 @@
             $this->user_flush();
             if (!preg_match(Regex::USERNAME, $user)) {
                 return error("invalid new username `%s'", $user);
-            } else {
-                if (!$this->_username_unique($user)) {
-                    return error("requested username `%s' in use on another account", $user);
-                } else {
-                    if ($this->user_exists($user)) {
-                        return error("requested username `%s' already exists on this account", $user);
-                    }
-                }
+            } else if (!$this->_username_unique($user)) {
+                return error("requested username `%s' in use on another account", $user);
+            } else if ($this->user_exists($user)) {
+                return error("requested username `%s' already exists on this account", $user);
             }
             $proc = new Util_Account_Editor();
             $proc->setConfig('siteinfo', 'admin_user', $user)
@@ -610,8 +545,8 @@
          * Set a temporary password for an account
          *
          * @param string $site
-         * @param type   $limit
-         * @param type   $password
+         * @param int    $limit
+         * @param string|null $password
          * @return bool
          */
         public function set_temp_password($site, $limit = 120/** time in seconds */, $password = null)
@@ -701,13 +636,6 @@
                 );
             }
             return $password;
-        }
-
-        public function _delete()
-        {
-            foreach ($this->get_api_keys() as $key) {
-                $this->delete_api_key($key['key']);
-            }
         }
 
         /**
@@ -810,9 +738,9 @@
             return Util_Pam::add_entry($user, $svc);
         }
 
-        public function _edit_user($user, $newuser)
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
-            return $this->_edit_wrapper($user, $newuser);
+            return $this->_edit_wrapper($userold, $usernew);
         }
 
         public function _reset(Util_Account_Editor &$editor = null)
@@ -874,82 +802,34 @@
          */
         private function _generate_salt()
         {
-            $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            $salt = '';
-            // 16 is max length for sha512. crypt() will truncate to acceptable
-            // length, with 8 being the smallest
-            for ($i = 0, $len = strlen($chars) - 1; $i < CRYPT_SALT_LENGTH; $i++) {
-                $r = random_int(0, $len);
-                $salt .= $chars[$r];
-            }
-            return $salt;
+            return \Opcenter\Auth\Shadow::mksalt();
         }
 
         /**
          * Check if requested hash is supported
          *
-         * @param int $version @link crypt(5)
+         * @param int|string $version @link crypt(5)
          * @return bool
          */
         private function _hash_supported($version)
         {
-            switch ($version) {
-                case 6:
-                    $hash = 'CRYPT_SHA512';
-                    break;
-                case 5:
-                    $hash = 'CRYPT_SHA256';
-                    break;
-                case 2:
-                    $hash = 'CRYPT_BLOWFISH';
-                    break;
-                case 1:
-                    $hash = 'CRYPT_MD5';
-                    break;
-                default:
-                    return false;
-
-            }
-            return defined($hash) && constant($hash);
+			return \Opcenter\Auth\Shadow::hash_supported((string)$version);
         }
 
         private function _change_cpassword_raw($cpassword, $user = null, $domain = null)
         {
-
-            if ($cpassword[0] != '$' || ($cpassword[2] != '$' && $cpassword[3] != '$')) {
-                // blowfish uses 2x notation
-                return error("password must be encrypted via crypt()");
-            } else {
-                if (!in_array($cpassword[1], array("1", "2", "5", "6"))) {
-                    /**
-                     * Supported crypt types from crypt(3)
-                     */
-                    return error("invalid crypt type `%s'", $cpassword[1]);
-                }
-            }
-
-
-            $cmd = '';
-            $user = strtolower($user);
-
-            if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-                // end-users are requesting a pw change
-                // we still need to chroot to the proper filesystem path
-                $cmd .= '/usr/sbin/chroot ' . $this->domain_fs_path() . ' ';
-            } else {
-                // otherwise we're changing the admin or reseller password...
-            }
-
-            $cmd .= "/usr/sbin/usermod -p %(passwd)s %(user)s";
-            $args = array(
-                'passwd' => $cpassword,
-                'user'   => $user
-            );
-            $status = Util_Process_Safe::exec($cmd, $args);
-            return $status['success'];
+			if (null === $user) {
+				$user = $this->username;
+			}
+            $ret = \Opcenter\Auth\Shadow::bindTo($this->make_domain_fs_path($domain))->set_cpasswd($cpassword, $user);
+			if ($ret) {
+				$pwd = (array)$this->user_getpwnam($user);
+				Util_Account_Hooks::run('edit_user', [$user, $user, $pwd]);
+			}
+			return $ret;
         }
 
-        /**
+	    /**
          * Assemble additional API key query restrictions
          *
          * @return array
@@ -1046,21 +926,27 @@
             }
             $shadow = null;
             $fp = fopen($base . $file, 'r');
-            do {
-                $line = fgets($fp);
+            while (false !== ($line = fgets($fp))) {
                 $tok = strtok($line, ":");
                 if ($tok != $admin) {
                     continue;
                 }
                 $shadow = strtok(":");
                 break;
-            } while (!feof($fp));
+            }
             fclose($fp);
             if (!$shadow) {
                 fatal("admin `%s' not found for `%s'", $admin, $site);
             }
             return $shadow;
         }
+
+	    public function _delete()
+	    {
+		    foreach ($this->get_api_keys() as $key) {
+			    $this->delete_api_key($key['key']);
+		    }
+	    }
 
         /**
          * General user edit for admin and users
@@ -1071,6 +957,9 @@
          */
         private function _edit_wrapper($userold, $usernew)
         {
+	        if ($userold === $usernew) {
+		        return;
+	        }
             $db = $this->mysql;
             foreach ($this->_get_api_keys_real($userold) as $key) {
                 $q = $db->query("UPDATE api_keys SET `username` = '" . $db->escape_string($usernew) . "' " .
@@ -1110,10 +999,62 @@
             // ensure reset wrapper is always up to date, should be a
             // git hook, but to-do
             $rstwrapper = INCLUDE_PATH . '/bin/scripts/reset_password';
-            chown($rstwrapper, 'root');
-            chgrp($rstwrapper, WS_GID);
-            chmod($rstwrapper, 04750);
+            \Opcenter\Filesystem::chogp($rstwrapper, 'root', WS_GID, 04750);
             // convert domain map over to TokyoCabinet
             $this->rebuildMap();
+        }
+
+	    public function _create_user(string $user)
+	    {
+		    // TODO: Implement _create_user() method.
+	    }
+
+	    public function _delete_user(string $user)
+	    {
+		    // TODO: Implement _delete_user() method.
+	    }
+
+        public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+        {
+        	// allow backwards compatibility with older format that pass auth in siteinfo
+        	$passwd = $ctx->getNewServiceValue('siteinfo', null);
+
+        	if ($this->hasPasswordUpdate($passwd)) {
+        		foreach ($ctx as $k => $v) {
+        			if (isset($passwd[$k])) {
+        				$ctx[$v] = $k;
+			        }
+		        }
+	        }
+	        if (!empty($ctx[\Auth_Module::PWOVERRIDE_KEY])) {
+        		$ctx[\Auth_Module::PWOVERRIDE_KEY] = (bool)$ctx[\Auth_Module::PWOVERRIDE_KEY];
+	        }
+        	if (!$ctx->hasOld() || ($ctx->hasOld() && $this->hasPasswordUpdate($ctx))) {
+        		// account creation or alter password necessary
+		        if (!empty($ctx['cpasswd']) && !empty($ctx['passwd'])) {
+			        return error("either cpasswd or passwd may be specified, but not both");
+		        }
+		        if (!empty($ctx['tpasswd'])) {
+			        $ctx['passwd'] = \Util_Terminal::password_interactive();
+			        $ctx['tpasswd'] = null;
+		        } else if (!empty($ctx['cpasswd'])) {
+			        if (!\Opcenter\Auth\Shadow::valid_crypted($ctx['cpasswd'])) {
+				        return error("invalid crypted passwd format, `%s'", $ctx['passwd']);
+			        }
+		        }
+
+		        if (empty($ctx['cpasswd'])) {
+			        if (!\Opcenter\Auth\Shadow::strong($ctx['passwd'])) {
+				        return error("password does not meet strength criteria");
+			        }
+			        $ctx['cpasswd'] = \Opcenter\Auth\Shadow::crypt($ctx['passwd']);
+			        $ctx['passwd'] = null;
+			        /**
+			         * @todo remove tpasswd/cpasswd/passwd trace from config,
+			         *       via Cardinal perhaps?
+			         */
+		        }
+	        }
+	        return true;
         }
     }

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -16,7 +17,7 @@
      *
      * @package core
      */
-    class Email_Module extends Module_Skeleton
+    class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
         const MAILDIR_HOME = 'Mail';
         const MAILBOX_SPECIAL = 's';
@@ -26,9 +27,17 @@
         const MAILBOX_ENABLED = 'e';
         const MAILBOX_SINGLE = '1';
         const VACATION_RE = '^\s*include "\$HOME/\.vacationrc"';
+        const VACATION_PREFKEY = 'mail.vacapref';
+        const VACATION_OPTIONS = [
+	        'charset'    => '-c {val}',
+	        'daydelay'   => '-d',
+	        'omitmsg'    => '-N',
+	        'daydelay'   => '-D {val}',
+	        'salutation' => '-S {val}'
+        ];
         const VACATION_RECIPE = '# Change to 1 to auto-reply to forwarded emails or BCCs 
 REPLYALL=0
-FLAGS=""
+FLAGS="%FLAGS%"
 /^(?:X-Original-To|Delivered-To): (.+)/
 TOADDR=$MATCH1
 if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure we are not BCC\'d
@@ -191,7 +200,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 				(domain_lookup.site_id = " . $this->site_id . ") AND " . $filter_clause . " ORDER BY \"user\", domain;";
 
             $this->pgsql->query($query);
-            while ($row = $this->pgsql->fetch_object()) {
+            while (null !== ($row = $this->pgsql->fetch_object())) {
                 $mailboxes[] = array(
                     'user'        => trim($row->user),
                     'domain'      => trim($row->domain),
@@ -612,16 +621,55 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             return intval($proc['output']) * 1024;
         }
 
+	    /**
+	     * Set vacation options
+	     *
+	     * @param array $options
+	     * @return bool
+	     */
+        public function set_vacation_options(array $options): bool {
+			if (!$this->transform_vacation_flags($options)) {
+				return false;
+			}
+			\Preferences::set(self::VACATION_PREFKEY, $options);
+			return true;
+        }
+
+	    /**
+	     * Get vacation options
+	     * @return array
+	     */
+        public function get_vacation_options(): array {
+			return \Preferences::get(self::VACATION_PREFKEY, []);
+        }
+
+	    protected function transform_vacation_flags(array $flags): string
+	    {
+		    /**
+		     * use {val} to substitute
+		     */
+		    $flagmap = self::VACATION_OPTIONS;
+		    $flagtxt = [];
+		    foreach ($flags as $k => $v) {
+			    if (!isset($flagmap[$k])) {
+				    return error("unknown auto-responder flag `%s'", $k);
+			    }
+			    $flagtxt[] = str_replace("{val}", escapeshellarg($v), $flagmap[$k]);
+		    }
+
+		    return join(' ', $flagtxt);
+	    }
+
         public function get_vacation_message($user = null)
         {
             if (!IS_CLI) {
                 return $this->query('email_get_vacation_message', $user);
             }
-            if (!is_null($user) && !($this->permission_level & PRIVILEGE_SITE)) {
+            if (null !== $user && !($this->permission_level & PRIVILEGE_SITE)) {
                 return error("unprivileged user may not setup vacation responder for other users");
             }
 
-            if (is_null($user)) {
+            if (null === $user) {
                 $user = $this->username;
             }
 
@@ -632,22 +680,30 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             return file_get_contents($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg');
         }
 
-        public function add_vacation($response, $user = null)
+	    /**
+	     * Enable vacation auto-responder
+	     *
+	     * @param string $response plain-text or HTML responder
+	     * @param null|string $user
+	     * @param array|null $flags optional flags
+	     * @return bool|mixed|void
+	     */
+        public function add_vacation($response, $user = null, array $flags = null)
         {
             if (!IS_CLI) {
-                return $this->query('email_add_vacation', $response, $user);
+                return $this->query('email_add_vacation', $response, $user, $flags);
             }
-            if (!is_null($user) && !($this->permission_level & PRIVILEGE_SITE)) {
+            if (null !== $user && !($this->permission_level & PRIVILEGE_SITE)) {
                 return error("Non-privileged user may not setup vacation responder for other users");
             }
 
-            if (is_null($user)) {
+            if (null === $user) {
                 $user = $this->username;
             }
 
             $pwd = $this->user_getpwnam($user);
             if (!$pwd) {
-                return new error("invalid user `%s'", $user);
+                return error("invalid user `%s'", $user);
             }
 
             $home = $this->domain_fs_path() . $pwd['home'];
@@ -662,28 +718,30 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
             //if (!file_exists($home.'/.vacationrc'))
             $recipe = self::VACATION_RECIPE;
-            if (platform_version() < 5) {
-                $recipe = str_replace('-N ', '', $recipe);
+            $flags = $this->transform_vacation_flags($flags);
+            if (false === $flags) {
+            	return false;
             }
+			$recipe = str_replace('%FLAGS%', $flags, $recipe);
             file_put_contents($home . '/.vacationrc', $recipe);
 
             file_put_contents($home . '/.vacation.msg', $response);
-            chown($home . '/.vacation.msg', intval($pwd['uid']));
-            chgrp($home . '/.vacation.msg', intval($pwd['gid']));
-
-            chown($home . '/.vacationrc', intval($pwd['uid']));
-            chgrp($home . '/.vacationrc', intval($pwd['gid']));
-            chmod($home . '/.vacationrc', 0600);
+            \Opcenter\Filesystem::chogp($home . '/.vacation.msg',
+	            (int)$pwd['uid'], (int)$pwd['gid'], 0600);
+	        \Opcenter\Filesystem::chogp($home . '/.vacationrc',
+		        (int)$pwd['uid'], (int)$pwd['gid'], 0600);
             return true;
         }
 
         public function vacation_exists($user = null)
         {
-            if (!is_null($user) && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
-                return error("Unable to check vacation for non-admin account");
-            }
+        	if (!IS_CLI) {
+        		return $this->query('email_vacation_exists', $user);
+	        }
 
-            if (is_null($user)) {
+            if (null !== $user && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
+                return error("Unable to check vacation for non-admin account");
+            } else if (null === $user) {
                 $user = $this->username;
             }
 
@@ -691,50 +749,55 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 return error("Invalid user `%s'", $user);
             }
 
-            return $this->query('email_vacation_exists_backend', $user);
-        }
-
-        public function vacation_exists_backend($user)
-        {
             return file_exists($this->domain_fs_path() . '/home/' . $user . '/.mailfilter') &&
                 preg_match('!' . self::VACATION_RE . '!m',
                     file_get_contents($this->domain_fs_path() . '/home/' . $user . '/.mailfilter'));
         }
 
-        public function change_vacation_message($response, $user = null)
+	    /**
+	     * Change existing vacation message
+	     * @param string        $response
+	     * @param string|null   $user
+	     * @param array|null    $flags
+	     * @return bool
+	     */
+        public function change_vacation_message($response, $user = null, array $flags = [])
         {
-
-            if (!is_null($user) && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
-                return new PermissionError("Unable to check vacation for non-admin account");
+        	if (!IS_CLI) {
+        		return $this->query('email_change_vacation_message', $response, $user, $flags);
+	        }
+            if (null !== $user && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
+                return error("Unable to check vacation for non-admin account");
             }
-            if (is_null($user)) {
+            if (null === $user) {
                 $user = $this->username;
             }
 
             if (!$this->user_getpwnam($user)) {
-                return new ArgumentError("Invalid user " . $user);
+                return error("Invalid user " . $user);
             }
 
-            return $this->query('email_change_vacation_message_backend', $response, $user);
-
-        }
-
-        public function change_vacation_message_backend($response, $user)
-        {
             $pwd = $this->user_getpwnam($user);
             if (!$pwd) {
-                return new ArgumentError("Invalid user, " . $user);
+                return error("Invalid user, " . $user);
             }
-            file_put_contents($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg', $response);
-            chown($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg', intval($pwd['uid']));
-            chgrp($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg', intval($pwd['gid']));
+            
+	        $flags = $this->transform_vacation_flags($flags);
+	        if (false === $flags) {
+		        return false;
+	        }
+			$file = $this->domain_fs_path() . '/home/' . $user . '/.vacation.msg';
+            file_put_contents($file, $response);
+	        \Opcenter\Filesystem::chogp($file, (int)$pwd['uid'], (int)$pwd['gid'], 0600);
             return true;
         }
 
         /**
-         * bool remove_vacation ([string])
+         * Disable vacation status
+         * @param string|null user
+         * @return bool
          */
-        public function remove_vacation($user = null)
+        public function remove_vacation(string $user = null)
         {
             if (!IS_CLI) {
                 return $this->query('email_remove_vacation', $user);
@@ -1132,7 +1195,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             return $this->_create_user($user);
         }
 
-        public function _create_user($user)
+        public function _create_user(string $user)
         {
             // flush Dovecot auth cache to acknowledge pwdb changes
             $this->_reload('adduser');
@@ -1161,23 +1224,18 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 // update ssl certs
                 Util_Process::exec('/sbin/service dovecot reload');
                 Util_Process::exec('/sbin/service postfix reload');
-            } else {
-                if ($why == "adduser") {
-                    // just flush auth cache
-                    $platformver = platform_version();
-                    if (version_compare($platformver, '6', '>=')) {
-                        $cmd = 'doveadm auth cache flush';
-                    } else {
-                        if (version_compare($platformver, '5', '>=')) {
-                            $cmd = 'dovecot reload';
-                        } else {
-                            $cmd = '/sbin/service dovecot reload';
-                        }
-                    }
-                    Util_Process::exec($cmd);
+            } else if ($why == "adduser") {
+                // just flush auth cache
+                $platformver = platform_version();
+                if (version_compare($platformver, '6', '>=')) {
+                    $cmd = 'doveadm auth cache flush';
+                } else if (version_compare($platformver, '5', '>=')) {
+                    $cmd = 'dovecot reload';
+                } else {
+                    $cmd = '/sbin/service dovecot reload';
                 }
+                Util_Process::exec($cmd);
             }
-
         }
 
         public function create_maildir($mailbox)
@@ -1268,7 +1326,13 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
              * @TODO phase out legacy backend
              */
             if ($user['old'] != $user['new']) {
-                $this->_edit_user($user['old'], $user['new']);
+            	// @XXX bug: _edit is called after EVD completes
+	            // old pwd is lost, but send anyway to placate _edit_user
+                $this->_edit_user(
+                	$user['old'],
+	                $user['new'],
+	                $this->user_getpwnam($user['new'])
+                );
             }
 
             /**
@@ -1307,17 +1371,22 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
         }
 
-        public function _edit_user($user, $usernew)
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
+        	// Dovecot is a finnicky bastard
+	        $this->_reload('adduser');
+        	if ($userold === $usernew) {
+        		return;
+	        }
             // edit_user hooks enumerated after user changed
             $uid = $this->user_get_uid_from_username($usernew);
             if (!$uid) {
-                return error("cannot determine uid from user `%s' in mailbox translation", $user);
+                return error("cannot determine uid from user `%s' in mailbox translation", $userold);
             }
             mute_warn();
             foreach ($this->_pam_services() as $svc) {
-                if ($this->user_enabled($user, $svc)) {
-                    Util_Pam::remove_entry($user, $svc);
+                if ($this->user_enabled($userold, $svc)) {
+                    Util_Pam::remove_entry($userold, $svc);
                     // edit_user hook renames user then calls
                     Util_Pam::add_entry($usernew, $svc);
                 }
@@ -1326,13 +1395,13 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             // update uids in uids table
             $db = $this->pgsql;
             $q = 'UPDATE "uids" SET "user" = \'' . pg_escape_string($usernew) . '\' ' .
-                'WHERE "user" = \'' . pg_escape_string($user) . '\' AND uid = ' . $uid;
+                'WHERE "user" = \'' . pg_escape_string($userold) . '\' AND uid = ' . $uid;
             $db->query($q);
             // make 2 sweeps:
             // sweep 1: update mailboxes that refer to the uid
             // sweep 2: update aliases that forward to the user
             // aliases that deliver locally
-            $mailboxes = $this->list_mailboxes('local', $user);
+            $mailboxes = $this->list_mailboxes('local', $userold);
             foreach ($mailboxes as $mailbox) {
                 if ($mailbox['type'] === self::MAILBOX_USER) {
                     $target = '/home/' . $mailbox['mailbox'] . '/' .
@@ -1349,11 +1418,16 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 );
             }
             // sweep 2
-            $this->_update_email_aliases($user, $usernew);
+            $this->_update_email_aliases($userold, $usernew);
             return true;
         }
 
-        public function user_enabled($user, $svc = null)
+	    public function _delete_user(string $user)
+	    {
+		    // TODO: Implement _delete_user() method.
+	    }
+
+	    public function user_enabled($user, $svc = null)
         {
             if ($svc && $svc != 'imap' && $svc != 'smtp' && $svc != 'smtp_relay') {
                 return error("service " . $svc . " is unknown (imap, smtp)");
@@ -1411,7 +1485,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
         {
             $virtual = array();
             $this->pgsql->query("SELECT domain FROM domain_lookup WHERE site_id = " . $this->site_id);
-            while (false !== ($row = $this->pgsql->fetch_object())) {
+            while (null !== ($row = $this->pgsql->fetch_object())) {
                 $virtual[] = trim($row->domain);
             }
             return $virtual;
@@ -1566,7 +1640,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             $regex = Regex::compile(
                 Regex::EMAIL_MTA_IP_RECORD,
                 array(
-                    'ip' => preg_quote($ip)
+                    'ip' => preg_quote($ip, '/')
                 )
             );
             foreach ($hosts as $host) {
@@ -1578,8 +1652,16 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             $hosts[] = $ip . ' internal-multihome';
             $hosts[] = "";
             return file_put_contents(Dns_Module::HOSTS_FILE, join(PHP_EOL, $hosts), LOCK_EX) !== false;
+        }
 
+        public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+        {
+	        if (!preg_match(Regex::DOMAIN, $ctx['mailserver'])) {
+	        	$ctx['mailserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
+	        }
+	        if (!is_int($ctx['preference'])) {
+	        	return error("MX priority must be numeric, `%s' given", $ctx['preference']);
+	        }
+	        return true;
         }
     }
-
-?>

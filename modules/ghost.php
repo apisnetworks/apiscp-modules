@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -354,22 +355,10 @@
          * @param null $version
          * @return int|string
          */
-        public function is_current($version = null)
-        {
-            $latest = $this->_getLastestVersion();;
-            if (!$version) {
-                return $version;
-            }
-            if (version_compare($version, $latest, '=')) {
-                return 1;
-            } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
-            }
-        }
+	    public function is_current($version = null)
+	    {
+		    return parent::is_current($version);
+	    }
 
         /**
          * Change WP admin credentials

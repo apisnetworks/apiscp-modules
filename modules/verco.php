@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -87,7 +88,7 @@
         public function enable_svn_backend()
         {
             // subversion is part of apollo platform
-            if (version_compare(PLATFORM_VERSION, '4.5', '>=')) {
+            if (version_compare(platform_version(), '4.5', '>=')) {
                 return true;
             }
             foreach ($this->svn_rpms as $rpm) {
@@ -300,7 +301,7 @@
         public function enable_cvs_backend()
         {
             // cvs is part of apollo platform
-            if (version_compare(PLATFORM_VERSION, '4.5', '<')) {
+            if (version_compare(platform_version(), '4.5', '<')) {
                 return true;
             }
             foreach ($this->cvs_rpms as $rpm) {
@@ -346,7 +347,7 @@
 
             $tmp = $this->domain_fs_path() . "/tmp";
             $trac = APNSCP_INSTALL_PATH . "/var/storehouse/trac/Trac-" . self::TRAC_VERSION . ".tar.gz ";
-            if (version_compare(PLATFORM_VERSION, '4.5', '<')) {
+            if (version_compare(platform_version(), '4.5', '<')) {
                 Util_Process::exec("sh /root/replicatedomain.sh subversion-python " . $this->domain);
 
                 Util_Process::exec("tar -xvz --overwrite -C %s -f %s && chown -R %d:%d %s",

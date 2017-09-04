@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -237,9 +238,11 @@
             }
             $proc = new Util_Process_Chroot($this->domain_fs_path());
             $ret = $proc->run('/usr/sbin/logrotate %s %s', ['-d', '/etc/logrotate.conf']);
-            // additional non-fatal markup can appear in logrotate config, logrotate -d
-			// returns 0 irrespective on v6 platforms, 1 on error on v6.5+ platforms...
-	        // including case below; manually parse debug output
+	        /**
+	         * additional non-fatal markup can appear in logrotate config, logrotate -d
+			 * returns 0 irrespective on v6 platforms, 1 on error on v6.5+ platforms...
+	         * including case below; parse debug output
+	         */
             $errs = array();
             foreach (explode("\n", $ret['stderr']) as $line) {
                 if (0 !== strpos($line, "error:")) {

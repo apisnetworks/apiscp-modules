@@ -226,6 +226,10 @@ declare(strict_types=1);
             $prefix = $this->domain_fs_path();
             $crtfile = $prefix . self::CRT_PATH . '/server.crt';
             $keyfile = $prefix . self::KEY_PATH . '/server.key';
+            // build up in case Ensim is being stupid
+            $this->file_shadow_buildup_backend(
+            	$prefix . self::CSR_PATH . '/server.csr'
+            );
             // cert overwritten or moved
             $overwrite = false;
             // backup just in case
@@ -305,7 +309,7 @@ declare(strict_types=1);
 
         public function permitted()
         {
-            return version_compare(platform_version(), '5', '>=') || !$this->get_service_value('ipinfo', 'namebased');
+            return true;
         }
 
         /**
@@ -825,7 +829,7 @@ declare(strict_types=1);
             $email = ''
         ) {
             $sinfo = array(
-                'countryName'            => strtoupper($country),
+                'countryName'            => strtoupper((string)$country),
                 'stateOrProvinceName'    => $state,
                 'localityName'           => $locality,
                 'organizationName'       => $org,

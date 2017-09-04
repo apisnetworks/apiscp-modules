@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -187,7 +188,7 @@
             $resp = $this->_installRails($proc, $ver);
             $proc->close();
             // only old servers need this
-            if (version_compare(platform_version, '4', '<=')) {
+            if (version_compare(platform_version(), '4', '<=')) {
                 if (!$this->misc_is_mounted('fcgi')) {
                     $this->misc_mount_service('fcgi');
                 }
@@ -255,7 +256,7 @@
             }
 
             // rbconfig.rb on Apollo is OK
-            if (!file_exists($this->domain_fs_path() . $rbconf) && version_compare(PLATFORM_VERSION, '4.5', '<')) {
+            if (!file_exists($this->domain_fs_path() . $rbconf) && version_compare(platform_version(), '4.5', '<')) {
                 copy(APNSCP_INSTALL_PATH . '/opt/ruby-extras/' . $rubyver . '/rbconfig.rb', $prefix . $rbconf);
                 chown($prefix . $rbconf, $this->user_id);
                 chgrp($prefix . $rbconf, $this->group_id);
@@ -273,8 +274,8 @@
             $sudo = Util_Process_Tee::watch(new Util_Process_Sudo);
             // RubyGems is bundled into Ruby 1.9.2, apollo (4.5) is
             // the only server to have 1.9.2
-            if (version_compare(PLATFORM_VERSION, '4.5', '<') ||
-                version_compare(PLATFORM_VERSION, '4.5', '=') && version_compare($rubyver, '1.8', '=')
+            if (version_compare(platform_version(), '4.5', '<') ||
+                version_compare(platform_version(), '4.5', '=') && version_compare($rubyver, '1.8', '=')
             ) {
                 $proc->log("Installing RubyGems");
                 $status = $proc->exec('tar -xvzf %s/var/storehouse/%s.tgz -C %s/tmp/',
@@ -288,7 +289,7 @@
             $this->install_gem('rack', '1.3.5');
 
             $sqlitename = 'sqlite3-ruby';
-            if (version_compare(PLATFORM_VERSION, '4.5', '>=')) {
+            if (version_compare(platform_version(), '4.5', '>=')) {
                 $sqlitename = 'sqlite3';
             }
             $this->install_gem($sqlitename);
@@ -427,15 +428,14 @@
             $file = array_pop($file);
             $fp = fopen($file, 'r') or fatal("cannot open file!");
             $version = '';
-            do {
-                $line = fgets($fp);
+            while (false !== ($line = fgets($fp))) {
                 $tok = strtok(" ", $line);
                 if ($tok != "RubyGemsVersion") {
                     continue;
                 }
                 strtok(" "); // =
                 $version = trim(strtok(" "), '"\'');
-            } while (!feof($fp));
+            }
             fclose($fp);
             if (!$version) {
                 return error("version.rb is corrupted");

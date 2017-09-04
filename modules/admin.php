@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -45,7 +46,7 @@
         {
             $q = $this->pgsql->query("SELECT domain,site_id FROM siteinfo ORDER BY domain");
             $domains = array();
-            while (false !== ($row = $q->fetch_object())) {
+            while (null !== ($row = $q->fetch_object())) {
                 $domains[$row->site_id] = $row->domain;
             }
             return $domains;
@@ -177,6 +178,34 @@
             if (!is_dir($configHome)) {
                 mkdir($configHome) && chmod($configHome, 0700);
             }
+	        $defplan = \Opcenter\Service::PLAN_PATH . '/' .
+		        \Opcenter\Service::DEFAULT_SVC_NAME;
+            if (is_dir($defplan)) {
+	            return;
+            }
+            // plan name change
+            $dh = opendir(\Opcenter\Service::PLAN_PATH);
+            if (!$dh) {
+            	return error("Plan path `%s' missing, account creation will fail until fixed",
+		            \Opcenter\Service::PLAN_PATH
+	            );
+            }
+            while (false !== ($f = readdir($dh))) {
+            	if ($f === '..' || $f === '.') {
+            		continue;
+	            }
+	            $path = \Opcenter\Service::PLAN_PATH . '/' . $f;
+            	if (is_link($path)) {
+            		unlink($path);
+            		break;
+	            }
+            }
+            if ($f !== false) {
+            	info("old default plan `%s' renamed to `%s'",
+		            $f, \Opcenter\Service::DEFAULT_SVC_NAME
+	            );
+            }
+            symlink(dirname($defplan) . '/.skeleton', $defplan);
         }
 
         protected function _get_admin_config()

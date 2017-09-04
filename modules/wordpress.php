@@ -64,6 +64,7 @@
          * @param string $hostname domain or subdomain to install WordPress
          * @param string $path     optional path under hostname
          * @param array  $opts     additional install options
+         * @return bool
          */
         public function install($hostname, $path = '', array $opts = array())
         {
@@ -721,7 +722,7 @@
             // client may override tz, propagate to bin
             $tz = date_default_timezone_get();
             $cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-                ' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::WP_CLI;
+                ' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::WP_CLI;
             if (!is_array($args)) {
                 $args = array_slice(func_get_args(), 2);
             }
@@ -732,7 +733,7 @@
             $cmd = $cli . ' ' . $cmd;
             // $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php
             $ret = $this->pman_run($cmd, $args, array('SERVER_NAME' => $this->domain));
-            if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
+            if (0 === strpos($ret['stdout'], "Error:")) {
                 // move stdout to stderr on error for consistency
                 $ret['success'] = false;
                 if (!$ret['stderr']) {
@@ -789,7 +790,7 @@
          *
          * @return string
          */
-        private function _getLastestVersion()
+        protected function _getLastestVersion()
         {
             $versions = $this->_getVersions();
             if (!$versions) {
@@ -803,7 +804,7 @@
          *
          * @return array
          */
-        private function _getVersions()
+        protected function _getVersions()
         {
             $key = 'wp.versions';
             $cache = Cache_Super_Global::spawn();

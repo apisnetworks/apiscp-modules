@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -22,7 +23,7 @@
         const MASTER_NAMESERVER = DNS_INTERNAL_MASTER;
         const AUTHORITATIVE_NAMESERVER = DNS_AUTHORITATIVE_NS;
         const RECURSIVE_NAMESERVER = DNS_RECURSIVE_NS;
-        const NAMEBASED_INTERFACE_FILE = '/etc/virtualhosting/interface';
+
         const DYNDNS_TTL = 300;
         // default DNS TTL for records modified via update()
         const DNS_TTL = 43200;
@@ -50,7 +51,8 @@
             'PTR'   => DNS_PTR,
             'HINFO' => DNS_HINFO,
             'A6'    => DNS_A6,
-            'NAPTR' => DNS_NAPTR
+            'NAPTR' => DNS_NAPTR,
+	        'CAA'   => DNS_CAA,
         );
         /** array of 1 or more nameservers used */
         protected static $nameservers;
@@ -82,7 +84,8 @@
             'a6',
             'naptr',
             'any',
-            'soa'
+            'soa',
+	        'caa'
         );
 
         /**
@@ -282,34 +285,32 @@
                 if (strstr($line, 'Transfer failed.')) {
                     return null;
                 }
-                if (preg_match(Regex::DNS_AXFR_REC, $line, $match)) {
-                    list ($name, $ttl, $class, $rr, $parameter) = array_slice($match, 1);
-                    $rr = strtoupper($rr);
-                    // TXT records should always be balanced with quotes
-                    // assume this to be the case if " present
-                    // don't pretty-print if more than 1 quote pair present
-                    if ($rr == 'TXT' && $parameter[0] == '"') {
-                        if (strpos($parameter, '"', 1) === strlen($parameter) - 1) {
-                            // parameter formatted as "foobar"
-                            $parameter = substr($parameter, 1, -1);
-                        } else {
-                            if (preg_match(Regex::DNS_TXT_PRETTY_PRINT, $parameter)) {
-                                // balanced quotes, no spaces within quotes, e.g.
-                                // "v=spf1" "ip4:64.22.68.1/24" "mx" "-all"
-                                $parameter = str_replace('"', '', $parameter);
-                            }
-                        }
-                    }
-                    $zoneData[$rr][] = array(
-                        'name'      => $name,
-                        'subdomain' => rtrim(substr($name, 0, strlen($name) - $offset), '.'),
-                        'domain'    => $domain,
-                        'class'     => $class,
-                        'ttl'       => $ttl,
-                        'parameter' => $parameter
-                    );
+                if (!preg_match(Regex::DNS_AXFR_REC, $line, $match)) {
+	                continue;
                 }
-
+                list ($name, $ttl, $class, $rr, $parameter) = array_slice($match, 1);
+                $rr = strtoupper($rr);
+                // TXT records should always be balanced with quotes
+                // assume this to be the case if " present
+                // don't pretty-print if more than 1 quote pair present
+                if ($rr == 'TXT' && $parameter[0] == '"') {
+                    if (strpos($parameter, '"', 1) === strlen($parameter) - 1) {
+                        // parameter formatted as "foobar"
+                        $parameter = substr($parameter, 1, -1);
+                    } else if (preg_match(Regex::DNS_TXT_PRETTY_PRINT, $parameter)) {
+                        // balanced quotes, no spaces within quotes, e.g.
+                        // "v=spf1" "ip4:64.22.68.1/24" "mx" "-all"
+                        $parameter = str_replace('"', '', $parameter);
+                    }
+                }
+                $zoneData[$rr][] = array(
+                    'name'      => $name,
+                    'subdomain' => rtrim(substr($name, 0, strlen($name) - $offset), '.'),
+                    'domain'    => $domain,
+                    'class'     => $class,
+                    'ttl'       => $ttl,
+                    'parameter' => $parameter
+                );
             }
             return $zoneData;
         }
@@ -549,7 +550,7 @@
         /**
          * Get configured hosting nameservers
          *
-         * @see config.ini > [dns] > hosting_ns
+         * Toggled via config.ini > [dns] > hosting_ns
          *
          * @return mixed
          */
@@ -992,7 +993,7 @@
             if (!$parameter) {
                 $parameter = '.';
             } else {
-                $parameter = str_replace("'", "\\'", preg_quote($parameter));
+                $parameter = str_replace("'", "\\'", preg_quote($parameter, '!'));
             }
             return preg_match("!" . $parameter . "!i", $status['output']);
         }
@@ -1006,7 +1007,8 @@
          */
         public function release_ip($ip, $domain = null)
         {
-            return $this->__deleteIP($ip, $domain);
+        	deprecated_func('use ipinfo_release_ip()');
+	        return $this->ipinfo_release_ip($ip, $domain);
         }
 
         /*
@@ -1093,10 +1095,8 @@
         {
             if (is_debug()) {
                 return info("not creating DNS zone for `%s' in development mode", $domain);
-            } else {
-                if (!static::MASTER_NAMESERVER) {
-                    return error("rndc not configured in conf/config.ini. Cannot add zone `%s'", $domain);
-                }
+            } else if (!static::MASTER_NAMESERVER) {
+                return error("rndc not configured in config.ini. Cannot add zone `%s'", $domain);
             }
             $buffer = Error_Reporter::flush_buffer();
             $res = $this->_get_zone_information_raw($domain);
@@ -1149,14 +1149,6 @@
             $domainold = Auth::profile()->conf->cur['siteinfo']['domain'];
             $domainnew = Auth::profile()->conf->new['siteinfo']['domain'];
 
-            // changing to IP address, no IP address specified in commandline
-            // this can't happen yet, because configuration requires an IP before
-            // it can be committed (and therefore invoke editVirtDomain.sh)
-            if ($conf_cur['namebased'] && !$conf_new['namebased'] && !$conf_new['ipaddrs']) {
-                $ip = $this->_findFreePTR();
-                $conf_new['ipaddrs'] = array($ip);
-                info("allocated ip `%s'", $ip);
-            }
             // domain name change via auth_change_domain()
             if ($domainold !== $domainnew) {
                 $ip = $conf_new['namebased'] ? array_pop($conf_new['nbaddrs']) :
@@ -1234,29 +1226,6 @@
         }
 
         /**
-         * Find freee IP address in servers with contigous blocks
-         *
-         * @return void|string
-         */
-        protected function _findFreePTR()
-        {
-
-            $ipmask = \Net_IPv4::parseAddress(static::IP_ALLOCATION_BLOCK);
-            if (!$ipmask instanceof Net_IPv4) {
-                fatal("cannot allocate IP address, invalid allocation block");
-            }
-            $min = ip2long($ipmask->ip) + 1;
-            $max = ip2long($ipmask->broadcast);
-            for ($i = $min; $i < $max; $i++) {
-                $ip = long2ip($i);
-                if (!$this->ip_allocated($ip)) {
-                    return $ip;
-                }
-            }
-            fatal("cannot find free ip address!");
-        }
-
-        /**
          * Check whether IP is assigned
          *
          * Assigned IP addresses will have PTRs. Unassigned will be empty.
@@ -1266,7 +1235,7 @@
          */
         public function ip_allocated($ip)
         {
-            return gethostbyaddr($ip) !== $ip;
+            return \Opcenter\Net\Common::ip_allocated($ip);
         }
 
         /**
@@ -1547,40 +1516,12 @@
         }
 
         /**
-         * Announce an IP address via ARP
-         *
-         * @param string $ip
-         * @return bool
-         */
-        protected function _announceIP($ip)
-        {
-            $iface = $this->_getInterface();
-            $proc = new Util_Process_Schedule('+2 minutes');
-            $newpath = join(PATH_SEPARATOR, array('/sbin', getenv('PATH')));
-            $proc->setEnvironment('PATH', $newpath);
-            $ret = $proc->run(
-                'arping -U -I %s -c 1 %s',
-                $iface,
-                $ip
-            );
-            return $ret['success'];
-        }
-
-        /**
          * Get interface names to use with hosting
          *
          * @return bool|string
          */
         protected function _getInterface()
         {
-            // default in case file is missing
-            $iface = 'eth0';
-            if (!file_exists(static::NAMEBASED_INTERFACE_FILE)) {
-                warn("missing interface file `%s', assuming main iface is `%s'",
-                    static::NAMEBASED_INTERFACE_FILE, $iface);
-                return $iface;
-            }
-            $iface = file_get_contents(static::NAMEBASED_INTERFACE_FILE);
-            return trim($iface);
+			return \Opcenter\Net\Iface::interfaces();
         }
     }

@@ -344,13 +344,10 @@
             }
             if (version_compare($version, $latest, '=')) {
                 return 1;
-            } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
+            } else if (version_compare($version, $latest, '<')) {
+                return 0;
             }
+            return -1;
         }
 
         /**

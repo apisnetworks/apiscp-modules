@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -10,23 +11,21 @@
      *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
      *  +------------------------------------------------------------+
      */
+
     /**
      * htaccess driver
      *
      * @package core
      */
-    include(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'personality' .
-        DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR . 'ipersonality.php');
 
-    include(dirname(__FILE__) . DIRECTORY_SEPARATOR . 'personality' .
-        DIRECTORY_SEPARATOR . 'helpers' . DIRECTORY_SEPARATOR . 'base.php');
+	use Module\Support\Personality\Helpers\CacheablePriorityHeap;
 
     class Personality_Module extends Module_Skeleton
     {
         const CONTROL_FILE = '.htaccess';
         const CACHE_KEY_PREFIX = 'pnlty:';
         // under modules/
-        const PERSONALITY_MODULE_LOCATION = 'personality';
+        const PERSONALITY_MODULE_LOCATION = 'lib/Module/Support/Personality';
 
         public $exportedFunctions = array(
             '*' => PRIVILEGE_SITE
@@ -37,7 +36,7 @@
         private $_resolverCache = array();
         private $_instances = array();
 
-        public function __wakeup()
+	    public function __wakeup()
         {
             $this->_personalities = array();
             $this->_instances = array();
@@ -55,7 +54,7 @@
             if (!is_object($splfile)) {
                 return null;
             }
-            if ((false === ($parser = $this->_getCache($splfile)))) {
+            if (false === ($parser = $this->_getCache($splfile))) {
                 $parser = $this->_getParser($splfile);
                 $this->_setCache($splfile, $parser);
                 return $parser->parse();
@@ -111,7 +110,7 @@
             }
             $response = $instance->test($directive, $val);
             // if directive/val isn't tested, null is returned
-            if (is_null($response)) {
+            if (null === $response) {
                 return true;
             }
             return $response;
@@ -256,35 +255,30 @@
          */
         public function hash($obj)
         {
-            if ($obj instanceof \Tivie\Htaccess\Parser) {
+            if ($obj instanceof \Tivie\HtaccessParser\Parser) {
                 $obj = $obj->parse();
-            } else {
-                if ($obj instanceof \Tivie\HtaccessParser\HtaccessContainer) {
-                    // no-op
+            } else if (!$obj instanceof \Tivie\HtaccessParser\HtaccessContainer) {
+                if ($obj[0] !== "/") {
+                    // raw file
+                    /**
+                     * this should only be the case after undergoing Htaccess
+                     * parsing @see scan()
+                     */
 
                 } else {
-                    if ($obj[0] !== "/") {
-                        // raw file
-                        /**
-                         * this should only be the case after undergoing Htaccess
-                         * parsing @see scan()
-                         */
-
-                    } else {
-                        if (!$this->file_file_exists($obj)) {
-                            return error("unknown control file `%s'", $obj);
-                        }
-
-                        $spl = $this->_getSPLObjectFromFile($obj);
-                        if (!is_object($spl)) {
-                            return error("unknown control hash object `%s'", $obj);
-                        }
-                        $hash = $this->_getCache($spl, 'hash');
-                        if ($hash) {
-                            return $hash;
-                        }
-                        $obj = $this->_getParser($spl)->parse();
+                    if (!$this->file_file_exists($obj)) {
+                        return error("unknown control file `%s'", $obj);
                     }
+
+                    $spl = $this->_getSPLObjectFromFile($obj);
+                    if (!is_object($spl)) {
+                        return error("unknown control hash object `%s'", $obj);
+                    }
+                    $hash = $this->_getCache($spl, 'hash');
+                    if ($hash) {
+                        return $hash;
+                    }
+                    $obj = $this->_getParser($spl)->parse();
                 }
             }
             return md5($obj);
@@ -342,35 +336,28 @@
             $parsed = $parser->parse($file);
             return $cache->set($key, array(
                 'time'  => $file->getMTime(),
-                'hash'  => md5($parsed),
+                'hash'  => spl_object_hash($parsed),
                 'entry' => $parsed
             ));
         }
 
         private function _tryPersonalities()
         {
-            if ($this->_personalities) {
+            $key = 'prsntly';
+            $cache = Cache_Global::spawn();
+            $personalities = $cache->get($key);
+            if ($personalities) {
                 // arg! enumeration consumes the queue
-                return clone $this->_personalities;
-            }
-
-            if (false && !is_debug()) {
-                $key = 'prsntly';
-                $cache = Cache_Global::spawn();
-                $personalities = $cache->get($key);
-                if ($personalities) {
-                    // arg! enumeration consumes the queue
-                    $tmp = unserialize($personalities);
-                    $this->_personalities = $tmp['personalities'];
-                    $this->_instances = $tmp['instances'];
-                    return clone $this->_personalities;
-                }
+                $tmp = Util_PHP::unserialize($personalities, true);
+                $this->_personalities = $tmp['personalities'];
+                $this->_instances = $tmp['instances'];
+                return $this->_personalities;
             }
 
 
-            $queue = new SplPriorityQueue();
+            $queue = new CacheablePriorityHeap();
 
-            $dir = dirname(__FILE__) . DIRECTORY_SEPARATOR . self::PERSONALITY_MODULE_LOCATION;
+            $dir = INCLUDE_PATH . '/' . self::PERSONALITY_MODULE_LOCATION;
             $dh = opendir($dir);
             if (!$dh) {
                 return error("unable to access personality module location");
@@ -379,7 +366,8 @@
                 if ($entry[0] === '.') {
                     continue;
                 }
-                if (substr($entry, strrpos($entry, '.')) !== ".php") {
+                $pos = strrpos($entry, '.');
+                if ($pos === false || substr($entry, $pos) !== ".php") {
                     continue;
                 }
 
@@ -390,16 +378,15 @@
 
             closedir($dh);
             $queue->rewind();
-            $this->_personalities = $queue;
+            $this->_personalities = &$queue;
 
-            if (false && !is_debug()) {
-                $data = array(
-                    'personalities' => $this->_personalities,
-                    'instances'     => $this->_instances
-                );
-                $cache->set($key, serialize($data));
-            }
-            return clone $queue;
+            $data = array(
+                'personalities' => $this->_personalities,
+                'instances'     => $this->_instances
+            );
+
+            $cache->set($key, serialize($data));
+            return $queue;
         }
 
         private function _getInstanceFromPersonality($personality)
@@ -411,26 +398,12 @@
             if (isset($this->_instances[$personality])) {
                 return $this->_instances[$personality];
             }
-            $class = 'Personality_' . ucwords($personality);
+            $class = '\\Module\\Support\\Personality\\' . ucwords($personality);
             if (!class_exists($class)) {
-                $this->_loadPersonality($personality);
-                if (!class_exists($class)) {
-                    return error("unknown personality `%s'", $personality);
-                }
+                return error("unknown personality `%s'", $personality);
             }
             $this->_instances[$personality] = new $class;
             return $this->_instances[$personality];
-        }
-
-        private function _loadPersonality($personality)
-        {
-            $file = dirname(__FILE__) . DIRECTORY_SEPARATOR . self::PERSONALITY_MODULE_LOCATION
-                . DIRECTORY_SEPARATOR . $personality . '.php';
-            if (!file_exists($file)) {
-                return error("unknown personality `%s'", $personality);
-            }
-            return include($file);
-
         }
 
         private function _getPersonalityFromName($name)
@@ -499,7 +472,7 @@
                 $parsed = $parser->parse();
             } catch (Exception $e) {
                 return error("unable to parse control file `%s': %s",
-                    $file,
+                    $e->getFile(),
                     $e->getMessage()
                 );
             }

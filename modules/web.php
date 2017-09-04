@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -16,7 +17,7 @@
      *
      * @package core
      */
-    class Web_Module extends Module_Skeleton
+    class Web_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
 
         // primary domain document root
@@ -975,7 +976,7 @@
             $domains = $this->list_subdomains();
             if (array_key_exists($hostname, $domains)) {
                 // missing symlink will report as NULL
-                if (!is_null($domains[$hostname])) {
+                if (null !== $domains[$hostname]) {
                     return $domains[$hostname];
                 }
                 $info = $this->subdomain_info($hostname);
@@ -1125,8 +1126,11 @@
 
         }
 
-        public function _edit_user($user, $usernew, array $pwd)
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
+        	if ($userold === $usernew) {
+        		return;
+	        }
             /**
              * @TODO
              * Assert that all users are stored under /home/username
@@ -1134,14 +1138,14 @@
              * this is lost without passing user pwd along
              */
             $userhome = $this->user_get_user_home($usernew);
-            $re = '!^' . $pwd['home'] . '!';
+            $re = '!^' . $oldpwd['home'] . '!';
             mute_warn();
             $subdomains = $this->list_subdomains('path', $re);
             unmute_warn();
             foreach ($subdomains as $subdomain => $path) {
-                $newpath = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!',
+                $newpath = preg_replace('!' . DIRECTORY_SEPARATOR . $userold . '!',
                     DIRECTORY_SEPARATOR . $usernew, $path, 1);
-                if ($subdomain === $user) {
+                if ($subdomain === $userold) {
                     $newsubdomain = $usernew;
                 } else {
                     $newsubdomain = $subdomain;
@@ -1161,7 +1165,18 @@
             $this->_reloadApache();
         }
 
-        public function _reload($why = null)
+        public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+        {
+        	if (!$ctx['enabled']) {
+        		return true;
+	        }
+        	$defaultws = $ctx->getDefaultServiceValue('apache', 'webserver');
+	        if ($ctx['webserver']) {
+
+	        }
+        }
+
+	    public function _reload($why = null)
         {
             if (in_array($why, [null, "php", "aliases", "letsencrypt"])) {
                 return $this->_reloadApache();
@@ -1189,12 +1204,18 @@
             return self::APACHE_HOME . '/conf';
         }
 
-        public function _delete_user($user)
+        public function _delete_user(string $user)
         {
             $this->remove_user_subdomain($user);
         }
 
-        private function _makeSubdomainPath($subdomain)
+	    public function _create_user(string $user)
+	    {
+		    // TODO: Implement _create_user() method.
+	    }
+
+
+	    private function _makeSubdomainPath($subdomain)
         {
             return '/var/subdomain/' . $subdomain . '/html';
         }

@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -102,7 +103,7 @@
 
             $cmd = 'dl %(dist)s';
 
-            $tmpdir = '/tmp/drupal' . crc32(mt_rand(0, 8192));
+            $tmpdir = '/tmp/drupal' . crc32((string)\Util_PHP::random_int());
             $args = array(
                 'tempdir' => $tmpdir,
                 'path'    => $docroot,
@@ -550,15 +551,12 @@
             if (!$version) {
                 return $latest;
             }
-            if (version_compare($version, $latest, '=')) {
+            if (version_compare((string)$version, (string)$latest, '=')) {
                 return 1;
-            } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
+            } else if (version_compare((string)$version, (string)$latest, '<')) {
+                return 0;
             }
+            return -1;
         }
 
         public function test()
@@ -789,7 +787,7 @@
             // client may override tz, propagate to bin
             $tz = date_default_timezone_get();
             $cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-                ' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::DRUPAL_CLI . ' -y';
+                ' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::DRUPAL_CLI . ' -y';
             if (!is_array($args)) {
                 $args = func_get_args();
                 array_shift($args);
@@ -817,7 +815,7 @@
          * @param $docroot
          * @return string
          */
-        private function _getVersion($docroot)
+        protected function _getVersion($docroot)
         {
             static $metaCache;
             if (!isset($metaCache)) {
@@ -842,7 +840,7 @@
          */
         private function _postInstallTrustedHost($version, $hostname, $docroot)
         {
-            if (version_compare($version, '8.0', '<')) {
+            if (version_compare((string)$version, '8.0', '<')) {
                 return true;
             }
             $file = $docroot . '/sites/default/settings.php';

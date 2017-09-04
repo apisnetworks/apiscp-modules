@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -687,6 +688,7 @@
          *
          * @param mixed $pref array or string representing many or a single pref
          * @param mixed $key  null to remove preference otherwise set single pref to this value
+         * @return bool
          *
          */
         public function set_global_preferences($pref, $key = null)

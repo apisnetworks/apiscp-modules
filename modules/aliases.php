@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -478,7 +479,7 @@
         }
 
         public function _create() {
-	        $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+	        $db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
 	        $conf = array_get(Auth::conf('aliases'), 'aliases', []);
 	        foreach ($conf as $domain) {
 		        $db->insert($domain, $this->site);
@@ -487,7 +488,7 @@
         }
 
         public function _delete() {
-	        $db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+	        $db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
 	        $conf = array_get(Auth::conf('aliases'), 'aliases', []);
 	        foreach ($conf as $domain) {
 	        	$db->delete($domain);
@@ -495,8 +496,12 @@
 	        $db->close();
         }
 
-        public function _edit_user($user, $usernew)
+        public function _edit_user(string $user, string $usernew, array $oldpwd)
         {
+	        if ($user === $usernew) {
+		        return;
+	        }
+
             $domains = $this->list_shared_domains();
             $home = $this->user_get_user_home($user);
             $newhome = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!', DIRECTORY_SEPARATOR . $usernew, $home, 1);
@@ -594,10 +599,12 @@
              * @XXX DNS checks can be bypassed via API: BAD
              */
             if ($this->_is_bypass($domain)) {
-                return true;
+                //return true;
             }
             // domain not hosted, 5 second timeout
-            $ip = $this->dns_gethostbyname_t($domain, 5000);
+            $ip = silence(function() use ($domain) {
+            	return apnscpFunctionInterceptor::init()->dns_gethostbyname_t($domain, 5000);
+            });
             if (!$ip) {
                 return true;
             }
@@ -931,7 +938,7 @@
             if (!preg_match_all($regex, $map, $matches, PREG_SET_ORDER)) {
                 return $domains;
             }
-            $primary = $this->get_service_value('siteinfo', 'domain');
+
             foreach ($matches as $match) {
                 $domain = $match['domain'];
                 $site = isset($match['path']) ? $match['path'] : $match['url'];

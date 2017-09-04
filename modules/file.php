@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -15,6 +16,8 @@
      * Provides file interaction and ACL support
      *
      * @package core
+     *
+     * @todo add xattr support
      */
 
     if (!defined('STDERR')) {
@@ -31,7 +34,7 @@
         const ACL_NO_RECALC_MASK = 'n';
         const ACL_FLAGS = '-PRbdkxn';
         // under apnscp root
-        const DOWNLOAD_SKIP_LIST = '/conf/file_download_skiplist.txt';
+        const DOWNLOAD_SKIP_LIST = '/config/file_download_skiplist.txt';
 
         private static $registered_extensions = array(
             'zip'     => 'zip',
@@ -79,29 +82,30 @@
             foreach (array_unique(array_values(self::$registered_extensions)) as $iface) {
                 $this->compression_instances[$iface] = null;
             }
-            $this->_optimizedShadowAssertion = (int)version_compare(platform_version(), '4.5', '>=');
-            if ($this->_optimizedShadowAssertion && version_compare(platform_version(), '6', '>=')) {
+            $this->_optimizedShadowAssertion = (int)version_compare((string)platform_version(), '4.5', '>=');
+            if ($this->_optimizedShadowAssertion && version_compare((string)platform_version(), '6', '>=')) {
                 $this->_optimizedShadowAssertion = 2;
             }
             $this->exportedFunctions = array(
                 '*'                               => PRIVILEGE_ALL,
-                'lookup_chroot_pwnam'             => PRIVILEGE_SERVER_EXEC,
+                'canonicalize_site'               => PRIVILEGE_SITE | PRIVILEGE_USER,
+                'change_file_permissions_backend' => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'chmod_backend'                   => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'delete_backend'                  => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'find_quota_files'                => PRIVILEGE_SITE,
+                'fix_apache_perms_backend'        => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
                 'get_directory_contents_backend'  => PRIVILEGE_SERVER_EXEC | PRIVILEGE_ALL,
                 'get_file_contents_backend'       => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'lookup_chroot_pwnam'             => PRIVILEGE_SERVER_EXEC,
+                'move_backend'                    => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'put_file_contents_backend'       => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
                 'report_quota'                    => PRIVILEGE_SITE,
                 'report_quota_backend'            => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-                'change_file_permissions_backend' => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
+                'shadow_buildup_backend'          => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
                 'stat_backend'                    => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'delete_backend'                  => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'chmod_backend'                   => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'put_file_contents_backend'       => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'move_backend'                    => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'fix_apache_perms_backend'        => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-                'chmod_backend'                   => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-                'find_quota_files'                => PRIVILEGE_SITE,
-                'canonicalize_site'               => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'shadow_buildup_backend'          => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC
+                'takeover_user'                   => PRIVILEGE_SITE,
             );
+
             if (is_debug()) {
                 $this->exportedFunctions = ['*' => PRIVILEGE_ALL];
             }
@@ -210,14 +214,10 @@
 
             $archive_stat = $this->stat_backend($archive);
             $destination_stat = $this->stat_backend($dest);
-            if (!file_exists($destination_path)) {
-                if (!$this->create_directory($dest, 0755, true)) {
-                    return false;
-                }
-            } else {
-                if (!$this->can_descend($destination_path, true)) {
-                    return error($dest . ": unable to write to directory");
-                }
+            if (!file_exists($destination_path) && !$this->create_directory($dest, 0755, true)) {
+                return false;
+            } else if (!$this->can_descend($destination_path, true)) {
+                return error($dest . ": unable to write to directory");
             }
             if ($archive_stat instanceof Exception) {
                 return $archive_stat;
@@ -278,11 +278,11 @@
                 return error($module . ": compression filter not found");
             }
 
-            if (!class_exists(ucwords($module) . '_Filter', 0)) {
-                if (!interface_exists('IArchive', 0)) {
+            if (!class_exists(ucwords($module) . '_Filter', false)) {
+                if (!interface_exists('IArchive', false)) {
                     include($base_dir . '/iarchive.php');
                 }
-                if (!class_exists('Archive_Base', 0)) {
+                if (!class_exists('Archive_Base', false)) {
                     include($base_dir . '/base.php');
                 }
                 include($base_dir . '/' . $module . '.php');
@@ -368,14 +368,10 @@
 
             if (!isset($path[0])) {
                 return $this->domain_fs_path();
-            } else {
-                if ($path[0] === "~") {
-                    $path = $this->user_get_home() . substr($path, 1);
-                } else {
-                    if ($path[0] !== '/') {
-                        return error($path . ": path must be absolute");
-                    }
-                }
+            } else if ($path[0] === "~") {
+                $path = $this->user_get_home() . substr($path, 1);
+            } else if ($path[0] !== '/') {
+                return error($path . ": path must be absolute");
             }
             $root = '';
             $newpath = str_replace('//', '/', $path);
@@ -391,7 +387,8 @@
                     $newpath = realpath($link);
                 } else {
                     $po = $newpath;
-                    $newpath = substr(realpath($link), strlen($root));
+                    $link = ($tmp = realpath($link)) ? $tmp : $link;
+                    $newpath = substr($link, strlen($root));
                     if (!$newpath) {
                         $newpath = $po;
                     }
@@ -762,7 +759,7 @@
 
             $isChroot = $this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER);
             $data['output'] = preg_replace_callback('/\\\\(\d{3})/',
-                create_function('$match', 'return chr(octdec($match[1]));'), $data['output']);
+                function ($match) { return chr(octdec($match[1])); }, $data['output']);
             //if (!$data['output']) {
             //	warn($cmd.": no response");
             //}
@@ -774,7 +771,7 @@
                     continue;
                 }
 
-                $entpath = substr($entry, 8, strpos($entry, "\n") - 8);
+                $entpath = (string)substr($entry, 8, strpos($entry, "\n") - 8);
                 if (strrchr($entpath, '/') == '/.' || strrchr($entpath, '/') == '/..') {
                     continue;
                 }
@@ -785,12 +782,10 @@
                         $perms = 0;
                         if ($aclMatches[1] == "USER") {
                             $type = "euser";
+                        } else if ($aclMatches[1] == "GROUP") {
+                            $type = "egroup";
                         } else {
-                            if ($aclMatches[1] == "GROUP") {
-                                $type = "egroup";
-                            } else {
-                                $type = $aclMatches[1];
-                            }
+                            $type = $aclMatches[1];
                         }
 
                         if (strtolower($aclMatches[3][0]) == 'r') {
@@ -932,7 +927,7 @@
                 if (is_dir($path)) {
                     return true;
                 } else {
-                    return warn($dir . ": file exists");
+                    return warn("%s: file exists", $dir);
                 }
             }
             //
@@ -965,18 +960,17 @@
             }
 
             // check to see if can access parent
-            if (!$this->can_descend($parent) || !$pstat['can_write']) {
+            if (!$pstat['can_write'] || !$this->can_descend($parent)) {
                 return error($this->unmake_path($parent) . ': permission denied');
             }
 
             foreach ($dir2mk as $newdir) {
-                $res = mkdir($newdir) &&
-                    chown($newdir, (int)$this->user_id) &&
-                    chgrp($newdir, (int)$this->group_id) &&
-                    chmod($newdir, (int)$mode);
+            	$res = \Opcenter\Filesystem::mkdir(
+            		$newdir, $this->user_id, $this->group_id, $mode
+	            );
 
                 if (!$res) {
-                    return error($this->unmake_path($newdir) . ": cannot create directory");
+                    return error("%s: cannot create directory", $this->unmake_path($newdir));
                 }
             }
             return true;
@@ -1585,14 +1579,12 @@
             $search = array('*', '[', ']', '{', '}', '?');
             $replace = array('\*', '\[', '\]', '{', '\}', '\?',);
             if (!is_array($str)) {
-                return substr($str, 0, strrpos($str, '/')) . str_replace($search,
-                        $replace, substr($str, strrpos($str, '/')));
+                return str_replace($search, $replace, $str);
             }
 
             $safe = array();
             foreach ($str as $raw) {
-                $safe[] = substr($str, 0, strrpos($raw, '/')) . str_replace($search,
-                        $replace, substr($raw, strrpos($str, '/')));
+                $safe[] = str_replace($search, $replace, $raw);
             }
 
             return $safe;
@@ -1670,7 +1662,7 @@
                     // . and ..
                     unset($files[0]);
                     unset($files[1]);
-                    array_walk($files, create_function('&$a', '$a="' . $file . '/" . $a;'));
+                    array_walk($files, function(&$a) use ($file) { $a = "$file/$a";});
                     $status = $this->chown($files, $mUser, $mRecursive);
                     if ($status instanceof Exception) {
                         $errors[$file] = $status->getMessage();
@@ -1707,10 +1699,8 @@
             }
             if ($mGroup != $admin) {
                 return error("invalid group `" . $mGroup . "'");
-            } else {
-                if (!is_array($mFile)) {
-                    $mFile = array($mFile);
-                }
+            } else if (!is_array($mFile)) {
+                $mFile = array($mFile);
             }
             $errors = array();
 
@@ -1719,26 +1709,24 @@
             } else {
                 $optimized = false;
             }
-            foreach ($mFile as $file) {
+            foreach ((array)$mFile as $file) {
                 if ($optimized) {
                     $path = $this->make_shadow_path($file);
                 } else {
-                    $path = $this->make_path($file);
-                    $stat = $this->stat_backend($file);
-                    if ($path instanceof Exception) {
-                        $errors[$file] = $path->getMessage();
-                    } else {
-                        if ($stat instanceof Exception) {
-                            $errors[$file] = $stat->getMessage();
-                        } else {
-                            if (!$this->can_descend(dirname($path))) {
-                                $errors[$file] = "insufficient permissions to access";
-                            } else {
-                                if (!$stat['can_chgrp']) {
-                                    $errors[$file] = "Unable to change group ownership of " . $file;
-                                }
-                            }
-                        }
+	                $path = $this->make_path($file);
+	                $stat = $this->stat_backend($file);
+	                if ($path instanceof Exception) {
+	                    $errors[$file] = $path->getMessage();
+		                continue;
+	                } else if ($stat instanceof Exception) {
+	                    $errors[$file] = $stat->getMessage();
+	                    continue;
+	                } else if (!$this->can_descend(dirname($path))) {
+	                    $errors[$file] = "insufficient permissions to access";
+		                continue;
+	                } else if (!$stat['can_chgrp']) {
+	                    $errors[$file] = "Unable to change group ownership of " . $file;
+		                continue;
                     }
                 }
 
@@ -1748,14 +1736,17 @@
                     // . and ..
                     unset($files[0]);
                     unset($files[1]);
-                    array_walk($files, create_function('&$a', '$a="' . $file . '/" . $a;'));
-                    $status = $this->chgrp($files, $mUser, $mRecursive);
+	                array_walk($files, function (&$a) use ($file) {
+		                $a = "$file/$a";
+	                });
+                    $status = $this->chgrp($files, $mGroup, $mRecursive);
                     if ($status instanceof Exception) {
                         $errors[$file] = $status->getMessage();
+                        continue;
                     }
                 }
 
-                if (!chgrp($path, $tUID)) {
+                if (!chgrp($path, $mGroup)) {
                     $errors[$file] = Error_Reporter::get_last_php_msg();
                 }
             }
@@ -1863,14 +1854,14 @@
                 if (!$path || ($path instanceof Exception) || !file_exists($path) || !is_readable($path)) {
                     return $this->query('file_get_mime_type', $file);
                 }
-                return mime_content_type($path);
+                return mime_content_type($path) ?: null;
             }
 
             $stat = $this->stat($file);
-            if (!$stat || !$stat['can_read']) {
+            if ((!$stat || !$stat['can_read']) || ($stat['link'] && null === $stat['referent'])) {
                 return null;
             }
-	        return mime_content_type($path);
+	        return mime_content_type($path) ?: null;
         }
 
         /**
@@ -3188,6 +3179,7 @@
          *
          * @param string     $path file or directory to verify
          * @param string|int $user user to set on buildup (default: current user on non CLI)
+         * @param int        $perm permission in octal form
          * @return bool
          */
         public function shadow_buildup_backend($path, $user = 'root', $perm = 0755)
@@ -3218,14 +3210,77 @@
                 return true;
             }
 
+            if (0 === strpos($chkpath, $shadowprefix)) {
+                $chkpath = $this->domain_fs_path() .
+	                substr($chkpath, strlen($shadowprefix));
+            }
             do {
-                mkdir($chkpath, $perm) && chown($chkpath, $user) && chgrp($chkpath, $this->group_id);
-                $remaining = strtok('/');
-                $chkpath .= '/' . $remaining;
+				\Opcenter\Filesystem::mkdir($chkpath, $user, $this->group_id, $perm);
+				$remaining = strtok('/');
+				$chkpath .= '/' . $remaining;
             } while (false !== $remaining);
 
             // and drop OverlayFS cache
             return $this->purge();
+        }
+
+	    /**
+	     * Recursively convert ownership of files from one user to another
+	     *
+	     * @param string|int $olduser owner to convert
+	     * @param string|int $newuser new owner
+	     * @param string $path base path
+	     * @return bool
+	     */
+        public function takeover_user($olduser, $newuser, string $path = '/') {
+        	if (!IS_CLI) {
+        		return $this->query('file_takeover_user', $olduser, $newuser, $path);
+	        }
+        	$newuid = (int)$newuser;
+        	$olduid = (int)$olduser;
+        	if ($olduid !== $olduser) {
+				$olduid = $this->user_get_uid_from_username($olduser);
+	        }
+	        if ($newuid !== $newuser) {
+				$newuid = $this->user_get_uid_from_username($newuser);
+	        }
+	        $acceptableUids = [
+	        	$this->user_get_uid_from_username(\Web_Module::WEB_USERNAME),
+	        ];
+        	if ($this->tomcat_permitted()) {
+        		$acceptableUids[] = $this->user_get_uid_from_username($this->tomcat_system_user());
+	        }
+
+	        if ($olduid < \User_Module::MIN_UID && !in_array($olduid, $acceptableUids) ) {
+        		return error("user `%s' is unknown or a system user", $olduser);
+	        }
+
+	        if ($newuid < \User_Module::MIN_UID && !in_array($newuid, $acceptableUids)) {
+		        return error("user `%s' is unknown or a system user", $newuser);
+	        }
+			$shadowpath = $this->make_shadow_path($path);
+        	if (!file_exists($shadowpath)) {
+        		return error("path `%s' does not exist", $path);
+	        }
+	        $args = [
+	        	'path' => $shadowpath,
+		        'gid' => $this->group_id,
+		        'olduid' => $olduid,
+		        'newuid' => $newuid
+	        ];
+	        $ret = \Util_Process_Safe::exec(
+	        	'find -P %(path)s -xdev -gid %(gid)d -uid %(olduid)d -exec chown %(newuid)d "{}" \; -printf "%%P\n"',
+		        $args
+	        );
+	        if (!$ret['success']) {
+	        	return error("failed to convert ownership, err: %s", $ret['stderr']);
+	        }
+	        $files = explode("\n", rtrim($ret['stdout']));
+	        if (!$files) {
+	        	warn("no files changed");
+	        }
+
+	        return $files;
         }
 
         public function _delete()

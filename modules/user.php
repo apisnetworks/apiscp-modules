@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -16,7 +17,7 @@
      *
      * @package core
      */
-    class User_Module extends Module_Skeleton
+    class User_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
         const MIN_UID = 500;
 
@@ -136,215 +137,155 @@
             if (!$user) {
                 $user = $this->username;
             }
+            $virtpwnam = $this->domain_fs_path() . '/etc/passwd';
+	        $cache = Cache_Account::spawn();
             if (!IS_CLI) {
-                $cache = Cache_Account::spawn();
-
                 $gen = $cache->get('users:pwd.gen');
-                $file = $this->domain_fs_path() . '/etc/passwd';
-                if ($gen == filemtime($file)) {
+                if ($gen === filemtime($virtpwnam)) {
                     $users = $cache->get('users:pwd');
                     if (!empty($users) && array_key_exists($user, $users)) {
                         return $users[$user];
                     }
                 }
-
                 return $this->query('user_getpwnam', $user);
             }
-            $pwd = array();
-            $file = $this->domain_fs_path() . '/etc/passwd';
-            $fp = fopen($file, 'r');
-            if (!$fp) {
-                return error("unable to open /etc/passwd");
-            }
-            $found = false;
-            clearstatcache(true, $file);
-            $mtime = filemtime($file);
-            while (!feof($fp)) {
-                $line = explode(':', trim(fgets($fp)));
-                if (sizeof($line) < 6) {
-                    continue;
-                }
-                $myuser = $line[0];
-                if ($line[0] == $user) {
-                    $found = true;
-                }
-                $pwd[$myuser] = array(
-                    'uid'   => (int)$line[2],
-                    'gid'   => (int)$line[3],
-                    'gecos' => $line[4],
-                    'home'  => $line[5],
-                    'shell' => $line[6]
-                );
-            }
-            fclose($fp);
-            Cache_Account::spawn()->setMulti(
+            $pwd = \Opcenter\Role\User::bindTo($this->domain_fs_path())->getpwnam(null);
+            Cache_Account::spawn()->mset(
                 array(
-                    'users:pwd.gen' => $mtime,
+                    'users:pwd.gen' => filemtime($virtpwnam),
                     'users:pwd'     => $pwd,
                 )
             );
-            if (!$found) {
-                return array();
-            }
-            return $pwd[$user];
+            return array_get($pwd, $user, []);
         }
 
-        /**
-         * Add new user to account
-         *
-         * @link Ftp_Module::jail_user()
-         * @link Web_Module::create_subdomain()
-         * @link Email_Module::create_mailbox()
-         * @param array $options
-         *          password : 'crypted': password is encrypted via crypt()
-         *          ftp      : control ftp service [1,0]
-         *          imap     : imap access allowed [1,0]
-         *          smtp     : smtp access
-         *          cp       : CP access
-         *          ssh      : ssh access enabled
-         */
-        public function add_user($user, $password, $gecos = '', $quota = 0, array $options = array())
-        {
-            if (!IS_CLI) {
-                if (!IS_SOAP && $user == 'test') {
-                    return error("insecure, commonly-exploited username");
-                }
-                return $this->query('user_add_user', $user, $password, $gecos, $quota, $options);
-            }
+	    /**
+	     * Add new user to account
+	     *
+	     * @link Ftp_Module::jail_user()
+	     * @link Web_Module::create_subdomain()
+	     * @link Email_Module::create_mailbox()
+	     * @param array $options
+	     *          password : 'crypted': password is encrypted via crypt()
+	     *          ftp      : control ftp service [1,0]
+	     *          imap     : imap access allowed [1,0]
+	     *          smtp     : smtp access
+	     *          cp       : CP access
+	     *          ssh      : ssh access enabled
+	     */
+	    public function add_user($user, $password, $gecos = '', $quota = 0, array $options = array())
+	    {
+		    if (!IS_CLI) {
+			    if (!IS_SOAP && $user == 'test') {
+				    return error("insecure, commonly-exploited username");
+			    }
 
-            $userorig = $user;
-            $user = strtolower($user);
-            if ($user != $userorig) {
-                warn("user `$user' converted to lowercase");
-            }
-            if (!$user) {
-                return error("no username specified)");
-            } else {
-                if (!preg_match(Regex::USERNAME, $user)) {
-                    return error("invalid user `%s'", $user);
-                }
-            }
+			    return $this->query('user_add_user', $user, $password, $gecos, $quota, $options);
+		    }
 
-            if (!$this->auth_password_permitted($password, $user)) {
-                return error("weak password disallowed");
-            }
-            $quotamax = $this->get_service_value('diskquota', 'quota');
-            $units = $this->get_service_value('diskquota', 'units');
-            if (!isset($options['password']) || $options['password'] != 'crypted') {
-                $password = $this->auth_crypt($password);
-            }
-            if ($quota != floatval($quota) || $quota < 0) {
-                return error("disk quota `%s' outside of range (min: 0, max: %d) %s", $quota, $quotamax, $units);
-            } else {
-                if ($quota > $quotamax) {
-                    warn("quota %.1f exceeds limit %.1f: defaulting to %.1f",
-                        $quota, $quotamax, $quotamax);
-                    $quota = $quotamax;
-                }
-            }
-            $users = $this->get_users();
-            if (isset($users[$user])) {
-                return error("username " . $user . " exists");
-            }
+		    $userorig = $user;
+		    $user = strtolower($user);
+		    if ($user != $userorig) {
+			    warn("user `$user' converted to lowercase");
+		    }
+		    if (!$user) {
+			    return error("no username specified)");
+		    } else {
+			    if (!preg_match(Regex::USERNAME, $user)) {
+				    return error("invalid user `%s'", $user);
+			    }
+		    }
 
-            $smtp_enable = isset($options['smtp']) && $options['smtp'] != 0;
-            $imap_enable = isset($options['imap']) && $options['imap'] != 0;
-            $ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
-            $cp_enable = !isset($options['cp']) || $options['cp'] != 0;
-            $dav_enable = !isset($options['dav']) || $options['dav'] != 0;
-            $ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
+		    if (!$this->auth_password_permitted($password, $user)) {
+			    return error("weak password disallowed");
+		    }
+		    $quotamax = $this->get_service_value('diskquota', 'quota');
+		    $units = $this->get_service_value('diskquota', 'units');
+		    if (!isset($options['password']) || $options['password'] != 'crypted') {
+			    $password = $this->auth_crypt($password);
+		    }
+		    if ($quota != floatval($quota) || $quota < 0) {
+			    return error("disk quota `%s' outside of range (min: 0, max: %d) %s", $quota, $quotamax, $units);
+		    } else {
+			    if ($quota > $quotamax) {
+				    warn("quota %.1f exceeds limit %.1f: defaulting to %.1f",
+					    $quota, $quotamax, $quotamax);
+				    $quota = $quotamax;
+			    }
+		    }
+		    $users = $this->get_users();
+		    if (isset($users[$user])) {
+			    return error("username " . $user . " exists");
+		    }
 
-            if (!$ftp_enable) {
-                warn("FTP service not enabled.  User will not be permitted FTP access");
-            }
-            if (!$smtp_enable && $imap_enable) {
-                warn("SMTP service not enabled. User will be able to receive mail, but not send");
-            } else {
-                if ($smtp_enable && !$imap_enable) {
-                    warn("IMAP service not enabled. User will be able to send mail, but not receive");
-                } else {
-                    if (!$smtp_enable && !$imap_enable) {
-                        info("Email not enabled for user");
-                    }
-                }
-            }
-            $cmd = '/usr/local/bin/AddVirtUser cpasswd=%(password)s %(site)s %(user)s %(gecos)s %(quota)d';
-            $status = Util_Process_Safe::exec($cmd,
-                array(
-                    'password' => $password,
-                    'site'     => $this->site,
-                    'user'     => $user,
-                    'gecos'    => $gecos,
-                    'quota'    => $quota
-                ),
-                array(0, 1)
-            );
-            // exit code is 0 or 1 from AddVirtUser
-            if ($status['success']) {
-                Error_Reporter::clear_buffer();
-            }
-            // 1 signifies added with warnings
-            //     ex: "user already permitted to use smtp_relay service"
-            // Since this is benign, check prior severity to error out
-            if (Error_Reporter::get_severity() >= Error_Reporter::E_ERROR) {
-                return false;
-            }
-            if ($this->ssh_enabled()) {
-                // Ensim unconditionally grants IMAP/SMTP access
-                if (!$ssh_enable) {
-                    $this->ssh_deny_user($user);
-                } else {
-                    if (!$this->ssh_user_enabled($user)) {
-                        $this->ssh_permit_user($user);
-                    }
-                }
-            }
+		    $smtp_enable = isset($options['smtp']) && $options['smtp'] != 0;
+		    $imap_enable = isset($options['imap']) && $options['imap'] != 0;
+		    $ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
+		    $cp_enable = !isset($options['cp']) || $options['cp'] != 0;
+		    $dav_enable = !isset($options['dav']) || $options['dav'] != 0;
+		    $ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
 
-            if (!$ftp_enable) {
-                $this->ftp_deny_user($user);
-            } else {
-                if (!$this->ftp_user_enabled($user)) {
-                    $this->ftp_permit_user($user);
-                }
-            }
+		    if (!$ftp_enable) {
+			    warn("FTP service not enabled.  User will not be permitted FTP access");
+		    }
+		    if (!$smtp_enable && $imap_enable) {
+			    warn("SMTP service not enabled. User will be able to receive mail, but not send");
+		    } else if ($smtp_enable && !$imap_enable) {
+			    warn("IMAP service not enabled. User will be able to send mail, but not receive");
+		    } else if (!$smtp_enable && !$imap_enable) {
+			    info("Email not enabled for user");
+		    }
+		    $instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
+		    $uid = $instance->capture_uid($this->site_id);
+		    $ret = $instance->create($user, [
+			    'cpasswd' => $password,
+			    'gid'     => $this->group_id,
+			    'gecos'   => $gecos,
+			    'uid'     => $uid
+		    ]);
+		    if (!$ret) {
+		    	$instance->release_uid($uid);
+			    // user creation failed
+			    return false;
+		    }
+		    $this->flush();
 
-            if (!$imap_enable) {
-                $this->email_deny_user($user, 'imap');
-            } else {
-                if (!$this->email_user_enabled($user, 'imap')) {
-                    $this->email_permit_user($user, 'imap');
-                }
-            }
+		    if ($quota) {
+			    $this->user_change_quota($user, $quota);
+		    }
+		    if ($this->ssh_enabled() && $this->ssh_user_enabled($user)) {
+			    $this->ssh_permit_user($user);
+		    }
 
-            if (!$smtp_enable) {
-                $this->email_deny_user($user, 'smtp');
-            } else {
-                if (!$this->email_user_enabled($user, 'smtp')) {
-                    $this->email_permit_user($user, 'smtp');
-                }
-            }
+		    if ($ftp_enable) {
+			    $this->ftp_permit_user($user);
+		    }
 
-            if (!$cp_enable) {
-                $this->auth_deny_user($user, 'cp');
-            } else {
-                if (!$this->auth_user_enabled($user, 'cp')) {
-                    $this->auth_permit_user($user, 'cp');
-                }
-            }
+		    if ($imap_enable) {
+			    $this->email_permit_user($user, 'imap');
+		    }
 
-            if ($dav_enable) {
-            	// dav not implicitly on
-                $this->auth_permit_user($user, 'dav');
-            }
+		    if ($smtp_enable) {
+			    $this->email_permit_user($user, 'smtp');
+		    }
 
-            if (!$this->exists($user)) {
-                return false;
-            }
+		    if ($cp_enable) {
+		        $this->auth_permit_user($user, 'cp');
+		    }
 
-            Util_Account_Hooks::run('create_user', array($user));
-            $this->flush();
-            return true;
-        }
+		    if ($dav_enable) {
+			    $this->auth_permit_user($user, 'dav');
+		    }
+
+		    if (!$this->exists($user)) {
+			    return false;
+		    }
+
+		    Util_Account_Hooks::run('create_user', array($user));
+
+
+		    return true;
+	    }
 
         /**
          * Get users belonging to account
@@ -447,10 +388,8 @@
             $users = $this->get_users();
             if (!isset($users[$user])) {
                 return error("user `%s' not found", $user);
-            } else {
-                if ($user == $this->get_service_value('siteinfo', 'admin_user')) {
-                    return error("cannot delete primary user");
-                }
+            } else if ($user == $this->get_service_value('siteinfo', 'admin_user')) {
+                return error("cannot delete primary user");
             }
 
             $uid = $users[$user]['uid'];
@@ -470,7 +409,7 @@
                 if (!$stat) {
                     continue;
                 }
-                if (!strncmp($home, $path, strlen($home)) || $stat['uid'] == $uid) {
+                if (0 === strpos($home, $path) || $stat['uid'] == $uid) {
                     $blocking[] = $domain;
                 }
             }
@@ -483,9 +422,7 @@
                         $user, join($blocking, ", "));
                 }
 
-                if (count($subdomains) === 1 && ($subdomains[0] === $user || !strncmp($subdomains[0] . '.', $user . '.',
-                            strlen($user) + 1))
-                ) {
+                if (count($subdomains) === 1 && ($subdomains[0] === $user || 0 === strpos($subdomains[0].'.', $user.'.'))) {
                     $subcount--;
                     info("removed user-specific subdomain, `%s'", $subdomains[0]);
                     $this->web_remove_subdomain($subdomains[0]);
@@ -503,19 +440,18 @@
             }
 
 
-            $cmd = 'DeleteVirtUser ' . $this->site . ' ' . $user;
-
-            mute_warn();
             Util_Account_Hooks::run('delete_user', $user);
-            $status = Util_Process::exec($cmd, array(-1, 0, 1, 2));
-            unmute_warn();
-
-            if (isset(self::$uid_mappings[$this->site]) &&
-                isset(self::$uid_mappings[$this->site][$user])
-            ) {
-                unset(self::$uid_mappings[$this->site][$user]);
+            $ret = \Opcenter\Role\User::bindTo($this->domain_fs_path())->delete($user);
+            if (!$ret) {
+            	return false;
             }
-            return $status['success'];
+            $this->flush();
+
+            $key = $this->site . '.' . $user;
+            if (array_has(self::$uid_mappings, $key)) {
+                array_forget(self::$uid_mappings, $key);
+            }
+            return $ret;
 
         }
 
@@ -539,18 +475,12 @@
             $admin = $this->get_service_value('siteinfo', 'admin_user');
             if (!$this->exists($user)) {
                 return error("invalid user specified `%s'", $user);
-            } else {
-                if ($this->exists($newuser)) {
-                    return error("target user `%s' already exists", $newuser);
-                } else {
-                    if (!preg_match(Regex::USERNAME, $newuser)) {
-                        return error("invalid target user `%s", $newuser);
-                    } else {
-                        if ($user === $admin) {
-                            return error("use auth_change_username to change primary user");
-                        }
-                    }
-                }
+            } else if ($this->exists($newuser)) {
+                return error("target user `%s' already exists", $newuser);
+            } else if (!preg_match(Regex::USERNAME, $newuser)) {
+                return error("invalid target user `%s", $newuser);
+            } else if ($user === $admin) {
+                return error("use auth_change_username to change primary user");
             }
 
             $pwd = $this->getpwnam($user);
@@ -613,7 +543,7 @@
          * @private
          * @param string $user
          * @param array  $attributes new attributes to set
-         * @return
+         * @return bool
          */
         public function usermod_driver($user, $attributes)
         {
@@ -624,82 +554,30 @@
             if (!$this->exists($user)) {
                 return error($user . ": user does not exist");
             }
+			// before changing user, if user change, grab
+	        $newuser = array_get($attributes, 'username');
+            $oldpwd = $this->get_home($user);
+            $resp = \Opcenter\Role\User::bindTo($this->domain_fs_path())->change($user, $attributes);
 
-            $attr2flag = array(
-                'gecos'      => '-c',
-                'home'       => '-d',
-                'username'   => '-l',
-                'passwd'     => '-p',
-                'pw_expire'  => '-e',
-                'pw_disable' => '-e',
-                'shell'      => '-s',
-                'pw_lock'    => '-L',
-                'pw_unlock'  => '-U',
-                'move_home'  => '-m'
-            );
-            $cmd_str = '/usr/sbin/chroot ' . $this->domain_fs_path() . ' /usr/sbin/usermod';
-            $newuser = null;
-            foreach ($attributes as $attr => $attr_val) {
-                if (!isset($attr2flag[$attr])) {
-                    return error($attr . ": unrecognized attribute");
-                }
+	        // user changed
+	        if ($newuser && $newuser !== $user) {
+	        	// make a symlink to the original home to workaround fs checks
+		        // during the rename process
+		        //rename($prefix . $pwd['home'], $prefix . $newhome);
+		        //$this->file_symlink($pwd['home'], $newhome);
+		        if (!Util_Account_Hooks::run('edit_user', array($user, $newuser, $oldpwd))) {
+			        return error("unable to fully rename user, hook failed");
+		        }
 
-                // error checking...
-                switch ($attr) {
-                    case 'gecos':
-                        if (!$attr_val) {
-                            $attr_val = "''";
-                        }
-                        break;
-                    case 'home':
-                    case 'pw_lock':
-                        break;
+		        $userpath = $this->domain_info_path() . '/users/';
+		        if (file_exists($userpath . '/' . $user)) {
+			        rename($userpath . '/' . $user, $userpath . '/' . $newuser);
+		        }
 
-                    case 'username':
-                        $newuser = $attr_val;
-                        break;
-
-                    case 'pw_unlock':
-                        break;
-
-                    case 'move_home':
-                        if (!array_key_exists('username', $attributes)) {
-                            return error("cannot move home without renaming user");
-                        }
-                        $attr_val = null;
-                        break;
-
-                    default:
-                        if (!$attr_val) {
-                            return error($attr . " missing value");
-                        }
-
-                }
-                $cmd_str .= ' ' . $attr2flag[$attr] . ' ' . ($attr_val ? escapeshellarg($attr_val) : '');
-            }
-            $oldpwd = $this->getpwnam($user);
-            $cmd = Util_Process::exec($cmd_str . ' ' . $user);
-            if ($cmd['success'] && $newuser) {
-                $userpath = $this->domain_info_path() . '/users/';
-                if (file_exists($userpath . '/' . $user)) {
-                    rename($userpath . '/' . $user, $userpath . '/' . $newuser);
-                }
-            }
-
-            // user changed
-            if (isset($attributes['username']) && $attributes['username'] !== $user) {
-                // make a symlink to the original home to workaround fs checks
-                // during the rename process
-                //rename($prefix . $pwd['home'], $prefix . $newhome);
-                //$this->file_symlink($pwd['home'], $newhome);
-                if (!Util_Account_Hooks::run('edit_user', array($user, $newuser, $oldpwd))) {
-                    return error("unable to fully rename user, hook failed");
-                }
-                //$this->file_delete($newhome);
-                // rename user in gecos
-                $this->flush();
-            }
-            return $cmd['success'];
+		        //$this->file_delete($newhome);
+		        // rename user in gecos
+		        $this->flush();
+	        }
         }
 
         /**
@@ -897,8 +775,7 @@
             if (!($fp = fopen($this->domain_fs_path() . '/etc/passwd', 'r'))) {
                 return error("/etc/passwd: cannot access file");
             }
-            while (!feof($fp)) {
-                $line = fgets($fp);
+            while (false !== ($line = fgets($fp))) {
                 $line = explode(':', $line);
                 if (!isset($line[2]) || !is_numeric($line[2]) || isset(self::$uid_mappings[$site][$line[2]])) {
                     continue;
@@ -1062,17 +939,6 @@
             return $proc['success'];
         }
 
-        public function _delete()
-        {
-            foreach ($this->get_users() as $user => $pwd) {
-                $this->erase_quota_history($user);
-            }
-        }
-
-        public function _edit_user($userold, $usernew, $pwd)
-        {
-            $this->user_flush();
-        }
 
         /**
          * Remove historical quota data
@@ -1097,10 +963,37 @@
 
         }
 
-        public function _delete_user($user)
+
+	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+	    {
+	    }
+
+	    public function _create()
+	    {
+	    }
+
+	    public function _delete()
+        {
+            foreach ($this->get_users() as $user => $pwd) {
+                $this->erase_quota_history($user);
+            }
+        }
+
+        public function _edit()
+	    {
+	    }
+
+	    public function _create_user(string $user)
+	    {
+	    }
+
+	    public function _edit_user(string $user, string $usernew, array $oldpwd)
+        {
+            $this->flush();
+        }
+
+        public function _delete_user(string $user)
         {
             $this->erase_quota_history($user);
         }
     }
-
-?>

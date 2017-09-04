@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
     /**
      *  +------------------------------------------------------------+
@@ -241,7 +242,7 @@
                 return $resp;
             }
 
-            if (is_null($env)) {
+            if (null === $env) {
                 $env = $_ENV;
             }
 
@@ -265,13 +266,14 @@
                 }
                 $tee = new Util_Process_Tee();
                 $tee->setTeeFile($options['tee']);
+	            \Opcenter\Filesystem::chogp($options['tee'], WS_UID);
                 $tee->setProcess($proc);
             }
             // capture & extract the safe command, then sudo
             $proc->setOption('umask', 0022)->
-            setOption('timeout', self::MAX_WAIT_TIME)->
-            setOption('user', $this->username)->
-            setOption('home', true);
+                setOption('timeout', self::MAX_WAIT_TIME)->
+                setOption('user', $this->username)->
+                setOption('home', true);
             // temp fix, last arg is checked for user/domain substitution,
             // wordpress sets user for example
             $ret = $proc->run($cmd, $args);
@@ -320,11 +322,9 @@
             // support multiple commands
             if (!is_array($cmd)) {
                 $cmd = array(array($cmd, $args));
-            } else {
-                if (is_scalar($args)) {
-                    // [site, user, [[cmd1, [args]], [cmd2, [args]]], when]
-                    $when = $args;
-                }
+            } else if (is_scalar($args)) {
+                // [site, user, [[cmd1, [args]], [cmd2, [args]]], when]
+                $when = $args;
             }
 
             // avoid fatals
@@ -357,7 +357,7 @@
                         }
                         $a = '[' . join(",", $a) . ']';
                     }
-                    $safeargs[] = escapeshellarg($a);
+                    $safeargs[] = is_string($a) ? escapeshellarg($a) : $a;
                 }
                 $safeargs = join(" ", $safeargs);
 

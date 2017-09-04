@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
     /**
      *  +------------------------------------------------------------+
      *  | apnscp                                                     |
@@ -205,10 +206,13 @@
             }
         }
 
-        public function _edit_user($user, $usernew)
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
         {
+        	if ($userold === $usernew) {
+        		return;
+	        }
             // update
-            $this->_change_extendedinfo($user, $usernew);
+            $this->_change_extendedinfo($userold, $usernew);
             return true;
         }
 
