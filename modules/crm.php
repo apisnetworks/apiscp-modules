@@ -71,4 +71,8 @@ declare(strict_types=1);
 		{
 			return false;
 		}
+
+		public function enabled() {
+			return true;
+		}
 	}

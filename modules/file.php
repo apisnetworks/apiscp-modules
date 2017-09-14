@@ -383,7 +383,7 @@ declare(strict_types=1);
 
             if (is_link($root . $newpath)) {
                 $link = $root . $newpath;
-                if (file_exists($link) && substr(readlink($link), 0, 1) == '/') {
+                if (file_exists($link) && substr((string)readlink($link), 0, 1) == '/') {
                     $newpath = realpath($link);
                 } else {
                     $po = $newpath;
@@ -635,11 +635,8 @@ declare(strict_types=1);
                         self::$stat_cache[$siteid][$dirhash]);
                     die();
                 }
-            }
-
-            if (!isset($stats[$filehash])) {
                 $data = "ASKED: $filehash ($filename)" . "\r\n\r\n" . var_export($stats, true);
-                Error_Report::report("MISSED HASH: " . $data);
+                report("MISSED HASH: " . $data);
             }
             return $stats[$filehash];
         }
@@ -1777,12 +1774,10 @@ declare(strict_types=1);
          */
         public function chmod_backend($mFile, $mMode, $mRecursive)
         {
-            if (!is_float($mMode) && (strlen($mMode) != 4)) {
+            if (!is_float($mMode) && (strlen((string)$mMode) != 4)) {
                 $mMode = (float)octdec('0' . (string)$mMode);
-            } else {
-                if (!is_float($mMode)) {
-                    $mMode = (float)octdec($mMode);
-                }
+            } else if (!is_float($mMode)) {
+                $mMode = (float)octdec($mMode);
             }
             /* 4095 dec -> 7777 oct
 			 * 0140000 -> socket
@@ -1835,7 +1830,7 @@ declare(strict_types=1);
             if (!$stat['can_chown']) {
                 return warn("cannot chmod perm denied: " . $mFile);
             }
-            $ret = chmod($path, $mMode);
+            $ret = chmod($path, (int)$mMode);
             $this->_purgeCache($purge);
             return $ret;
         }

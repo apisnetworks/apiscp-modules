@@ -586,7 +586,7 @@ declare(strict_types=1);
                         default:
                             continue;
                     }
-                    $procs[$key] = trim($val);
+                    $procs[$key] = trim((string)$val);
                 }
 
             }
@@ -801,26 +801,21 @@ declare(strict_types=1);
 
         public function save_preferences(array $prefs)
         {
-            if (!IS_CLI) {
-                $ret = $this->query('common_save_preferences', $prefs);
-                \Session::set(\Preferences::SESSION_KEY, $prefs);
-                return $ret;
-            }
             // make sure this gets saved in the backend too
             // session data is only resync'd if the worker
             // session id changes during its service life
             \Session::set(\Preferences::SESSION_KEY, $prefs);
-
-            // potential race condition
-            $cache = Cache_User::spawn();
-            $cache->delete($this->_getPreferencesKey());
             return $this->set_user_preferences($this->username, $prefs);
         }
 
         public function set_user_preferences($user, array $prefs)
         {
             if (!IS_CLI) {
-                return $this->query('common_set_user_preferences', $user, $prefs);
+                $ret = $this->query('common_set_user_preferences', $user, $prefs);
+                if ($user === $this->username) {
+                	\Preferences::reload();
+                }
+                return $ret;
             }
             if ($user !== $this->username && !$this->user_exists($user)) {
                 return error("unable to save preferences, invalid user `%s' specified", $user);
@@ -828,13 +823,32 @@ declare(strict_types=1);
             if ($this->permission_level & PRIVILEGE_ADMIN) {
                 // @xxx support multiple admins?
                 $path = \Admin_Module::ADMIN_HOME . '/' . \Admin_Module::ADMIN_CONFIG . '/' . $user;
-            } else {
-                if ($this->permission_level & (PRIVILEGE_USER | PRIVILEGE_SITE)) {
-                    $path = $this->domain_info_path() . '/users/' . $user;
-
-                }
+            } else if ($this->permission_level & (PRIVILEGE_USER | PRIVILEGE_SITE)) {
+                $path = $this->domain_info_path() . '/users/' . $user;
             }
-            return file_put_contents($path, serialize($prefs), LOCK_EX) !== false;
+			$fp = fopen($path, 'c');
+            if (!$fp) {
+            	return error("failed to open preferences files for user `%s'", $user);
+            }
+            $blocked = true;
+            for ($i = 0; true; $i++) {
+                $lock = flock($fp, LOCK_EX|LOCK_NB, $blocked);
+                if (!$blocked) {
+                	break;
+                }
+	            if ($i === 10) {
+	                return error("failed to get lock on user pref file `%s'", $user);
+	            }
+            }
+            ftruncate($fp, 0);
+            fwrite($fp, serialize($prefs));
+            fclose($fp);
+            if ($user === $this->username) {
+	            $cache = Cache_User::spawn();
+	            $cache->delete($this->_getPreferencesKey());
+	            \Preferences::reload();
+            }
+            return true;
         }
 
         /**
@@ -916,6 +930,7 @@ declare(strict_types=1);
                     if (!file_exists($file)) {
                         $file = $prefix . '/current/' . $cfg;
                     }
+
                     $data = Util_Conf::parse_ini($file);
                     if (false === $data) {
                         return error($cfg . ": parse error");

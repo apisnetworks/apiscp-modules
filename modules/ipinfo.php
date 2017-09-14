@@ -89,14 +89,6 @@ declare(strict_types=1);
 					$this->__deleteIP($ip, $domain);
 				}
 			}
-
-			foreach (array_keys($this->web_list_domains()) as $domain) {
-				if ($this->owned_zone($domain)) {
-					$this->remove_zone($domain);
-				} else {
-					dlog("Skipping stray zone $domain");
-				}
-			}
 		}
 
 		public function _create()
@@ -157,8 +149,8 @@ declare(strict_types=1);
 			if ($domainold !== $domainnew) {
 				$ip = $conf_new['namebased'] ? array_pop($conf_new['nbaddrs']) :
 					array_pop($conf_new['ipaddrs']);
-				$this->remove_zone($domainold);
-				$this->add_zone($domainnew, $ip);
+				//$this->remove_zone($domainold);
+				//$this->add_zone($domainnew, $ip);
 				// domain name changed
 				if (!$conf_new['namebased']) {
 					$this->__changePTR($ip, $domainnew, $domainold);

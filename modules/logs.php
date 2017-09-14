@@ -283,7 +283,11 @@ declare(strict_types=1);
             $domains = $this->web_list_domains();
             for ($i = 0, $n = sizeof($lines); $i < $n; $i++) {
                 $line = $lines[$i];
-                $directive = strtolower(strtok($line, " "));
+                $tok = strtok($line, " ");
+                if (!$tok) {
+                	continue;
+                }
+                $directive = strtolower($tok);
 
                 if ($directive == 'setenvifnocase') {
                     preg_match('/^\s*SetEnvIfNoCase\s+Host\s+\(?(\.?[^\.]+)\.\)?\??([\S]+)\s+(.+)$/i', $line,

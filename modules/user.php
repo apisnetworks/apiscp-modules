@@ -513,14 +513,9 @@ declare(strict_types=1);
             $cache = Cache_Account::spawn();
             $keys = array('users:pwd.gen', 'users');
             foreach ($keys as $key) {
-                // don't worry about Memcache::delete() response
+                // don't worry about Redis::delete() response
                 // response will return NOT FOUND if cache is not yet set
                 $cache->delete($key);
-            }
-            $code = $cache->getResultCode();
-            if ($code) {
-                $msg = $cache->getResultMessage();
-                return ($msg === 'NOT FOUND') || error($msg);
             }
             return true;
         }

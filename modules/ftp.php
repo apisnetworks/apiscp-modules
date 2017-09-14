@@ -292,14 +292,12 @@ declare(strict_types=1);
             $fp = fopen($this->domain_fs_path() . self::VSFTPD_CHROOT_FILE, 'r');
 
             for ($buffer = array(), $seen = false; !feof($fp);) {
-                $line = trim(fgets($fp));
+                $line = trim((string)fgets($fp));
                 if (!$line) {
                     continue;
-                } else {
-                    if ($user == $line) {
-                        $seen = true;
-                        continue;
-                    }
+                } else if ($user == $line) {
+                    $seen = true;
+                    continue;
                 }
                 $buffer[] = $line;
             }

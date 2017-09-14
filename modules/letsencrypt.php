@@ -79,7 +79,7 @@ declare(strict_types=1);
             return $this->supported() && $this->ssl_permitted();
         }
 
-        public function renew()
+        public function renew(bool $verifyip = true)
         {
             $cert = $this->ssl_get_certificates();
             if (!$cert) {
@@ -95,7 +95,7 @@ declare(strict_types=1);
             // LE certificates will always contain the CN in its SAN list
             // not sure if true for all certificates...
             $cns = $this->ssl_get_alternative_names($crt);
-            $ret = $this->request($cns);
+            $ret = $this->request($cns, $verifyip);
             if (is_null($ret)) {
                 // case in which a request is processed OK, but
                 // there are no valid hostnames on the account to renew
@@ -148,14 +148,15 @@ declare(strict_types=1);
          * Because there is no unreasonable limit on SANs, a www and non-www
          * variant for each CN will be generated
          *
-         * @param array|string $cnames list of hosts
-         * @param string       $email  email address to use
+         * @param array|string $cnames   list of hosts
+         * @param string       $email    email address to use
+         * @param bool         $verifyip verify IP matches account before issuing
          * @return bool
          */
-        public function request($cnames)
+        public function request($cnames, bool $verifyip = true)
         {
             if (!IS_CLI) {
-                return $this->query('letsencrypt_request', $cnames);
+                return $this->query('letsencrypt_request', $cnames, $verifyip);
             }
 
             $cnreq = array();
@@ -179,7 +180,7 @@ declare(strict_types=1);
                     continue;
                 }
 
-                if (self::INCLUDE_ALT_FORM) {
+                if (LETSENCRYPT_VERIFY_IP && $verifyip && self::INCLUDE_ALT_FORM) {
                     $altform = null;
                     if (0 === strpos($host, 'www.')) {
                         // add www.example.com if example.com given
@@ -196,7 +197,7 @@ declare(strict_types=1);
                     }
                 }
 
-                if (!$this->_verifyIP($host, $myip)) {
+                if (LETSENCRYPT_VERIFY_IP && $verifyip && !$this->_verifyIP($host, $myip)) {
                     warn("hostname `%s' IP `%s' doesn't match hosting IP `%s', "
                         . "skipping request",
                         $host,
@@ -252,9 +253,14 @@ declare(strict_types=1);
             return file_exists($path);
         }
 
-        public function storage_path($site)
+	    /**
+	     * Retrieve absolute storage path for site certificate
+	     *
+	     * @param string $site
+	     * @return string
+	     */
+        public function storage_path(string $site): string
         {
-
             return $this->acmeSiteStorageDirectory($site);
         }
 

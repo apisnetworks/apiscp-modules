@@ -387,7 +387,7 @@ declare(strict_types=1);
          */
         public function challenge_token()
         {
-            $str = fileinode($this->domain_info_path());
+            $str = (string)fileinode($this->domain_info_path());
             return sha1($str);
         }
 
@@ -789,7 +789,7 @@ declare(strict_types=1);
             $map_file = $this->_map_path();
             $output_file = self::CONFIG_DB_DIR . '/' . $this->site;
             file_exists($output_file) && unlink($output_file);
-            $proc = Util_Process::exec('/usr/sbin/httxt2dbm -f DB -i %s -o %s',
+            $proc = Util_Process::exec('httxt2dbm -f DB -i %s -o %s',
                 $map_file,
                 $output_file
             );
