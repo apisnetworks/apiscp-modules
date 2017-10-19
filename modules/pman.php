@@ -216,10 +216,10 @@ declare(strict_types=1);
          * [success] => 1
          * )
          *
-         * @param string $proc    process name, format specifiers allowed
+         * @param string $cmd     process name, format specifiers allowed
          * @param array  $args    optional arguments to supply to format
          * @param array  $env     optional environment vars to set
-         * @param array  $options optional options, tee: set tee output to file
+         * @param array  $options optional options, tee: set tee output to file, user: run as user if site admin
          * @return array
          */
         public function run($cmd, $args = null, $env = null, $options = array())
@@ -232,7 +232,7 @@ declare(strict_types=1);
                 // exceeding max wait time
                 $buffer = Error_Reporter::flush_buffer();
                 $resp = $this->query('pman_run', $cmd, $args, $env, $options);
-                if (is_null($resp)) {
+                if (null === $resp) {
                     // restore old buffer, ignore crash or other nasty error detected! msg
                     Error_Reporter::set_buffer($buffer);
                     return error("process lingered for %d seconds, " .
@@ -251,6 +251,24 @@ declare(strict_types=1);
             if ($env) {
                 $proc->setEnvironment($env);
             }
+            $user = $this->username;
+            if (isset($options['user'])) {
+            	if (!$this->permission_level&PRIVILEGE_SITE) {
+            		return error("failed to launch `%s': only site admin may specify user parameter to run as",
+			            basename($cmd)
+		            );
+	            }
+	            $pwd = $this->user_getpwnam($options['user']);
+            	if (!$pwd) {
+            		return error("unknown user `%s'", $options['user']);
+	            }
+	            $minuid = apnscpFunctionInterceptor::autoload_class_from_module('user')::MIN_UID;
+	            if ($pwd['uid'] < $minuid) {
+            		return error("uid `%d' is less than allowable uid `%d' - system user?", $pwd['uid'], $minuid);
+	            }
+	            $user = $options['user'];
+            }
+
             if (isset($options['tee'])) {
                 if ($options['tee'][0] != '/') {
                     // relative file listed, assume /tmp
@@ -259,10 +277,8 @@ declare(strict_types=1);
                 if (file_exists($options['tee']) || is_link($options['tee'])) {
                     // verify not trying to stream something like /etc/shadow
                     return error("tee file `%s' exists", $options['tee']);
-                } else {
-                    if (!touch($options['tee'])) {
-                        return error("cannot use tee file `%s'", $options['tee']);
-                    }
+                } else if (!touch($options['tee'])) {
+                    return error("cannot use tee file `%s'", $options['tee']);
                 }
                 $tee = new Util_Process_Tee();
                 $tee->setTeeFile($options['tee']);
@@ -272,7 +288,7 @@ declare(strict_types=1);
             // capture & extract the safe command, then sudo
             $proc->setOption('umask', 0022)->
                 setOption('timeout', self::MAX_WAIT_TIME)->
-                setOption('user', $this->username)->
+                setOption('user', $user)->
                 setOption('home', true);
             // temp fix, last arg is checked for user/domain substitution,
             // wordpress sets user for example

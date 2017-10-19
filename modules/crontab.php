@@ -575,7 +575,12 @@ declare(strict_types=1);
             if ($userold === $usernew) {
                 return true;
             }
-            return $this->_edit_user($userold, $usernew);
+
+	        /**
+	         * @todo editing admin user will fire this, but we lose
+	         *       $oldpwd...
+	         */
+            return $this->_edit_user($userold, $usernew, $this->user_getpwnam($usernew));
         }
 
         public function _edit_user(string $userold, string $usernew, array $oldpwd)
@@ -590,10 +595,8 @@ declare(strict_types=1);
             }
             if (!$this->get_service_value('ssh', 'enabled')) {
                 return true;
-            } else {
-                if (!$this->user_permitted($userold)) {
-                    return true;
-                }
+            } else if (!$this->user_permitted($userold)) {
+                return true;
             }
 
             $this->_deny_user_real($userold);

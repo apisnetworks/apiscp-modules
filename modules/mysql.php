@@ -64,6 +64,9 @@ declare(strict_types=1);
 
 		public function user_exists($user, $host = 'localhost')
 		{
+			if (!$user) {
+				return false;
+			}
 			$conn = $this->_connect_root();
 			$prefix = $this->get_prefix();
 			if ($user !== $this->get_service_value('mysql', 'dbaseadmin') &&
@@ -513,9 +516,9 @@ declare(strict_types=1);
 				return error("no username specified");
 			}
 			$dbaseadmin = $this->get_config('mysql', 'dbaseadmin');
-			/*if ($user === $dbaseadmin) {
+			if ($user === $dbaseadmin && !IS_SOAP) {
 				return error("cannot name user after primary account user, `%s'", $dbaseadmin);
-			}*/
+			}
 
 			$ssl = strtoupper($ssl);
 			if (!$maxconn) {
@@ -529,24 +532,16 @@ declare(strict_types=1);
 			}
 			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
-			} else {
-				if ($ssl != '' && $ssl != 'ANY' && $ssl != 'X509' && $ssl != 'SPECIFIED') {
-					return error("Invalid SSL type");
-				} else {
-					if ($maxconn < 1 || $maxquery < 0 || $maxupdates < 0) {
-						return error("Max connections, queries, and updates must be greater than 0");
-					} else {
-						if ($maxconn > \Sql_Module::PER_DATABASE_CONNECTION_LIMIT) {
-							return error("Max concurrent connections cannot exceed %d. " .
-								"Open a ticket with explanation if you need more than %d.",
-								\Sql_Module::PER_DATABASE_CONNECTION_LIMIT, \Sql_Module::PER_DATABASE_CONNECTION_LIMIT);
-						} else {
-							if ($this->user_exists($user, $host)) {
-								return error("mysql user `$user' on `$host' exists");
-							}
-						}
-					}
-				}
+			} else if ($ssl != '' && $ssl != 'ANY' && $ssl != 'X509' && $ssl != 'SPECIFIED') {
+				return error("Invalid SSL type");
+			} else if ($maxconn < 1 || $maxquery < 0 || $maxupdates < 0) {
+				return error("Max connections, queries, and updates must be greater than 0");
+			} else if ($maxconn > \Sql_Module::PER_DATABASE_CONNECTION_LIMIT) {
+				return error("Max concurrent connections cannot exceed %d. " .
+					"Open a ticket with explanation if you need more than %d.",
+					\Sql_Module::PER_DATABASE_CONNECTION_LIMIT, \Sql_Module::PER_DATABASE_CONNECTION_LIMIT);
+			} else if ($this->user_exists($user, $host)) {
+				return error("mysql user `$user' on `$host' exists");
 			}
 			$conn = $this->_connect_root();
 			$prefix = $this->get_prefix();
@@ -769,10 +764,13 @@ declare(strict_types=1);
 		 * @param  string $db database name
 		 * @return bool
 		 */
-		public function database_exists($db)
+		public function database_exists($db): bool
 		{
 			if (!IS_CLI) {
 				return $this->query('mysql_database_exists', $db);
+			}
+			if (!$db) {
+				return false;
 			}
 			$sqlroot = $this->domain_fs_path() . self::MYSQL_DATADIR;
 			$normal = \Opcenter\Database\MySQL::canonicalize($db);
@@ -787,6 +785,10 @@ declare(strict_types=1);
 			$q = $conn->query("SELECT db FROM db WHERE db = '" . $conn->escape_string($db) . "'");
 			if ($q && $q->num_rows > 0) {
 				return true;
+			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
+				// used by db backup routine, in future the task should be
+				// removed from backup, but leave this as it is for now
+				return false;
 			}
 			$usersafe = $conn->escape_string($this->get_config('mysql', 'dbaseadmin'));
 			// double prefix, remove first prefix, then check one last time
@@ -886,10 +888,10 @@ declare(strict_types=1);
 			$conn = new mysqli('localhost', self::MASTER_USER, $this->_get_elevated_password());
 			$conn->select_db("mysql");
 			/** ignore prefixed dbs as they should have ownership rights */
-			if (!preg_match('!/^' . $prefix . '!', $db)) {
+			if (!preg_match('!/^' . preg_quote($prefix, '!') . '!', $db)) {
 				$rs = $conn->query("SELECT 1 FROM db WHERE user = '" . $this->username . "' AND db = '" . $db . "'");
 				if ($rs->num_rows < 1) {
-					return error("No grants found in database on `%s' for user `%s'", $db, $user);
+					return error("No grants found in database on `%s' for user `%s'", $db, $this->username);
 				}
 			}
 

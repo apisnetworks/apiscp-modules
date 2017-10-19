@@ -74,16 +74,14 @@ declare(strict_types=1);
             if (!$user && $stat['uid'] < \User_Module::MIN_UID) {
                 return error("unable to determine ownership of docroot `%s' for `%s'",
                     $path, $domain);
-            } else {
-                if (!$user) {
-                    warn("invalid uid `%d' detected on `%s', squashed to account uid `%d'",
-                        $stat['uid'],
-                        $domain,
-                        $this->user_id
-                    );
-                    $this->file_chown($path, $this->user_id, true);
-                    $user = $this->user_id;
-                }
+            } else if (!$user) {
+                warn("invalid uid `%d' detected on `%s', squashed to account uid `%d'",
+                    $stat['uid'],
+                    $domain,
+                    $this->user_id
+                );
+                $this->file_chown($path, $this->user_id, true);
+                $user = $this->user_id;
             }
 
             $ret = $this->add_alias($domain);
@@ -91,6 +89,8 @@ declare(strict_types=1);
                 file_exists($path) && unlink($path);
                 return error("failed to add domain alias configuration `%s'", $domain);
             }
+
+            $this->notify_admin($domain, $path);
 
             if (!$this->map_domain('add', $domain, $path, $user)) {
                 return error("failed to map domain `%s' in http configuration", $domain);
@@ -100,10 +100,58 @@ declare(strict_types=1);
             return $this->dns_add_zone($domain, $ip);
         }
 
+	    /**
+	     * Notify appliance admin domain has been added
+	     *
+	     * @param string $domain
+	     * @param string $path
+	     * @return bool
+	     */
+        protected function notify_admin(string $domain, string $path): bool {
+        	if (!DOMAINS_NOTIFY) {
+        		return false;
+	        }
+
+	        $template = \Blade::factory('views/email');
+        	$html = $template->make('aliases.domain-add',
+	            [
+	            	'domain' => $domain,
+		            'path' => $path,
+		            'authdomain' => $this->domain,
+		            'authuser' => $this->username,
+		            'siteid' => $this->site_id,
+	            ]
+	        )->render();
+
+	        $opts = array(
+		        'html_charset' => 'utf-8',
+		        'text_charset' => 'utf-8'
+	        );
+	        $from = \Crm_Module::FROM_NAME . ' <' . \Crm_Module::FROM_ADDRESS . '>';
+	        $headers = array(
+		        'Sender' => $from,
+		        'From'   => $from
+	        );
+	        $mime = new Mail_Mime($opts);
+
+	        $mime->setHTMLBody($html);
+	        $mime->setTXTBody(strip_tags($html));
+	        $headers = $mime->txtHeaders($headers);
+	        $msg = $mime->get();
+
+	        return Mail::send(
+		        \Crm_Module::COPY_ADMIN,
+		        "Domain Added",
+		        $msg,
+		        $headers
+	        );
+
+        }
         /**
          * Manage domain symlink mapping
          *
          * @todo   merge into web module
+         *
          * @param  string $mode   add/delete
          * @param  string $domain domain to add/remove
          * @param  string $path   domain path
@@ -305,6 +353,7 @@ declare(strict_types=1);
             if (!$aliases) {
                 $this->set_config_journal('aliases', 'enabled', 0);
             }
+
             return $this->set_config_journal('aliases', 'aliases', $aliases);
         }
 
@@ -315,14 +364,10 @@ declare(strict_types=1);
 
             if (!preg_match(Regex::DOMAIN, $domain)) {
                 return error($domain . ": invalid domain");
-            } else {
-                if (!preg_match(Regex::ADDON_DOMAIN_PATH, $path)) {
-                    return error($path . ": invalid path");
-                } else {
-                    if ($domain == $this->get_service_value('siteinfo', 'domain')) {
-                        return error("Primary domain may not be replicated as a shared domain");
-                    }
-                }
+            } else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $path)) {
+                return error($path . ": invalid path");
+            } else if ($domain == $this->get_service_value('siteinfo', 'domain')) {
+                return error("Primary domain may not be replicated as a shared domain");
             }
 
             if (!$this->_verify($domain)) {
@@ -503,7 +548,7 @@ declare(strict_types=1);
 	        }
 
             $domains = $this->list_shared_domains();
-            $home = $this->user_get_user_home($user);
+            $home = $oldpwd['home'];
             $newhome = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!', DIRECTORY_SEPARATOR . $usernew, $home, 1);
             foreach ($domains as $domain => $info) {
                 if (strncmp($home, $newhome, strlen($home))) {
@@ -538,7 +583,7 @@ declare(strict_types=1);
             }
 
             $aliases = (array)$this->get_service_value('aliases', 'aliases');
-            array_push($aliases, $alias);
+            $aliases[] = $alias;
 
             return $this->set_config_journal('aliases', 'enabled', 1) &&
                 $this->set_config_journal('aliases', 'aliases', $aliases);
@@ -553,6 +598,10 @@ declare(strict_types=1);
             if ($this->shared_domain_hosted($domain)) {
                 return error("`%s': domain is already hosted by another account", $domain);
             }
+
+            if (!DOMAINS_DNS_CHECK) {
+            	return true;
+			}
 
             if (!$this->dns_domain_on_account($domain) /** domain under same invoice */ &&
                 !$this->_verify_dns($domain) && !$this->_verify_url($domain)
@@ -599,7 +648,7 @@ declare(strict_types=1);
              * @XXX DNS checks can be bypassed via API: BAD
              */
             if ($this->_is_bypass($domain)) {
-                //return true;
+                return true;
             }
             // domain not hosted, 5 second timeout
             $ip = silence(function() use ($domain) {
@@ -610,7 +659,7 @@ declare(strict_types=1);
             }
             $myip = $this->common_get_ip_address();
 
-            if ($ip == $myip) {
+            if ($ip === $myip) {
                 // domain is on this server and would appear in db lookup check
                 return true;
             }
@@ -870,10 +919,8 @@ declare(strict_types=1);
             $map = $this->_load_map();
             if (!array_key_exists($domain, $map)) {
                 return error("domain `$domain' not found in domain map");
-            } else {
-                if (!preg_match(Regex::ADDON_DOMAIN_PATH, $newpath)) {
-                    return error($newpath . ": invalid path");
-                }
+            } else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $newpath)) {
+                return error($newpath . ": invalid path");
             }
             $oldpath = $map[$domain];
             if (!$this->_remove_apache_map($domain)) {

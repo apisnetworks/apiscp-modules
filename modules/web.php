@@ -12,6 +12,8 @@ declare(strict_types=1);
      *  +------------------------------------------------------------+
      */
 
+	use \Opcenter\Http\Apache\Map;
+
     /**
      * Web server and package management
      *
@@ -22,9 +24,9 @@ declare(strict_types=1);
 
         // primary domain document root
         const MAIN_DOC_ROOT = '/var/www/html';
-        const HTTP_RELOAD_CMD = '/etc/init.d/httpd reload';
         const APACHE_HOME = '/etc/httpd';
         const WEB_USERNAME = 'apache';
+        const PROTOCOL_MAP = '/etc/httpd/conf/http10';
 
         protected $service_cache;
 
@@ -393,18 +395,16 @@ declare(strict_types=1);
             );
 
             $fs_location = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
-            $link = $fs_location . '/html';
             if (!strpos($subdomain, ".")) {
                 $type = 'global';
+            } else if (!array_key_exists($subdomain, $this->list_domains())) {
+                $type = 'local';
             } else {
-                if (!array_key_exists($subdomain, $this->list_domains())) {
-                    $type = 'local';
-                } else {
-                    $type = 'fallthrough';
-                }
+                $type = 'fallthrough';
             }
 
             $info['type'] = $type;
+            $link = $fs_location . '/html';
             /**
              * link does not exist
              * test first if no symlink referent is present,
@@ -572,7 +572,7 @@ declare(strict_types=1);
 
             $prefix = $this->domain_fs_path();
             if (!file_exists($prefix . $docroot)) {
-                if (is_link($prefix . $docroot)) {
+                if (\Util_PHP::is_link($prefix . $docroot)) {
                     // fix cases where a client links the doc root to an absolute symlink outside the scope
                     // of apache, e.g. /var/www/html -> /foo, apache would see <fst>/foo, not /foo
                     $newlink = $this->file_convert_absolute_relative($docroot, readlink($prefix . $docroot));
@@ -594,7 +594,7 @@ declare(strict_types=1);
                 chown($index, (int)$this->user_get_uid_from_username($user));
                 chgrp($index, $this->group_id);
             }
-            $subdomainpath = $this->_makeSubdomainPath($subdomain);
+            $subdomainpath = Opcenter\Http\Apache::makeSubdomainPath($subdomain);
             return $this->add_subdomain_raw($subdomain,
                     $this->file_convert_absolute_relative($subdomainpath, $docroot)) &&
                 $this->map_subdomain('add', $subdomain, $docroot, $user);
@@ -604,7 +604,7 @@ declare(strict_types=1);
         {
 
             $prefix = $this->domain_fs_path();
-            $subdomain_path = $this->_makeSubdomainPath($subdomain);
+            $subdomain_path = Opcenter\Http\Apache::makeSubdomainPath($subdomain);
             $subdomain_parent = dirname($prefix . $subdomain_path);
             if (!file_exists($subdomain_parent)) {
                 mkdir($subdomain_parent);
@@ -670,7 +670,7 @@ declare(strict_types=1);
         public function remove_user_subdomain($user)
         {
             foreach ($this->list_subdomains() as $subdomain => $dir) {
-                if (!preg_match('!^/home/' . preg_quote($user) . '(/|$)!', $dir)) {
+                if (!preg_match('!^/home/' . preg_quote($user) . '(/|$)!', (string)$dir)) {
                     continue;
                 }
                 $this->web_remove_subdomain($subdomain);
@@ -747,7 +747,7 @@ declare(strict_types=1);
             if (!$this->subdomain_exists($subdomain)) {
                 return error($subdomain . ": subdomain does not exist");
             }
-            if ($newsubdomain && $subdomain != $newsubdomain && $this->subdomain_exists($newsubdomain)) {
+            if ($newsubdomain && $subdomain !== $newsubdomain && $this->subdomain_exists($newsubdomain)) {
                 return error("destination subdomain `%s' already exists", $newsubdomain);
             }
             if (!$newsubdomain && !$newpath) {
@@ -763,20 +763,18 @@ declare(strict_types=1);
             } else {
                 $newsubdomain = strtolower($newsubdomain);
             }
-            $sdpath = $this->_makeSubdomainPath($subdomain);
-            $old_stat = $this->file_stat($sdpath);
+            $sdpath = Opcenter\Http\Apache::makeSubdomainPath($subdomain);
+            $link = null;
+            $old_stat = $this->file_make_path($sdpath, $link);
             // default path in case the subdomain is not defined
             $old_path = "/dev/null";
             // case when html is missing due to erroneous deletion of symlink
 
-            if ($old_stat instanceof Exception || !$old_stat) {
-                warn("`%s': old subdomain path `%s' missing ", $subdomain, $sdpath);
+            if ($link) {
+                dd($sdpath, $old_stat);
+                $old_path = $this->file_convert_relative_absolute(dirname($sdpath), $old_stat['referent']);
             } else {
-                if ($old_stat['link'] > 0) {
-                    $old_path = $this->file_convert_relative_absolute(dirname($sdpath), $old_stat['referent']);
-                } else {
-                    $old_path = $sdpath;
-                }
+                $old_path = $sdpath;
             }
             // rename subdomain, keep path
 
@@ -795,19 +793,17 @@ declare(strict_types=1);
                     }
                     return false;
                 }
-            } else {
-                if (!$this->remove_subdomain($subdomain) || !$this->add_subdomain($subdomain, $newpath)) {
-                    error("failed to change path for `%s' from `%s' to `%s'",
+            } else if (!$this->remove_subdomain($subdomain) || !$this->add_subdomain($subdomain, $newpath)) {
+                error("failed to change path for `%s' from `%s' to `%s'",
+                    $subdomain,
+                    $old_path,
+                    $newpath);
+                if (!$this->add_subdomain($subdomain, $old_path)) {
+                    error("failed to restore subdomain `%s' to old path `%s'",
                         $subdomain,
-                        $old_path,
-                        $newpath);
-                    if (!$this->add_subdomain($subdomain, $old_path)) {
-                        error("failed to restore subdomain `%s' to old path `%s'",
-                            $subdomain,
-                            $old_path);
-                    }
-                    return false;
+                        $old_path);
                 }
+                return false;
             }
             return true;
         }
@@ -838,7 +834,7 @@ declare(strict_types=1);
             }
 
             $checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
-            if (is_link($checkpath)) {
+            if (\Util_PHP::is_link($checkpath)) {
                 // take the referent always
                 $checkpath = realpath($checkpath);
                 if (0 !== strpos($prefix, $checkpath)) {
@@ -1051,6 +1047,56 @@ declare(strict_types=1);
             return true;
         }
 
+	    /**
+	     * Permit a disallowed protocol access to hostname
+	     *
+	     * @param string $hostname
+	     * @param string $proto only http10 is valid
+	     * @return bool
+	     */
+        public function allow_protocol(string $hostname, string $proto = 'http10'): bool
+        {
+        	if (!IS_CLI) {
+        		return $this->query('web_allow_protocol', $hostname, $proto);
+	        }
+	        if ($proto !== 'http10') {
+		        return error("protocol `%s' not known, only http10 accepted", $proto);
+	        }
+	        if (!$this->protocol_disallowed($hostname, $proto)) {
+		        return true;
+	        }
+	        $map = Map::open(self::PROTOCOL_MAP, Map::MODE_WRITE);
+			$map[$hostname] = $this->site_id;
+
+	        return $map->sync();
+        }
+
+        public function disallow_protocol(string $hostname, string $proto = 'http10'): bool
+        {
+        	if (!IS_CLI) {
+        		return $this->query('web_disallow_protocol', $hostname, $proto);
+	        }
+        	if ($proto !== 'http10') {
+        		return error("protocol `%s' not known, only http10 accepted", $proto);
+	        }
+			if ($this->protocol_disallowed($hostname, $proto)) {
+				return true;
+			}
+			$map = Map::open(self::PROTOCOL_MAP, Map::MODE_WRITE);
+	        unset($map[$hostname]);
+			return $map->sync();
+
+        }
+
+        public function protocol_disallowed(string $hostname, string $proto = 'http10'): bool
+        {
+	        if ($proto !== 'http10') {
+		        return error("protocol `%s' not known, only http10 accepted", $proto);
+	        }
+			$map = Map::open(self::PROTOCOL_MAP);
+			return !isset($map[$hostname]);
+        }
+
         public function unbind_dav($location)
         {
             if (!IS_CLI) {
@@ -1094,17 +1140,13 @@ declare(strict_types=1);
                     $inside = 1;
                     $dav_locations[$idx] = array('path' => $match[1], 'provider' => 'dav');
 
-                } else {
-                    if ($inside && preg_match('/Dav\s+([^\s]+)/i', $line, $match)) {
-                        $match[1] = strtolower($match[1]);
-                        $dav_locations[$idx]['provider'] = ($match[1] == 'on' ? 'dav' : $match[1]);
+                } else if ($inside && preg_match('/Dav\s+([^\s]+)/i', $line, $match)) {
+                    $match[1] = strtolower($match[1]);
+                    $dav_locations[$idx]['provider'] = ($match[1] == 'on' ? 'dav' : $match[1]);
 
-                    } else {
-                        if (stristr($line, '</Directory>')) {
-                            $inside = 0;
-                            $idx++;
-                        }
-                    }
+                } else if (stristr($line, '</Directory>')) {
+                    $inside = 0;
+                    $idx++;
                 }
             }
             fclose($fp);
@@ -1121,7 +1163,7 @@ declare(strict_types=1);
                 $conf_new['openssl'] != $conf_old['openssl'] ||
                 $conf_new['aliases'] != $conf_old['aliases']
             ) {
-                $this->_reloadApache();
+                \Opcenter\Http\Apache::reload();
             }
 
         }
@@ -1162,7 +1204,7 @@ declare(strict_types=1);
          */
         public function _create()
         {
-            $this->_reloadApache();
+            \Opcenter\Http\Apache::reload();
         }
 
         public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
@@ -1171,21 +1213,27 @@ declare(strict_types=1);
         		return true;
 	        }
         	$defaultws = $ctx->getDefaultServiceValue('apache', 'webserver');
+
 	        if ($ctx['webserver']) {
 
 	        }
+
         }
 
 	    public function _reload($why = null)
         {
             if (in_array($why, [null, "php", "aliases", "letsencrypt"])) {
-                return $this->_reloadApache();
+                return \Opcenter\Http\Apache::reload();
             }
         }
 
         public function _delete()
         {
-            $this->_reloadApache();
+        	$map = Map::open(self::PROTOCOL_MAP, Map::MODE_WRITE);
+        	$map->removeValues($this->site_id);
+        	$map->sync();
+            \Opcenter\Http\Apache::reload();
+
         }
 
         public function http_config_dir()
@@ -1213,25 +1261,4 @@ declare(strict_types=1);
 	    {
 		    // TODO: Implement _create_user() method.
 	    }
-
-
-	    private function _makeSubdomainPath($subdomain)
-        {
-            return '/var/subdomain/' . $subdomain . '/html';
-        }
-
-        private function _reloadApache()
-        {
-            // NB: set to 2 minutes, which should allow domain edit to complete
-            $proc = new Util_Process_Schedule("+2 minutes");
-            $key = "apacherld";
-            $proc->setID($key);
-            if ($proc->idPending($key)) {
-                return true;
-            }
-            return $proc->run(self::HTTP_RELOAD_CMD, array('mute_stdout' => true));
-
-        }
     }
-
-?>

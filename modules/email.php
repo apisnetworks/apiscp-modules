@@ -26,24 +26,8 @@ declare(strict_types=1);
         const MAILBOX_DISABLED = 'd';
         const MAILBOX_ENABLED = 'e';
         const MAILBOX_SINGLE = '1';
-        const VACATION_RE = '^\s*include "\$HOME/\.vacationrc"';
+
         const VACATION_PREFKEY = 'mail.vacapref';
-        const VACATION_OPTIONS = [
-	        'charset'    => '-c {val}',
-	        'daydelay'   => '-d',
-	        'omitmsg'    => '-N',
-	        'daydelay'   => '-D {val}',
-	        'salutation' => '-S {val}'
-        ];
-        const VACATION_RECIPE = '# Change to 1 to auto-reply to forwarded emails or BCCs 
-REPLYALL=0
-FLAGS="%FLAGS%"
-/^(?:X-Original-To|Delivered-To): (.+)/
-TOADDR=$MATCH1
-if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure we are not BCC\'d
-{
-	 cc "| mailbot $FLAGS -c \'UTF-8\' -N -A \'From: $TOADDR\' -t $HOME/.vacation.msg -d .vacation.db /usr/sbin/sendmail -t -i -f \'\'"
-}';
         // webmail installations
         const POSTFIX_CMD = '/usr/sbin/postfix';
         const DOVECOT_SSL_CONFIG_DIR = '/etc/dovecot/conf.d/ssl';
@@ -78,16 +62,11 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 'get_spool_size_backend'          => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
                 /** Vacation methods */
                 'add_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'add_vacation_backend'            => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
+                'set_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'vacation_exists'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'vacation_exists_backend'         => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
                 'remove_vacation'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'get_vacation_message'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'get_vacation_message_backend'    => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
                 'change_vacation_message'         => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'change_vacation_message_backend' => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
-                'get_vacation_message'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-                'get_vacation_message_backend'    => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
                 'get_webmail_location'            => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'webmail_apps'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'create_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
@@ -117,22 +96,14 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
             if ($filter == 'forward') {
                 $filter = self::MAILBOX_FORWARD;
-            } else {
-                if ($filter == 'local') {
-                    $filter = self::MAILBOX_USER;
-                } else {
-                    if ($filter == 'special') {
-                        $filter = self::MAILBOX_SPECIAL;
-                    } else {
-                        if ($filter == 'disabled') {
-                            $filter = self::MAILBOX_DISABLED;
-                        } else {
-                            if ($filter == 'enabled') {
-                                $filter = self::MAILBOX_ENABLED;
-                            }
-                        }
-                    }
-                }
+            } else if ($filter == 'local') {
+                $filter = self::MAILBOX_USER;
+            } else if ($filter == 'special') {
+                $filter = self::MAILBOX_SPECIAL;
+            } else if ($filter == 'disabled') {
+                $filter = self::MAILBOX_DISABLED;
+            } else if ($filter == 'enabled') {
+                $filter = self::MAILBOX_ENABLED;
             }
 
             if ($filter && !in_array($filter, array(
@@ -149,29 +120,20 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
             if ($filter == self::MAILBOX_FORWARD) {
                 $filter_clause = 'type = \'' . self::MAILBOX_FORWARD . '\'';
-            } else {
-                if ($filter == self::MAILBOX_USER) {
-                    $filter_clause = 'type = \'' . self::MAILBOX_USER . '\'';
-                } else {
-                    if ($filter == self::MAILBOX_SPECIAL) {
+            } else if ($filter == self::MAILBOX_USER) {
+                $filter_clause = 'type = \'' . self::MAILBOX_USER . '\'';
+            } else if ($filter == self::MAILBOX_SPECIAL) {
 
-                    } else {
-                        if ($filter == self::MAILBOX_SINGLE) {
-                            $filter_clause = 'email_lookup."user" ' . (strstr($address,
-                                    '%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
-                        } else {
-                            if ($filter == self::MAILBOX_ENABLED) {
-                                $filter_clause = 'enabled = 1::bit';
-                            } else {
-                                if ($filter == self::MAILBOX_DISABLED) {
-                                    $filter_clause = 'enabled = 0::bit';
-                                }
-                            }
-                        }
-                    }
-                }
+            } else if ($filter == self::MAILBOX_SINGLE) {
+                $filter_clause = 'email_lookup."user" ' . (strstr($address,
+                    '%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
+            } else if ($filter == self::MAILBOX_ENABLED) {
+                $filter_clause = 'enabled = 1::bit';
+            } else if ($filter == self::MAILBOX_DISABLED) {
+                $filter_clause = 'enabled = 0::bit';
             }
-            if (!is_null($address)) {
+
+            if (null !== $address) {
                 $filter_clause .= ' AND email_lookup.user = \'' . pg_escape_string(strtolower($address)) . '\'';
             }
             if ($domain) {
@@ -225,6 +187,25 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             return $this->pgsql->affected_rows() > 0;
         }
 
+	    /**
+	     * Verify service is enabled
+	     * @param null|string $which
+	     * @return bool
+	     */
+        public function enabled(string $which = null): bool {
+        	// @TODO rename sendmail to smtp service
+        	if ($which === 'smtp') {
+        		$which = 'sendmail';
+	        }
+        	if ($which && $which !== 'sendmail' && $which !== 'imap') {
+        		return error("unknown service `%s'", $which);
+	        }
+        	if ($which) {
+        		return (bool)$this->get_service_value($which, 'enabled');
+	        }
+        	return $this->enabled('sendmail') && $this->enabled('imap');
+        }
+
         /**
          * @deprecated @link modify_mailbox
          */
@@ -238,21 +219,21 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
          *
          * IMPORTANT: a mailbox may not be remapped into a catchall here
          *
-         * @param        $olduser
-         * @param        $olddomain
+         * @param string $olduser
+         * @param string $olddomain
          * @param string $newuser
          * @param string $newdomain
          * @param string $newdestination
-         * @param null   $newtype
+         * @param string|null $newtype
          * @return bool|void
          */
         public function modify_mailbox(
-            $olduser,
-            $olddomain,
-            $newuser = '',
-            $newdomain = '',
-            $newdestination = '',
-            $newtype = null
+            string $olduser,
+	        string $olddomain,
+	        string $newuser = '',
+	        string $newdomain = '',
+	        string $newdestination = '',
+	        string $newtype = null
         ) {
             $args = array(
                 'olduser',
@@ -269,10 +250,14 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 $newdomain = $olddomain;
             }
 
+	        if ($olduser === "majordomo" && $this->majordomo_list_mailing_lists()) {
+		        return error("cannot remove majordomo email address while mailing lists exist");
+	        }
+
             if (($olduser . '@' . $olddomain != $newuser . '@' . $newdomain) && $this->address_exists($newuser,
                     $newdomain)
             ) {
-                return error("E-mail address %s@%s already exists. Can't rename!",
+                return error("Email address %s@%s already exists. Can't rename!",
                     $newuser, $newdomain);
             }
 
@@ -288,8 +273,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                     if (!$local_user) {
                         return error("Invalid mailbox destination, invalid uid `%d'", $uid);
                     }
-                } else {
-                    if ($newdestination) {
+                } else if ($newdestination) {
                         if (preg_match('!^/home/([^/]+)/' . self::MAILDIR_HOME . '([/.]*)$!', $newdestination,
                             $match)) {
                             $local_user = $match[1];
@@ -298,10 +282,9 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                             $local_user = $newdestination;
                             $newdestination = null;
                         }
-                    } else {
-                        // user rename
-                        $local_user = $newuser;
-                    }
+                } else {
+                    // user rename
+                    $local_user = $newuser;
                 }
 
                 $local_user = strtolower($local_user);
@@ -418,6 +401,12 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                     }
                 }
             }
+	        /**
+	         * otherwise we can clog up an mqueue pretty fast
+	         */
+            if ($user === "majordomo" && $this->majordomo_list_mailing_lists()) {
+            	return error("cannot remove majordomo email address while mailing lists exist");
+			}
 
             $clause = '';
             if ($type) {
@@ -482,10 +471,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             }
             unset($contents[$key]);
             file_put_contents($subscriptions, join("\n", $contents) . "\n");
-            chown($subscriptions, $this->user_id);
-            chgrp($subscriptions, $this->group_id);
-            chmod($subscriptions, 0600);
-            return true;
+            return \Opcenter\Filesystem::chogp($subscriptions, $this->user_id, $this->group_id, 0600);
 
         }
 
@@ -600,7 +586,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
         {
 
             if (!array_key_exists($username, $this->user_get_users())) {
-                return new ArgumentError("Invalid user " . $username);
+                return error("Invalid user `%s'", $username);
             }
             return $this->query(
                 'email_get_spool_size_backend',
@@ -609,6 +595,12 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
         }
 
+	    /**
+	     * Get mail folder size
+	     *
+	     * @param string $path
+	     * @return bool|int
+	     */
         public function get_spool_size_backend($path)
         {
             if (!file_exists($path)) {
@@ -628,10 +620,14 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 	     * @return bool
 	     */
         public function set_vacation_options(array $options): bool {
-			if (!$this->transform_vacation_flags($options)) {
-				return false;
+			$driver = \Opcenter\Mail\Vacation::get();
+			foreach ($driver->getDefaults() as $k => $v) {
+				if (isset($options[$k]) && !$driver->setOption($k, $options[$k])) {
+					unset($options[$k]);
+				}
 			}
 			\Preferences::set(self::VACATION_PREFKEY, $options);
+	        \Preferences::write();
 			return true;
         }
 
@@ -640,25 +636,11 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 	     * @return array
 	     */
         public function get_vacation_options(): array {
-			return \Preferences::get(self::VACATION_PREFKEY, []);
+			$prefs = \Preferences::get(self::VACATION_PREFKEY, []);
+			$mb = \Opcenter\Mail\Vacation::get();
+			$defaults = $mb->getDefaults();
+			return array_merge($defaults, array_intersect_key($prefs, $defaults));
         }
-
-	    protected function transform_vacation_flags(array $flags): string
-	    {
-		    /**
-		     * use {val} to substitute
-		     */
-		    $flagmap = self::VACATION_OPTIONS;
-		    $flagtxt = [];
-		    foreach ($flags as $k => $v) {
-			    if (!isset($flagmap[$k])) {
-				    return error("unknown auto-responder flag `%s'", $k);
-			    }
-			    $flagtxt[] = str_replace("{val}", escapeshellarg($v), $flagmap[$k]);
-		    }
-
-		    return join(' ', $flagtxt);
-	    }
 
         public function get_vacation_message($user = null)
         {
@@ -671,27 +653,40 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
             if (null === $user) {
                 $user = $this->username;
+            } else if (!$this->user_exists($user)) {
+            	return error("unknown user `%s'", $user);
             }
+            $svc = \Opcenter\Mail\Vacation::getActiveService();
+            $class = 'Vacation\\Providers\\' . $svc . '\\Options\\Message';
+            $fqns = \Opcenter\Mail\Vacation::appendNamespace($class);
+			return (new $fqns)->getFromUser($user);
+        }
 
-            if (!file_exists($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg')) {
-                return false;
-            }
-
-            return file_get_contents($this->domain_fs_path() . '/home/' . $user . '/.vacation.msg');
+	    /**
+	     * Wrapper to set_vacation
+	     *
+	     * @deprecated
+	     * @param            $response
+	     * @param null       $user
+	     * @param array|null $flags
+	     * @return bool|mixed|void
+	     */
+        public function add_vacation($response, $user = null, array $flags = null) {
+        	deprecated_func('use set_vacation()');
+            return $this->enable_vacation($response, $user, $flags);
         }
 
 	    /**
 	     * Enable vacation auto-responder
 	     *
-	     * @param string $response plain-text or HTML responder
 	     * @param null|string $user
 	     * @param array|null $flags optional flags
 	     * @return bool|mixed|void
 	     */
-        public function add_vacation($response, $user = null, array $flags = null)
+        public function enable_vacation($user = null, array $flags = null)
         {
             if (!IS_CLI) {
-                return $this->query('email_add_vacation', $response, $user, $flags);
+                return $this->query('email_enable_vacation', $user, $flags);
             }
             if (null !== $user && !($this->permission_level & PRIVILEGE_SITE)) {
                 return error("Non-privileged user may not setup vacation responder for other users");
@@ -699,38 +694,17 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 
             if (null === $user) {
                 $user = $this->username;
+            } else if (!$this->user_exists($user)) {
+            	return error("user `%s' does not exist", $user);
+            } else if ($user && $flags) {
+	            return error("changing flags of secondary users not implemented");
             }
 
-            $pwd = $this->user_getpwnam($user);
-            if (!$pwd) {
-                return error("invalid user `%s'", $user);
+            $driver = \Opcenter\Mail\Vacation::get($user);
+            if ($flags) {
+            	$this->set_vacation_options($flags);
             }
-
-            $home = $this->domain_fs_path() . $pwd['home'];
-            $mailfilter = $home . '/.mailfilter';
-            $recipe = '';
-            if (file_exists($mailfilter)) {
-                $recipe = trim(file_get_contents($mailfilter));
-            }
-            if (!preg_match('!' . self::VACATION_RE . '!m', $recipe)) {
-                file_put_contents($mailfilter, $recipe . "\n" . 'include "$HOME/.vacationrc"' . "\n");
-            }
-
-            //if (!file_exists($home.'/.vacationrc'))
-            $recipe = self::VACATION_RECIPE;
-            $flags = $this->transform_vacation_flags($flags);
-            if (false === $flags) {
-            	return false;
-            }
-			$recipe = str_replace('%FLAGS%', $flags, $recipe);
-            file_put_contents($home . '/.vacationrc', $recipe);
-
-            file_put_contents($home . '/.vacation.msg', $response);
-            \Opcenter\Filesystem::chogp($home . '/.vacation.msg',
-	            (int)$pwd['uid'], (int)$pwd['gid'], 0600);
-	        \Opcenter\Filesystem::chogp($home . '/.vacationrc',
-		        (int)$pwd['uid'], (int)$pwd['gid'], 0600);
-            return true;
+            return $driver->enable();
         }
 
         public function vacation_exists($user = null)
@@ -739,19 +713,16 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
         		return $this->query('email_vacation_exists', $user);
 	        }
 
-            if (null !== $user && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
+            if (null !== $user && (($this->permission_level & PRIVILEGE_SITE) !== PRIVILEGE_SITE)) {
                 return error("Unable to check vacation for non-admin account");
             } else if (null === $user) {
                 $user = $this->username;
             }
 
-            if (!$this->user_getpwnam($user)) {
+            if (!$this->user_exists($user)) {
                 return error("Invalid user `%s'", $user);
             }
-
-            return file_exists($this->domain_fs_path() . '/home/' . $user . '/.mailfilter') &&
-                preg_match('!' . self::VACATION_RE . '!m',
-                    file_get_contents($this->domain_fs_path() . '/home/' . $user . '/.mailfilter'));
+            return \Opcenter\Mail\Vacation::get($user)->enabled();
         }
 
 	    /**
@@ -763,33 +734,8 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
 	     */
         public function change_vacation_message($response, $user = null, array $flags = [])
         {
-        	if (!IS_CLI) {
-        		return $this->query('email_change_vacation_message', $response, $user, $flags);
-	        }
-            if (null !== $user && (($this->privilege_level & PRIVILEGE_SITE) != PRIVILEGE_SITE)) {
-                return error("Unable to check vacation for non-admin account");
-            }
-            if (null === $user) {
-                $user = $this->username;
-            }
-
-            if (!$this->user_getpwnam($user)) {
-                return error("Invalid user " . $user);
-            }
-
-            $pwd = $this->user_getpwnam($user);
-            if (!$pwd) {
-                return error("Invalid user, " . $user);
-            }
-            
-	        $flags = $this->transform_vacation_flags($flags);
-	        if (false === $flags) {
-		        return false;
-	        }
-			$file = $this->domain_fs_path() . '/home/' . $user . '/.vacation.msg';
-            file_put_contents($file, $response);
-	        \Opcenter\Filesystem::chogp($file, (int)$pwd['uid'], (int)$pwd['gid'], 0600);
-            return true;
+        	deprecated_func('use set_vacation');
+        	return $this->enable_vacation($response, $user, $flags);
         }
 
         /**
@@ -803,7 +749,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 return $this->query('email_remove_vacation', $user);
             }
 
-            if ($user && ($this->privilege_level & PRIVILEGE_SITE == 0)) {
+            if ($user && ($this->permission_level & PRIVILEGE_SITE) !== PRIVILEGE_SITE) {
                 return error("Unable to check vacation for non-admin account");
             }
             if (!$user) {
@@ -814,21 +760,8 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 return error($user . ": invalid user");
             }
 
-            if (!file_exists($this->domain_fs_path() . '/home/' . $user . '/.mailfilter')) {
-                return false;
-            }
-
-            file_put_contents($this->domain_fs_path() . '/home/' . $user . '/.mailfilter',
-                preg_replace('!' . self::VACATION_RE . "\r?\n?!m", "",
-                    file_get_contents($this->domain_fs_path() . '/home/' . $user . '/.mailfilter')));
-            $files = array('.vacation.db', '.vacation.db.gdbm', '.vacation.db.lock');
-            foreach ($files as $f) {
-                $file = $this->domain_fs_path() . '/home/' . $user . '/' . $f;
-                if (file_exists($file)) {
-                    unlink($file);
-                }
-            }
-            return true;
+			$driver = \Opcenter\Mail\Vacation::get($user);
+            return $driver->disable();
         }
 
         public function clone_domain_mailboxes($source, $destination)
@@ -853,14 +786,12 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                         $destination,
                         $this->user_get_uid_from_username($username),
                         $subfolder);
-                } else {
-                    if ($mailbox['type'] == self::MAILBOX_FORWARD) {
-                        $this->add_alias($mailbox['user'],
+                } else if ($mailbox['type'] == self::MAILBOX_FORWARD) {
+                    $this->add_alias($mailbox['user'],
+                        $destination,
+                        str_replace($source,
                             $destination,
-                            str_replace($source,
-                                $destination,
-                                $mailbox['destination']));
-                    }
+                            $mailbox['destination']));
                 }
 
                 if (!$mailbox['enabled']) {
@@ -1276,10 +1207,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                 if (file_exists($f)) {
                     continue;
                 }
-                mkdir($f);
-                chmod($f, 0700);
-                chown($f, $pwd['uid']);
-                chgrp($f, $pwd['gid']);
+                \Opcenter\Filesystem::mkdir($f, $pwd['uid'], $pwd['gid'], 0700);
             }
             $subscriptions = join(DIRECTORY_SEPARATOR, array($mailhome, 'subscriptions'));
             $sname = trim($mailbox, '.');
@@ -1293,10 +1221,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             }
             $contents[] = $sname;
             file_put_contents($subscriptions, join("\n", $contents) . "\n");
-            chown($subscriptions, $pwd['uid']);
-            chgrp($subscriptions, $pwd['gid']);
-            chmod($subscriptions, 0600);
-            return true;
+            return \Opcenter\Filesystem::chogp($subscriptions, $pwd['uid'], $pwd['gid'], 0600);
         }
 
         public function _delete()
@@ -1449,6 +1374,8 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
         {
             if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
                 return error("service " . $svc . " is unknown (imap, smtp)");
+            } else if (is_debug()) {
+            	return info("email service may not be permitted to users in demo mode");
             }
             if (!$svc) {
                 Util_Pam::add_entry($user, 'imap');
@@ -1461,7 +1388,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
             if ($this->auth_is_demo()) {
                 return error("Email disabled for demo account");
             }
-            Util_Pam::add_entry($user, $svc);
+            return Util_Pam::add_entry($user, $svc);
         }
 
         public function deny_user($user, $svc = null)
@@ -1477,8 +1404,7 @@ if (!/^X-Spam-Flag: YES/ && ($REPLYALL || /^(?:To|Cc):.*${TOADDR}/)) # Make sure
                     $svc = 'smtp_relay';
                 }
             } // Ensim bastardization
-
-            Util_Pam::remove_entry($user, $svc);
+            return Util_Pam::remove_entry($user, $svc);
         }
 
         public function list_virtual_transports()

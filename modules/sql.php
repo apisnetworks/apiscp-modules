@@ -567,7 +567,7 @@ declare(strict_types=1);
          */
         public function pgsql_database_exists($db)
         {
-	        return $this->pgsql_database_exists($db);
+	        return apnscpFunctionInterceptor::init()->call('pgsql_database_exists', [$db]);
         }
 
         /**

@@ -47,7 +47,7 @@ declare(strict_types=1);
                 'get_current_services'             => PRIVILEGE_SITE,
                 'get_new_services'                 => PRIVILEGE_SITE,
                 'get_old_services'                 => PRIVILEGE_SITE,
-                'get_user_preferences'             => PRIVILEGE_SITE,
+                'get_user_preferences'             => PRIVILEGE_SITE|PRIVILEGE_USER,
                 'set_user_preferences'             => PRIVILEGE_SITE
             );
         }
@@ -764,22 +764,30 @@ declare(strict_types=1);
             return $prefs;
         }
 
+	    /**
+	     * Get preferences for user
+	     *
+	     * @param string $user
+	     * @return array|bool
+	     */
         public function get_user_preferences($user)
         {
             if (!IS_CLI) {
                 return $this->query('common_get_user_preferences', $user);
             }
-            if ($user !== $this->username && !$this->user_exists($user)) {
+            if ($user !== $this->username) {
+            	if ($this->permission_level & PRIVILEGE_USER) {
+            		return error("cannot load preferences for any user except self");
+	            }
+            } else if (!$this->user_exists($user)) {
                 return error("cannot get preferences - user `%s' does not exist", $user);
             }
             $path = '';
             if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
                 $path = $this->domain_info_path() . '/users/' . $user;
-            } else {
-                if ($this->permission_level & PRIVILEGE_ADMIN) {
-                    $path = implode(DIRECTORY_SEPARATOR,
-                        [\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
-                }
+            } else if ($this->permission_level & PRIVILEGE_ADMIN) {
+                $path = implode(DIRECTORY_SEPARATOR,
+                    [\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
             }
             if (!file_exists($path)) {
                 return array();
@@ -791,6 +799,10 @@ declare(strict_types=1);
         {
             if (!IS_CLI) {
                 return $this->query('common_get_global_preferences');
+            }
+            if ($this->permission_level & ~(PRIVILEGE_SITE|PRIVILEGE_USER)) {
+            	// admin global preferences make no sense
+            	return [];
             }
             $path = $this->domain_info_path() . '/users/' . self::GLOBAL_PREFERENCES_NAME;
             if (!file_exists($path)) {
@@ -919,8 +931,8 @@ declare(strict_types=1);
         private function _collect_services($mType)
         {
             $svc = array();
-            $prefix = $this->domain_info_path();
             if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
+                $prefix = $this->domain_info_path();
                 $dir = opendir($this->domain_info_path() . "/current");
                 while (false !== ($cfg = readdir($dir))) {
                     if ($cfg == "." || $cfg == "..") {

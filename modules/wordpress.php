@@ -59,7 +59,7 @@
         }
 
         /**
-         * Install WordPress into a pre-existing location
+         * Install WordPress
          *
          * @param string $hostname domain or subdomain to install WordPress
          * @param string $path     optional path under hostname
@@ -101,7 +101,7 @@
             }
 
             $args = array('mode' => 'download');
-            if (!is_null($version)) {
+            if (null !== $version) {
                 if (strcspn($version, ".0123456789")) {
                     return error("invalid version number, %s", $version);
                 }
@@ -192,6 +192,7 @@
             $params = array(
                 'version'    => $version,
                 'hostname'   => $hostname,
+                'path'       => $path,
                 'autoupdate' => (bool)$opts['autoupdate'],
                 'fortify'    => 'max',
                 'options'    => $opts
@@ -372,18 +373,16 @@
          */
         public function is_current($version = null)
         {
-            $latest = $this->_getLastestVersion();;
+            $latest = $this->_getLastestVersion();
             if (!$version) {
                 return $version;
             }
             if (version_compare($version, $latest, '=')) {
                 return 1;
+            } else  if (version_compare($version, $latest, '<')) {
+                return 0;
             } else {
-                if (version_compare($version, $latest, '<')) {
-                    return 0;
-                } else {
-                    return -1;
-                }
+                return -1;
             }
         }
 

@@ -206,24 +206,33 @@ declare(strict_types=1);
 		    }
 		    if ($quota != floatval($quota) || $quota < 0) {
 			    return error("disk quota `%s' outside of range (min: 0, max: %d) %s", $quota, $quotamax, $units);
-		    } else {
-			    if ($quota > $quotamax) {
-				    warn("quota %.1f exceeds limit %.1f: defaulting to %.1f",
-					    $quota, $quotamax, $quotamax);
-				    $quota = $quotamax;
-			    }
+		    } else if ($quota > $quotamax) {
+			    warn("quota %.1f exceeds limit %.1f: defaulting to %.1f",
+				    $quota, $quotamax, $quotamax);
+			    $quota = $quotamax;
 		    }
 		    $users = $this->get_users();
 		    if (isset($users[$user])) {
 			    return error("username " . $user . " exists");
 		    }
 
-		    $smtp_enable = isset($options['smtp']) && $options['smtp'] != 0;
-		    $imap_enable = isset($options['imap']) && $options['imap'] != 0;
+		    $smtp_enable = $this->email_enabled('smtp') && isset($options['smtp']) && $options['smtp'] != 0;
+		    $imap_enable = $this->email_enabled('imap') && isset($options['imap']) && $options['imap'] != 0;
 		    $ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
-		    $cp_enable = !isset($options['cp']) || $options['cp'] != 0;
-		    $dav_enable = !isset($options['dav']) || $options['dav'] != 0;
+		    $cp_enable = isset($options['cp']) || $options['cp'] != 0;
+		    $dav_enable = isset($options['dav']) || $options['dav'] != 0;
 		    $ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
+
+		    if ($this->auth_is_demo()) {
+		    	$blacklist = ['imap', 'smtp', 'dav', 'ssh', 'ftp'];
+		    	foreach ($blacklist as $svc) {
+		    		$var = $svc . '_enable';
+		    		if ($$var) {
+		    			warn('%s access disabled in demo mode', strtoupper($svc));
+						$$var = false;
+				    }
+			    }
+		    }
 
 		    if (!$ftp_enable) {
 			    warn("FTP service not enabled.  User will not be permitted FTP access");
@@ -551,7 +560,7 @@ declare(strict_types=1);
             }
 			// before changing user, if user change, grab
 	        $newuser = array_get($attributes, 'username');
-            $oldpwd = $this->get_home($user);
+            $oldpwd = $this->getpwnam($user);
             $resp = \Opcenter\Role\User::bindTo($this->domain_fs_path())->change($user, $attributes);
 
 	        // user changed

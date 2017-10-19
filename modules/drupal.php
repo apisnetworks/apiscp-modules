@@ -264,6 +264,7 @@ declare(strict_types=1);
             $params = array(
                 'version'    => $opts['version'],
                 'hostname'   => $hostname,
+                'path'       => $path,
                 'autoupdate' => (bool)$opts['autoupdate'],
                 'fortify'    => 'max',
                 'options'    => $opts

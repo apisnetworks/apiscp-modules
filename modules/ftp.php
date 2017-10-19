@@ -109,7 +109,7 @@ declare(strict_types=1);
             }
             $new = true;
             for ($buffer = array(); !feof($fp);) {
-                $line = trim(fgets($fp));
+                $line = trim((string)fgets($fp));
                 if (!$line) {
                     continue;
                 }

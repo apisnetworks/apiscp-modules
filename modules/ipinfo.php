@@ -153,7 +153,7 @@ declare(strict_types=1);
 				//$this->add_zone($domainnew, $ip);
 				// domain name changed
 				if (!$conf_new['namebased']) {
-					$this->__changePTR($ip, $domainnew, $domainold);
+					//$this->__changePTR($ip, $domainnew, $domainold);
 				}
 			}
 
@@ -199,7 +199,8 @@ declare(strict_types=1);
 			// there will always be a 1:1 pairing for IP addresses
 			foreach ($ipadd as $newip) {
 				$oldip = array_pop($ipdel);
-				$newparams = array('ttl' => static::DNS_TTL, 'parameter' => $newip);
+				$class = apnscpFunctionInterceptor::autoload_class_from_module('dns');
+				$newparams = array('ttl' => $class::DNS_TTL, 'parameter' => $newip);
 				foreach ($domains as $domain) {
 					$records = $this->get_records_by_rr('A', $domain);
 					foreach ($records as $r) {

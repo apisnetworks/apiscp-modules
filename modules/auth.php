@@ -816,7 +816,7 @@ declare(strict_types=1);
 			return \Opcenter\Auth\Shadow::hash_supported((string)$version);
         }
 
-        private function _change_cpassword_raw($cpassword, $user = null, $domain = null)
+        private function _change_cpassword_raw(string $cpassword, string $user = null, string $domain = null)
         {
 			if (null === $user) {
 				$user = $this->username;

@@ -296,13 +296,8 @@ declare(strict_types=1);
                 $cmd->edit();
             }
 
-            $proc = new Util_Process_Batch();
-            if (!$proc->idPending("SSL_HTTP_RELOAD")) {
-                // ensure 1 instance is pending
-                info("reloading web server in 2 minutes, stay tuned!");
-                $proc->setID("SSL_HTTP_RELOAD");
-                $proc->run(Web_Module::HTTP_RELOAD_CMD, array('mute_stdout' => true));
-            }
+            \Opcenter\Http\Apache::reload();
+            info("reloading web server in 2 minutes, stay tuned!");
 
             return true;
         }

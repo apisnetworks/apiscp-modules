@@ -350,7 +350,7 @@ declare(strict_types=1);
          * @param string $token confirmation token
          * @return bool
          */
-        public function wipe($token = null)
+        public function wipe($token = '')
         {
             $token = strtolower($token);
             $calctoken = $this->_calculateToken($this->site);
@@ -412,7 +412,7 @@ declare(strict_types=1);
         {
 
             $inode = fileinode($this->domain_info_path());
-            $hash = hash('crc32', $inode);
+            $hash = hash('crc32', (string)$inode);
             return $hash;
         }
 

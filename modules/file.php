@@ -381,14 +381,14 @@ declare(strict_types=1);
                 $root = $this->domain_fs_path();
             }
 
-            if (is_link($root . $newpath)) {
+            if (\Util_PHP::is_link($root . $newpath)) {
                 $link = $root . $newpath;
                 if (file_exists($link) && substr((string)readlink($link), 0, 1) == '/') {
                     $newpath = realpath($link);
                 } else {
                     $po = $newpath;
-                    $link = ($tmp = realpath($link)) ? $tmp : $link;
-                    $newpath = substr($link, strlen($root));
+                    $tmp = (string)realpath($link);
+                    $newpath = substr($tmp, strlen($root));
                     if (!$newpath) {
                         $newpath = $po;
                     }
@@ -510,10 +510,14 @@ declare(strict_types=1);
                 }
                 $portable_link = true;
                 $path = $pathbase . '/' . $dirent;
-                $islink = is_link($prefix . $vpathbase . '/' . $dirent);
+	            /**
+	             * PHP 7.x ZTS regression, . will always refer to the current
+	             * directory and a link cannot be a directory, thus
+	             * \Util_PHP::is_link("/home/symlink/.") should be false as in non-ZTS builds
+	             */
+                $islink = $dirent !== '.' && \Util_PHP::is_link($prefix . $vpathbase . '/' . $dirent);
                 $vfile = $vpathbase . '/' . $dirent;
                 $enthash = md5($dirent);
-
                 if ($islink === false) {
                     $stat_details = stat($path);
                 } else {
@@ -524,7 +528,8 @@ declare(strict_types=1);
                         $vreferent = null;
                         $portable_link = 0;
                     } else {
-                        $portable_link = substr(readlink($prefix . $vpathbase . '/' . $dirent), 0, 1) != '/';
+                    	$link = readlink($prefix . $vpathbase . '/' . $dirent);
+                        $portable_link = substr($link, 0, 1) != '/';
                     }
                     $link_type = $referent && is_dir($referent) ? 2 : 1;
                     $stat_details = lstat($path);
@@ -1213,7 +1218,7 @@ declare(strict_types=1);
                 $dest_path = $this->make_path($dest);
             }
 
-            if (is_link($dest_path)) {
+            if (\Util_PHP::is_link($dest_path)) {
                 $dest_path = readlink($dest_path);
             }
             $dest_parent = $dest_path;
@@ -1473,7 +1478,7 @@ declare(strict_types=1);
                 if (!$exdir) {
                     continue;
                 } else {
-                    if (is_link($exdir)) {
+                    if (\Util_PHP::is_link($exdir)) {
                         // prevent glob("foo" -> ../../tmp);
                         $globmatch = array($exdir);
                     } else {
@@ -1496,7 +1501,7 @@ declare(strict_types=1);
                         $chkpath = $shadow . $file;
                     }
 
-                    $is_link = is_link($chkpath);
+                    $is_link = \Util_PHP::is_link($chkpath);
                     // file outside truncate path or chkpath does not exist/is not link
                     if (!$file || (!file_exists($chkpath) && !$is_link)) {
                         $ok = 1;
@@ -1779,6 +1784,7 @@ declare(strict_types=1);
             } else if (!is_float($mMode)) {
                 $mMode = (float)octdec($mMode);
             }
+            $mMode = (int)$mMode;
             /* 4095 dec -> 7777 oct
 			 * 0140000 -> socket
 			 * 0147777 -> socket + all perms
@@ -1817,7 +1823,6 @@ declare(strict_types=1);
 
                     if ($stat['file_type'] == '\dir') {
                         $this->chmod_backend($file, $mMode, $mRecursive);
-
                     } else {
                         chmod($this->make_path($file), $mMode);
                     }
@@ -2528,7 +2533,7 @@ declare(strict_types=1);
                     $src_stat = array(
                         'file_type' => filetype($src_path),
                         'uid'       => fileowner($src_path),
-                        'link'      => is_link($src_path)
+                        'link'      => \Util_PHP::is_link($src_path)
                     );
                 } else {
                     $src_stat = $this->stat($file);
@@ -3170,7 +3175,7 @@ declare(strict_types=1);
         }
 
         /**
-         * Build up shadow layer components
+         * Build up shadow layer components up to the final piece
          *
          * @param string     $path file or directory to verify
          * @param string|int $user user to set on buildup (default: current user on non CLI)
@@ -3206,7 +3211,7 @@ declare(strict_types=1);
             }
 
             if (0 === strpos($chkpath, $shadowprefix)) {
-                $chkpath = $this->domain_fs_path() .
+                $chkpath = $this->domain_shadow_path() .
 	                substr($chkpath, strlen($shadowprefix));
             }
             do {
@@ -3217,6 +3222,83 @@ declare(strict_types=1);
 
             // and drop OverlayFS cache
             return $this->purge();
+        }
+
+	    /**
+	     * Reset ownership of files in a path
+	     *
+	     * @see takeover_user() to change ownership without altering permissions
+	     *
+	     * @param string $path
+	     * @param null|string $user set to null to bypass user reset
+	     * @param int $fileperm file permission to reset
+	     * @param int $dirperm directory permission to reset
+	     * @return bool
+	     */
+        public function reset_path(string $path, ?string $user = '', $fileperm = 0644, $dirperm = 0755): bool
+        {
+	        if (!IS_CLI) {
+	        	return $this->query('file_reset_path', $path, $user, $fileperm, $dirperm);
+	        }
+
+	        $usercmd = null;
+	        if ($user) {
+		        $uid = (int)$user;
+		        if ($uid !== $user) {
+			        $uid = $this->user_get_uid_from_username($user);
+		        }
+		        $acceptableUids = [
+			        $this->user_get_uid_from_username(\Web_Module::WEB_USERNAME),
+		        ];
+		        if ($this->tomcat_permitted()) {
+			        $acceptableUids[] = $this->user_get_uid_from_username($this->tomcat_system_user());
+		        }
+
+		        if ($uid < \User_Module::MIN_UID && !in_array($uid, $acceptableUids)) {
+			        return error("user `%s' is unknown or a system user", $user);
+		        }
+		        $usercmd = '-exec chown ' . intval($uid) . ' "{}" \+';
+	        }
+
+	        $shadowpath = $this->make_shadow_path($path);
+	        if (!file_exists($shadowpath)) {
+		        return error("path `%s' does not exist", $path);
+	        }
+
+	        $stat = $this->stat_backend($path);
+	        if (!$stat['can_write']) {
+	        	return error("cannot reset path `%s' without write permissions", $path);
+	        } else if ($stat['uid'] < \User_Module::MIN_UID && !in_array($stat['uid'], $acceptableUids)) {
+		        return error("unable to takeover, base path `%s' must be within acceptable UID range", $path);
+	        } else if ($fileperm[0] !== '0' && strlen((string)$fileperm) > 3) {
+	        	return error("special perms may not be set for files");
+	        } else if ($dirperm[0] !== '0' && strlen((string)$dirperm) > 3) {
+	        	return error("special perms may not be set for directories");
+	        } else if (strlen((string)$fileperm) !== strspn((string)$fileperm, "01234567")) {
+	        	return error("file permission must be octal");
+	        } else if (strlen((string)$dirperm) !== strspn((string)$dirperm, "01234567")) {
+	        	return error("directory permission must be octal");
+	        }
+
+	        $args = [
+		        'path'   => $shadowpath,
+		        'gid'    => $this->group_id,
+		        'fperm'  => $fileperm,
+		        'dperm'  =>  $dirperm,
+	        ];
+	        $ret = \Util_Process_Safe::exec(
+		        'find -P %(path)s -xdev -gid %(gid)d ' . $usercmd . ' \( -type f -exec chmod %(fperm)s "{}" \+ \) ' .
+		        '-o \( -type d -exec chmod %(dperm)s "{}" \+ \) -printf "%%P\n"',
+		        $args
+	        );
+	        if (!$ret['success']) {
+		        return error("failed to reset path, err: %s", $ret['stderr']);
+	        }
+	        $files = explode("\n", rtrim($ret['stdout']));
+	        if (!$files) {
+		        warn("no files changed");
+	        }
+	        return $ret['success'];
         }
 
 	    /**
@@ -3254,8 +3336,11 @@ declare(strict_types=1);
 		        return error("user `%s' is unknown or a system user", $newuser);
 	        }
 			$shadowpath = $this->make_shadow_path($path);
+        	$stat = $this->stat_backend($path);
         	if (!file_exists($shadowpath)) {
         		return error("path `%s' does not exist", $path);
+	        } else if ($stat['uid'] < \User_Module::MIN_UID && !in_array($stat['uid'], $acceptableUids)) {
+        		return error("unable to takeover, base path `%s' must be within acceptable UID range", $path);
 	        }
 	        $args = [
 	        	'path' => $shadowpath,

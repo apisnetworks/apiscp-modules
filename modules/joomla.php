@@ -30,7 +30,7 @@ declare(strict_types=1);
         // after installation apply the following fortification profile
         const DEFAULT_FORTIFY_MODE = 'max';
 
-        const JOOMLA_CLI_VERSION = '1.4.6';
+        const JOOMLA_CLI_VERSION = '1.4.11';
         const JOOMLA_MODULE_XML = 'http://update.joomla.org/core/extensions/%extension%.xml';
 
         const JOOMLA_MIRROR = 'http://mirror.apisnetworks.com/joomla';
@@ -111,6 +111,7 @@ declare(strict_types=1);
                 warn("must squash privileges as secondary user");
                 $squash = true;
             }
+            $this->_exec(null, 'versions --refresh');
             $opts['squash'] = $squash;
             $fqdn = $this->web_normalize_hostname($hostname);
             $args = array(
@@ -123,11 +124,10 @@ declare(strict_types=1);
             if ($this->ssl_permitted() && $this->ssl_cert_exists()) {
                 // @todo enable SSL
             }
-            if (!is_null($version)) {
+            if ($version) {
                 if (strcspn($version, ".0123456789")) {
                     return error("invalid version number, %s", $version);
                 }
-
             } else {
                 $version = $this->_getLatestVersion();
             }
@@ -232,6 +232,7 @@ declare(strict_types=1);
             $params = array(
                 'version'    => $version,
                 'hostname'   => $hostname,
+                'path'       => $path,
                 'autoupdate' => (bool)$opts['autoupdate'],
                 'fortify'    => $fortifymode,
                 'options'    => $opts
@@ -891,7 +892,7 @@ declare(strict_types=1);
         {
             $domainfsprefix = $this->domain_fs_path();
             $file = tempnam($domainfsprefix . '/' . sys_get_temp_dir(), 'joomla');
-            chmod($file, 644);
+            chmod($file, 0644);
             $tz = 'UTC';
             //var_dump(date_default_timezone_get());
             $fullpath = $this->domain_fs_path() . $docroot;
@@ -905,7 +906,9 @@ declare(strict_types=1);
                 'tmp_path' => $fullpath . '/tmp',
                 'log_path' => $fullpath . '/logs',
                 /** @todo maybe authenticated SMTP? */
-                'sendmail' => '/usr/sbin/sendmail'
+                'sendmail' => '/usr/sbin/sendmail',
+	            'mailer'   => 'mail',
+	            'smtpport' => 587
             );
             // pure PHP code
             file_put_contents($file, serialize($opts));

@@ -62,9 +62,6 @@ declare(strict_types=1);
          */
         public function install($hostname, $path = '', array $opts = array())
         {
-            if (version_compare(platform_version(), '4.5', '<=')) {
-                return error("platform is too old");
-            }
             $docroot = $this->_normalizePath($hostname, $path);
             if (!$docroot) {
                 return error("failed to install Magento");
@@ -77,10 +74,9 @@ declare(strict_types=1);
                 return error("account requires SSL to manage a store - add on service by opening a ticket");
             }
 
+            $version = null;
             if (isset($opts['version'])) {
                 $version = $opts['version'];
-            } else {
-                $version = null;
             }
 
             if (!isset($opts['autoupdate'])) {
@@ -95,8 +91,8 @@ declare(strict_types=1);
 
             $args = array();
             // cap to 1.x branch
-            $vercap = $args['version'][0] === 2 && $this->sql_mysql_version() < 50600;
-            if (!is_null($version)) {
+            $vercap = !empty($args['version']) && $args['version'][0] === 2 && $this->mysql_version() < 50600;
+            if (null !== $version) {
                 if (!$this->_versionValid($version)) {
                     return error("unknown Magento version `%s'", $version);
                 }
@@ -110,7 +106,7 @@ declare(strict_types=1);
             }
 
             $args['vername'] = 'apnscp-mirror-' . $args['version'];
-            if ($args['version'][0] > 1 && !$this->get_key()) {
+            if (version_compare($args['version'], '2.0', '>=') && !$this->get_key()) {
                 return error("Magento Connect key must be setup first, do so via Account > Settings");
             }
 
@@ -137,7 +133,7 @@ declare(strict_types=1);
                 return false;
             }
             $dbpass = $this->_suggestPassword();
-            if (!parent::setupDatabase(['db' => $db, 'username' => $dbuser, 'password' => $dbpass])) {
+            if (!parent::setupDatabase(['db' => $db, 'user' => $dbuser, 'password' => $dbpass])) {
                 return false;
             }
 
@@ -147,7 +143,7 @@ declare(strict_types=1);
             $args['dbhost'] = 'localhost';
             $args['docroot'] = $docroot;
             $magerunver = 1;
-            if (version_compare(platform_version(), '6', '>=') && $args['version'][0] == 2) {
+            if (version_compare($args['version'], '2.0', '>=')) {
                 $magerunver = 2;
             }
 
@@ -177,7 +173,7 @@ declare(strict_types=1);
                         $args['version']
                     );
                 }
-                return error("failed to install magento: %s", $ret['stderr']);
+                return error("failed to install magento: %s", coalesce($ret['stderr'], $ret['stdout']));
             }
             $this->file_chmod($docroot . '/app/etc/local.xml', 644);
             /** post install fixup */
@@ -235,6 +231,7 @@ declare(strict_types=1);
             $params = array(
                 'version'    => $version,
                 'hostname'   => $hostname,
+                'path'       => $path,
                 'autoupdate' => (bool)$opts['autoupdate'],
                 'fortify'    => 'min'
             );
@@ -244,10 +241,10 @@ declare(strict_types=1);
             $this->_fixConnectConfig($docroot);
             $url = 'http://' . $fqdn . '/' . $path;
             if ($this->_checkSSL($fqdn)) {
-                $url = 'https://' . $fqdn . '/' . $path;
+                $url = 'https://' . $fqdn . '/' . $path . '/';
                 $args = array(
                     'path' => "/web/secure/base_url",
-                    'url'  => $url
+                    'url'  => rtrim($url,'/')
                 );
                 $this->_exec($docroot, 'config:set %(path)s %(url)s', $args);
                 $this->_exec($docroot, 'cache:flush');
@@ -264,7 +261,8 @@ declare(strict_types=1);
                 ($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
             $msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
                 "control panel password!";
-            $hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
+            $hdrs = "From: " . Crm_Module::FROM_NAME . " <" .
+	            Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
             Mail::send($opts['email'], "Magento Installed", $msg, $hdrs);
             if (!$opts['squash']) {
                 parent::unsquash($docroot);
@@ -825,9 +823,9 @@ declare(strict_types=1);
 
         private function _copyMagerunConfig($version = 1)
         {
-            $f = INCLUDE_PATH . '/opt/magento' . $version . '.yaml';
+            $f = resource_path('storehouse/magento/magento' . $version . '.yaml');
             if (!file_exists($f)) {
-                return false;
+                return error("failed to locate magento download YAML");
             }
             $filename = '.n98-magerun' . ($version > 1 ? $version : '') . '.yaml';
             copy($f, $this->domain_fs_path() . '/tmp/' . $filename);
@@ -930,16 +928,15 @@ declare(strict_types=1);
                 if (!$this->letsencrypt_permitted()) {
                     return warn("no ssl found and platform too old for let's encrypt support - " .
                         "install a certificate manually (Web > SSL Certificates)");
-                } else {
-                    if ($this->letsencrypt_request(array($hostname))) {
-                        // easy, make let's encrypt
-                        return info("installed a free Let's Encrypt SSL certificate for this store front");
-                    } else {
-                        return warn("failed to create a Let's Encrypt SSL certificate. Do so manually " .
-                            "for `%s' via Web > SSL Certificates", $hostname);
-                    }
                 }
+                if (!$this->letsencrypt_request(array($hostname))) {
+	                // easy, make let's encrypt
+	                return warn("failed to create a Let's Encrypt SSL certificate. Do so manually " .
+		                "for `%s' via Web > SSL Certificates", $hostname);
+                }
+                return info("installed a free Let's Encrypt SSL certificate for this store front");
             }
+
             $certinfo = $this->ssl_get_certificates();
             if (isset($certinfo[0])) {
                 // @todo get rid of multiple certificate support?

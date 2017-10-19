@@ -406,10 +406,8 @@ declare(strict_types=1);
                 if ($this->requestReal($cns, self::SYSCERT_NAME)) {
                     $this->installSystemCertificate();
                 }
-            } else {
-                if (!is_debug()) {
-                    $this->renewExpiringCertificates();
-                }
+            } else if (!is_debug()) {
+                $this->renewExpiringCertificates();
             }
         }
 
