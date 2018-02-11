@@ -1,5 +1,5 @@
-.svn
-.idea
 *.sw?
-modules/*/*
+modules/LICENSE
+modules/README.md
 modules/test.php
+modules/*/*
