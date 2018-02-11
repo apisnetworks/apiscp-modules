@@ -200,12 +200,12 @@ declare(strict_types=1);
             		break;
 	            }
             }
-            if ($f !== false) {
-            	info("old default plan `%s' renamed to `%s'",
+	        if ($f !== false) {
+		        info("old default plan `%s' renamed to `%s'",
 		            $f, \Opcenter\Service::DEFAULT_SVC_NAME
 	            );
-            }
-            symlink(dirname($defplan) . '/.skeleton', $defplan);
+	        }
+	        symlink(dirname($defplan) . '/.skeleton', $defplan);
         }
 
         protected function _get_admin_config()
@@ -214,5 +214,25 @@ declare(strict_types=1);
                 return [];
             }
             return parse_ini_file(self::ADMIN_CONFIG_LEGACY);
+        }
+
+	    /**
+	     * Force bulk update of webapps
+	     *
+	     * @param int|string $limit optional limit or site for batching
+	     * @return bool
+	     */
+        public function update_webapps($limit = null): bool {
+	        $launcher = \Module\Support\Webapps\Updater::launch();
+	        if (ctype_digit($limit)) {
+		        $launcher->batch((int)$limit);
+	        } else if ($limit) {
+		        $launcher->limitSite($limit);
+	        }
+	        return (bool)$launcher->run();
+        }
+
+        public function locate_webapps($site = null): array {
+        	return \Module\Support\Webapps\Finder::find($site);
         }
     }

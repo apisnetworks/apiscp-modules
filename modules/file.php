@@ -114,7 +114,7 @@ declare(strict_types=1);
 
         public function __wakeup()
         {
-            $this->cached = Cache_User::spawn();
+            $this->cached = Cache_User::spawn($this->getAuthContext());
         }
 
         /**
@@ -383,7 +383,7 @@ declare(strict_types=1);
 
             if (\Util_PHP::is_link($root . $newpath)) {
                 $link = $root . $newpath;
-                if (file_exists($link) && substr((string)readlink($link), 0, 1) == '/') {
+                if (file_exists($link) && (string)readlink($link)[0] == '/') {
                     $newpath = realpath($link);
                 } else {
                     $po = $newpath;
@@ -459,6 +459,7 @@ declare(strict_types=1);
             $link_type = 0;
             $path = $shadow ? $this->make_shadow_path($file, $link) :
                 $this->make_path($file, $link);
+
             if (!$path) {
                 return error("failed to translate path `%s'", $path);
             }
@@ -480,13 +481,15 @@ declare(strict_types=1);
 
             // virtual path
             $file = rtrim($file, "/");
-            $vpathbase = dirname($file);
+            $vpathbase = rtrim(dirname($file), '/');
             $dirhash = md5($vpathbase);
             $filename = basename($file);
 
             // $file = "/"
             if (!isset($filename[0])) {
                 $filename = '.';
+            } else if ($filename[0] === '~') {
+                $filename = basename($this->user_get_home());
             }
             $filehash = md5($filename);
 
@@ -529,7 +532,7 @@ declare(strict_types=1);
                         $portable_link = 0;
                     } else {
                     	$link = readlink($prefix . $vpathbase . '/' . $dirent);
-                        $portable_link = substr($link, 0, 1) != '/';
+                        $portable_link = $link[0] != '/';
                     }
                     $link_type = $referent && is_dir($referent) ? 2 : 1;
                     $stat_details = lstat($path);
@@ -624,7 +627,7 @@ declare(strict_types=1);
             // special case root fs for accounts
 
             $cachekey = $this->_getCacheKey($file);
-            if (!$this->cached->set($cachekey, $stats, 7200)) {
+            if (!$this->cached->set($cachekey, $stats, 120)) {
                 Error_Reporter::report("FAIL ADD: $file ($cachekey) - msg " . $this->cached->getResultMessage());
             }
             //$this->cached->delete($cachekey);
@@ -685,17 +688,14 @@ declare(strict_types=1);
         {
             if (0 === strpos($file, "/proc")) {
                 return array();
-            } else {
-                if (!IS_CLI) {
-                    $ret = $this->query('file_get_acls', $file);
-                    return $ret;
-                }
+            } else if (!IS_CLI) {
+                $ret = $this->query('file_get_acls', $file);
+                return $ret;
             }
 
-            if ($this->permission_level & PRIVILEGE_SITE) {
-                $optimized = $this->_optimizedShadowAssertion;
-            } else {
-                $optimized = false;
+	        $optimized = false;
+	        if ($this->permission_level & PRIVILEGE_SITE) {
+	            $optimized = $this->_optimizedShadowAssertion;
             }
 
             if ($optimized) {
@@ -717,27 +717,25 @@ declare(strict_types=1);
             $apcu_key = "acl:" . $cache_key;
             $acl_dir = $path;
 
-            // check apc backend cache
             if (!isset(self::$acl_cache[$cache_key])) {
                 $acl_dir = dirname($path);
-                $cache = apcu_fetch($apcu_key, $success);
-                if ($success) {
-                    $cache = unserialize($cache);
-                    self::$acl_cache = array_merge(self::$acl_cache,
-                        $cache);
-                    return $cache;
+                $cache = \Cache_Account::spawn($this->getAuthContext());
+                $entry = $cache->get($apcu_key);
+                if (false !== $entry) {
+                    self::$acl_cache = array_merge_recursive(self::$acl_cache,
+	                    $entry);
+                    return $entry[basename($path)] ?? [];
 
                 }
             }
 
             // acl updates only happen through one command
             if (isset(self::$acl_cache[$cache_key])) {
-                //print "Self cache hit on $cache_key\n";
-                return self::$acl_cache[$cache_key]['aclinfo'];
+                return self::$acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
             }
 
             if (!is_readable($path)) {
-                return new FileError($file . ": unable to read");
+                return [];
             }
 
             if (!is_dir($acl_dir)) {
@@ -749,7 +747,7 @@ declare(strict_types=1);
             $path_safe = str_replace('%', '%%', $path_safe);
             // ignore non-ACL entries
             $cmd = sprintf('getfacl --skip-base --absolute-names --omit-header --numeric --tabular ' .
-                "--all-effective %s/ %s/'.[!.]*' %s/'..?*' %s/'*'",
+                "--all-effective %s/ %s/.[!.]* %s/..?* %s/*",
                 $path_safe,
                 $path_safe,
                 $path_safe,
@@ -766,19 +764,18 @@ declare(strict_types=1);
             //	warn($cmd.": no response");
             //}
 
-            $acl_cache = array();
-
-            foreach (explode("\n\n", $data['output']) as $entry) {
-                if (0 === strpos($entry, '# file:')) {
-                    continue;
+	        $acl_cache = array();
+	        foreach (explode("\n\n", $data['output']) as $entry) {
+		        if (0 !== strpos($entry, '# file:')) {
+			        continue;
+		        }
+		        $acls = array();
+		        $entpath = (string)substr($entry, 8, strpos($entry, "\n") - 8);
+	            if (strrchr($entpath, '/') == '/.' || strrchr($entpath, '/') == '/..') {
+	                continue;
                 }
 
-                $entpath = (string)substr($entry, 8, strpos($entry, "\n") - 8);
-                if (strrchr($entpath, '/') == '/.' || strrchr($entpath, '/') == '/..') {
-                    continue;
-                }
                 /** skip .. and . entries */
-                $acls = array();
                 foreach (explode("\n", $entry) as $line) {
                     if (preg_match(Regex::GETFACL_ACL, $line, $aclMatches)) {
                         $perms = 0;
@@ -799,30 +796,26 @@ declare(strict_types=1);
                         if (strtolower($aclMatches[3][2]) == 'x') {
                             $perms |= 1;
                         }
+	                    $identifier = $isChroot ? $this->lookup_chroot_pwnam($aclMatches[2]) : $aclMatches[2];
+	                    if (($type === 'egroup' || $type === 'group') && $aclMatches[2] == $this->group_id) {
+	                        $identifier = array_get(posix_getgrgid($this->group_id), 'name');
+                        }
                         $acls[] = array(
-                            $type         => ($isChroot ?
-                                $this->lookup_chroot_pwnam($aclMatches[2]) : $aclMatches[2]),
+                            $type => $identifier,
                             'permissions' => $perms
                         );
                     }
                 }
-                $aclkey = $this->site_id . "|" . substr($entpath, $prefixlen);
-                $acl_cache[$aclkey] = array(
-                    'ctime'   => filectime($entpath),
+                $aclkey = basename($entpath);
+		        $acl_cache[$cache_key][$aclkey] = array(
+                    'mtime'   => filemtime($entpath),
                     'aclinfo' => $acls
                 );
-            }
-
-            if (!isset($acl_cache[$cache_key])) {
-                $acl_cache[$cache_key] = array(
-                    'aclinfo' => array(),
-                    'ctime'   => time()
-                );
-            }
-
-            apcu_add($apcu_key, serialize($acl_cache), 1800);
-            self::$acl_cache = array_merge(self::$acl_cache, $acl_cache);
-            return self::$acl_cache[$cache_key]['aclinfo'];
+	        }
+            $cache = \Cache_Account::spawn($this->getAuthContext());
+	        $cache->set($apcu_key, $acl_cache, 60);
+	        self::$acl_cache = array_merge(self::$acl_cache, $acl_cache);
+	        return self::$acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
         }
 
 	    /**
@@ -1478,7 +1471,7 @@ declare(strict_types=1);
                 if (!$exdir) {
                     continue;
                 } else {
-                    if (\Util_PHP::is_link($exdir)) {
+                    if ($depth > 1 || \Util_PHP::is_link($exdir)) {
                         // prevent glob("foo" -> ../../tmp);
                         $globmatch = array($exdir);
                     } else {
@@ -1487,7 +1480,8 @@ declare(strict_types=1);
                 }
 
                 for ($i = 0, $n = count($globmatch); $i < $n;
-                     $i++, $ret &= $ok) {
+                     $i++, $ret &= $ok)
+                {
                     $ok = 0;
                     $rmpath = $chkpath = $globmatch[$i];
                     $file = $rmpath;
@@ -1544,7 +1538,7 @@ declare(strict_types=1);
                         $dirfiles = array();
                         while (false !== ($dirent = readdir($dh))) {
                             if ($dirent != '.' && $dirent != '..') {
-                                $dirfiles[] = $file . '/' . $this->_glob_escape($dirent);
+                                $dirfiles[] = $file . '/' . $dirent;
                             }
                         }
                         closedir($dh);
@@ -1643,28 +1637,29 @@ declare(strict_types=1);
                     $stat = $this->stat_backend($file);
                     if ($path instanceof Exception) {
                         $errors[$file] = $path->getMessage();
-                    } else {
-                        if ($stat instanceof Exception) {
-                            $errors[$file] = $stat->getMessage();
-                        } else {
-                            if (!$this->can_descend(dirname($path))) {
-                                $errors[$file] = "insufficient permissions to access";
-                            } else {
-                                if (!$stat['can_chown']) {
-                                    $errors[$file] = "Unable to change group ownership of " . $file;
-                                }
-                            }
-                        }
+                        continue;
+                    }
+                    if ($stat instanceof Exception) {
+                        $errors[$file] = $stat->getMessage();
+                        continue;
+                    }
+                    if (!$this->can_descend(dirname($path))) {
+                        $errors[$file] = "insufficient permissions to access";
+	                    continue;
+                    }
+                    if (!$stat['can_chown']) {
+                        $errors[$file] = "Unable to change group ownership of " . $file;
+                        continue;
                     }
                 }
 
-                if (is_dir($path) && $mRecursive) {
+                if ($mRecursive && is_dir($path)) {
                     // Recursive chown
-                    $files = scandir($path);
-                    // . and ..
-                    unset($files[0]);
-                    unset($files[1]);
-                    array_walk($files, function(&$a) use ($file) { $a = "$file/$a";});
+                    $files = \Opcenter\Filesystem::readdir($path, function($item) use($file) { return "$file/$item";});
+                    if ($files === false) {
+                        $errors[$file] = "failed to open directory";
+                        continue;
+                    }
                     $status = $this->chown($files, $mUser, $mRecursive);
                     if ($status instanceof Exception) {
                         $errors[$file] = $status->getMessage();
@@ -1676,6 +1671,7 @@ declare(strict_types=1);
                 }
             }
             $this->_purgeCache($mFile);
+            $this->purge();
             return (sizeof($errors) == 0 ? true : new FileError(join("\n", $errors)));
         }
 
@@ -1732,15 +1728,15 @@ declare(strict_types=1);
                     }
                 }
 
-                if (is_dir($path) && $mRecursive) {
+                if ($mRecursive && is_dir($path)) {
                     // Recursive chown
-                    $files = scandir($path);
-                    // . and ..
-                    unset($files[0]);
-                    unset($files[1]);
-	                array_walk($files, function (&$a) use ($file) {
-		                $a = "$file/$a";
+	                $files = \Opcenter\Filesystem::readdir($path, function ($item) use ($file) {
+		                return "$file/$item";
 	                });
+	                if ($files === false) {
+		                $errors[$file] = "failed to open directory";
+		                continue;
+	                }
                     $status = $this->chgrp($files, $mGroup, $mRecursive);
                     if ($status instanceof Exception) {
                         $errors[$file] = $status->getMessage();
@@ -1798,12 +1794,12 @@ declare(strict_types=1);
             if ($path instanceof Exception) {
                 return $path;
             }
-            if (is_dir($path) && $mRecursive) {
+            if ($mRecursive && is_dir($path)) {
 
-                $files = scandir($path);
-                // . and ..
-                unset($files[0]);
-                unset($files[1]);
+	            $files = \Opcenter\Filesystem::readdir($path);
+	            if ($files === false) {
+		            return false;
+	            }
 
                 foreach ($files as $file) {
                     $file = $mFile . "/" . $file;
@@ -2234,7 +2230,7 @@ declare(strict_types=1);
          * Convert end-of-line characters
          *
          * @param  string $mFile filename
-         * @param  string $mEOL  target platform
+         * @param  string $mTarget target platform
          * @return bool
          */
         public function convert_eol($mFile, $mTarget)
@@ -2299,7 +2295,7 @@ declare(strict_types=1);
             if (substr($mSrc, 0, 2) == '..') {
                 $mSrc = dirname($mDest) . '/' . $mSrc;
             }
-            if (substr($mDest, -1, 1) == '/') {
+            if ($mDest[strlen($mDest) - 1] == '/') {
                 $mDest = $mDest . basename($mSrc);
             }
 
@@ -2332,16 +2328,18 @@ declare(strict_types=1);
          */
         public static function convert_absolute_relative($pwd, $dir)
         {
-            //
+
             if (dirname($pwd) == rtrim($dir, '/')) {
                 return '../' . basename($dir);
+            } else if ($pwd === $dir) {
+                return '.';
             }
 
             $pwd = array_values(array_filter(explode("/", $pwd)));
             $dir = array_values(array_filter(explode("/", $dir)));
             // just in case PHP changes scoping rules in the future...
             $idx = 0;
-            for (; $idx < sizeof($pwd); $idx++) {
+            for ($idxMax = sizeof($pwd); $idx < $idxMax; $idx++) {
                 if (!isset($dir[$idx]) || ($dir[$idx] != $pwd[$idx])) {
                     break;
                 }
@@ -2389,14 +2387,14 @@ declare(strict_types=1);
                 if (sizeof($newfile) == 1) {
                     $newfile[$i] = $newfile[0];
                 }
-                if (substr($newfile[$i], 0, 1) != '/') {
+                if ($newfile[$i][0] != '/') {
                     $newfile[$i] = dirname($file[$i]) . '/' . $newfile[$i];
                 }
             }
 
             $changed_ctr = 0;
 
-            for ($i = 0; $i < sizeof($file); $i++) {
+            for ($i = 0, $iMax = sizeof($file); $i < $iMax; $i++) {
                 $link = '';
                 $src_path = $this->make_path($file[$i], $link);
                 $src_stat = $this->stat_backend($file[$i]);
@@ -3135,8 +3133,23 @@ declare(strict_types=1);
                     (is_null($perms) ? null : ':' . $perms)
                 );
             }
-            return $this->_acl_driver($sfiles, $flags, $map);
 
+            if (!$this->_acl_driver($sfiles, $flags, $map)) {
+                return false;
+            }
+	        /**
+	         * Flush cached ACL entries
+             * @todo unify acl cache management
+	         */
+            $cache = \Cache_Account::spawn($this->getAuthContext());
+	        foreach (array_unique(array_map('dirname', $file)) as $dir) {
+                $key = $this->site_id . '|' . $dir;
+		        if (isset(self::$acl_cache[$key])) {
+		            unset(self::$acl_cache[$key]);
+                }
+                $cache->delete('acl:' . $key);
+	        }
+	        return true;
         }
 
         private function _acl_driver(array $files, $flags, array $rights = array())
@@ -3157,7 +3170,6 @@ declare(strict_types=1);
             if (!$proc['success']) {
                 return error("setting ACLs failed: `%s'", $proc['stderr']);
             }
-
             return true;
         }
 
@@ -3184,6 +3196,10 @@ declare(strict_types=1);
          */
         public function shadow_buildup_backend($path, $user = 'root', $perm = 0755)
         {
+            if (version_compare(platform_version(), '6', '<')) {
+                // bypass on Helios (aufs)
+                return true;
+            }
             $shadowprefix = $this->domain_shadow_path();
             $prefix = $this->domain_fs_path();
             /**
@@ -3242,14 +3258,14 @@ declare(strict_types=1);
 	        }
 
 	        $usercmd = null;
+	        $acceptableUids = [
+		        $this->user_get_uid_from_username(\Web_Module::WEB_USERNAME),
+	        ];
 	        if ($user) {
 		        $uid = (int)$user;
 		        if ($uid !== $user) {
 			        $uid = $this->user_get_uid_from_username($user);
 		        }
-		        $acceptableUids = [
-			        $this->user_get_uid_from_username(\Web_Module::WEB_USERNAME),
-		        ];
 		        if ($this->tomcat_permitted()) {
 			        $acceptableUids[] = $this->user_get_uid_from_username($this->tomcat_system_user());
 		        }
@@ -3298,6 +3314,7 @@ declare(strict_types=1);
 	        if (!$files) {
 		        warn("no files changed");
 	        }
+	        $this->purge();
 	        return $ret['success'];
         }
 
@@ -3415,7 +3432,7 @@ declare(strict_types=1);
             }
 
             chdir($mLink);
-            if (!strstr(getcwd(), $this->domain_fs_path())) {
+            if (false === strpos(getcwd(), $this->domain_fs_path())) {
                 // naughty, naughty, absolute link
                 chdir($this->domain_fs_path() . getcwd());
             }

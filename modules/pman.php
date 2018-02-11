@@ -180,7 +180,7 @@ declare(strict_types=1);
          */
         public function flush()
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             return $cache->delete(self::PROC_CACHE_KEY);
         }
 
@@ -220,7 +220,7 @@ declare(strict_types=1);
          * @param array  $args    optional arguments to supply to format
          * @param array  $env     optional environment vars to set
          * @param array  $options optional options, tee: set tee output to file, user: run as user if site admin
-         * @return array
+         * @return bool|array
          */
         public function run($cmd, $args = null, $env = null, $options = array())
         {
@@ -238,7 +238,7 @@ declare(strict_types=1);
                     return error("process lingered for %d seconds, " .
                         "automatically abandoning", self::MAX_WAIT_TIME);
                 }
-                Error_Reporter::merge_buffer($buffer);
+                Error_Reporter::set_buffer(array_merge($buffer, \Error_Reporter::flush_buffer()));
                 return $resp;
             }
 
@@ -251,6 +251,8 @@ declare(strict_types=1);
             if ($env) {
                 $proc->setEnvironment($env);
             }
+            // suppress automatically generated errors
+            $proc->setOption('mute_stderr', true);
             $user = $this->username;
             if (isset($options['user'])) {
             	if (!$this->permission_level&PRIVILEGE_SITE) {
@@ -262,7 +264,7 @@ declare(strict_types=1);
             	if (!$pwd) {
             		return error("unknown user `%s'", $options['user']);
 	            }
-	            $minuid = apnscpFunctionInterceptor::autoload_class_from_module('user')::MIN_UID;
+	            $minuid = apnscpFunctionInterceptor::get_autoload_class_from_module('user')::MIN_UID;
 	            if ($pwd['uid'] < $minuid) {
             		return error("uid `%d' is less than allowable uid `%d' - system user?", $pwd['uid'], $minuid);
 	            }
@@ -312,16 +314,18 @@ declare(strict_types=1);
             return $this->schedule_api_cmd_admin($this->site, $this->username, $cmd, $args, $when);
         }
 
-        /**
-         * Background an apnscp function as any user on any domain
-         * with an optional delay
-         *
-         * @param string     $site domain or site to runas
-         * @param string     $user username to run as
-         * @param            $realcmd
-         * @param array|null $args
-         * @param string     $when
-         */
+	    /**
+	     * Background an apnscp function as any user on any domain
+	     * with an optional delay
+	     *
+	     * @param string     $site domain or site to runas
+	     * @param string     $user username to run as
+	     * @param            $cmd  api command to run
+	     * @param array|null $args api arguments
+	     * @param string     $when optional time spec
+	     * @return bool
+	     * @internal param $realcmd
+	     */
         public function schedule_api_cmd_admin($site, $user = null, $cmd, $args = array(), $when = 'now')
         {
             if (!IS_CLI) {
@@ -354,10 +358,9 @@ declare(strict_types=1);
             for ($i = 0, $n = sizeof($cmd); $i < $n; $i++) {
                 $tmp = $cmd[$i];
                 $cmdcom = $tmp[0];
-                if (isset($tmp[1])) {
-                    $argcom = $tmp[1];
-                } else {
-                    $argcom = array();
+	            $argcom = array();
+	            if (isset($tmp[1])) {
+	                $argcom = $tmp[1];
                 }
                 $safeargs = array();
                 foreach ($argcom as $a) {
@@ -394,7 +397,7 @@ declare(strict_types=1);
          */
         private function _processAccumulator()
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $all = $cache->get(self::PROC_CACHE_KEY);
             if ($all !== false) {
                 return $all;

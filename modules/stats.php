@@ -73,7 +73,7 @@ declare(strict_types=1);
                             $ar_buf[0] = $result[1];
                             $mount = $ar_buf[5];
                             if ($mount == "/dev/shm" || $ar_buf[0] == "" ||
-                                !isset($fsoptions[$mount]) || strstr($fsoptions[$mount], "bind")
+                                !isset($fsoptions[$mount]) || false !== strpos($fsoptions[$mount], "bind")
                             ) {
                                 continue;
                             }
@@ -104,15 +104,15 @@ declare(strict_types=1);
             $fp = fopen('/tmp/sa-stats', 'r');
             while (false !== ($line = fgets($fp))) {
                 $buffer = '  ';
-                if (strstr($line, 'Period Beginning')) {
+                if (false !== strpos($line, 'Period Beginning')) {
                     $data = explode(':', $line);
                     $sastats['begin_date'] = trim(join(array_slice($data, 1), ':'));
                 } else {
-                    if (strstr($line, 'Period Ending')) {
+                    if (false !== strpos($line, 'Period Ending')) {
                         $data = explode(':', $line);
                         $sastats['end_date'] = trim(join(array_slice($data, 1), ':'));
                     } else {
-                        if (strstr($line, 'Reporting Period')) {
+                        if (false !== strpos($line, 'Reporting Period')) {
                             /** Get the whole section of reporting period... */
                             $line = fgets($fp);
                             fgets($fp); // remove --------- line
@@ -124,7 +124,7 @@ declare(strict_types=1);
                             }
                             $sastats['reporting_information'] = trim($buffer);
                         } else {
-                            if (strstr($line, 'Statistics by Hour')) {
+                            if (false !== strpos($line, 'Statistics by Hour')) {
                                 $line = fgets($fp); // remove --------- line
                                 while (false !== ($line = fgets($fp))) {
 
@@ -135,13 +135,13 @@ declare(strict_types=1);
                                 }
                                 $sastats['stats_by_hour'] = trim($buffer);
                             } else {
-                                if (strstr($line, 'Done. Report generated')) {
+                                if (false !== strpos($line, 'Done. Report generated')) {
                                     while (false !== ($line = fgets($fp))) {
                                         /**
                                          * nasty hack, we shouldn't assume TOP [SPAM, HAM]
                                          * RULES FIRED is coming next
                                          */
-                                        if (strstr($line, 'TOP')) {
+                                        if (false !== strpos($line, 'TOP')) {
                                             $bufftmp = $buffer;
                                             $buffer = $line;
                                             while (false !== ($line = fgets($fp))) {
@@ -155,7 +155,7 @@ declare(strict_types=1);
                                     }
                                     $sastats['reporting_information'] .= "\n\n" . trim($buffer);
                                 } else {
-                                    if (strstr($line, "TOP")) {
+                                    if (false !== strpos($line, "TOP")) {
 
                                     }
                                 }

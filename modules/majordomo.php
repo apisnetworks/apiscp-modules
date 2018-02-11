@@ -171,7 +171,7 @@ declare(strict_types=1);
                 // delete in case it was replicated by an alias addition
                 $this->email_remove_alias('majordomo', $domain);
                 $this->email_add_alias('majordomo', $domain, 'majordomo+' . $domain);
-                $proc = new Util_Account_Editor();
+                $proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
                 // let this run independently
                 $proc->setConfig('majordomo', 'enabled', 1);
                 $proc->edit();
@@ -304,7 +304,7 @@ declare(strict_types=1);
             $dh = dir($this->domain_fs_path() . '/var/lib/majordomo/lists/');
             while (false !== ($entry = $dh->read())) {
                 /* should check .config/.info/.intro/.auto */
-                if (strstr($entry, '.')) {
+                if (false !== strpos($entry, '.')) {
                     continue;
                 }
                 $entries[] = $entry;

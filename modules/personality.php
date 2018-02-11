@@ -190,14 +190,21 @@ declare(strict_types=1);
         /**
          * Write changes to control file
          *
-         * @param $host
+         * @param array|string $host hostname or host + path
          * @param $data
          * @param $hash validation hash @see hash()
          * @return bool
          */
         public function commit($host, $hash, $data)
         {
-            $docroot = $this->web_get_docroot($host);
+        	$path = '';
+        	if (is_array($host)) {
+        		if (count($host) != 2) {
+        			return error("host parameter expects at most 2 elements: host and path");
+		        }
+        		[$host, $path] = $host;
+	        }
+            $docroot = rtrim($this->web_get_docroot($host) . '/' . $path, '/');
             if (!$docroot) {
                 return error("unknown host `%s'", $host);
             }
@@ -281,7 +288,7 @@ declare(strict_types=1);
                     $obj = $this->_getParser($spl)->parse();
                 }
             }
-            return md5($obj);
+            return md5(is_object($obj) ? spl_object_hash($obj) : $obj);
 
         }
 
@@ -302,7 +309,7 @@ declare(strict_types=1);
 
         private function _getCache(SplFileObject $file, $which = 'entry')
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $key = self::CACHE_KEY_PREFIX . $file->getInode();
             if (false !== ($res = $cache->get($key))) {
                 if ($res['time'] == $file->getMTime()) {
@@ -330,7 +337,7 @@ declare(strict_types=1);
          */
         private function _setCache(SplFileObject $file, \Tivie\HtaccessParser\Parser $parser)
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $ts = $file->getMtime();
             $key = self::CACHE_KEY_PREFIX . $file->getInode();
             $parsed = $parser->parse($file);

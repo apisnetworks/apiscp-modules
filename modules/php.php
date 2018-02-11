@@ -303,7 +303,7 @@ declare(strict_types=1);
                                 // Special case if Version field is null
                                 $version = null;
                                 $line = strtok("\n");
-                                if (!strstr($line, "SERVER CAPABILITIES")) {
+                                if (false === strpos($line, "SERVER CAPABILITIES")) {
                                     $version = trim($line);
                                 }
                                 $info['version'] = $version;
@@ -335,9 +335,7 @@ declare(strict_types=1);
             if ($ver) {
                 return $ver;
             }
-            $cmd = Util_Process::exec('/usr/bin/php -v 2> /dev/null');
-            preg_match('/^PHP ([0-9]+\.[0-9]+\.[0-9]+)/m', $cmd['output'], $match);
-            $ver = $match[1];
+            $ver = \Opcenter\Php::version();
             apcu_add($key, $ver, 86400);
             return $ver;
         }

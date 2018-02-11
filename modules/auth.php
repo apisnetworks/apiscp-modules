@@ -98,7 +98,7 @@ declare(strict_types=1);
 
         public function password_permitted($password, $user = null)
         {
-            return \Opcenter\Auth\Shadow::strong($password, $user);
+            return \Opcenter\Auth\Password::strong($password, $user);
         }
 
         /**
@@ -128,7 +128,7 @@ declare(strict_types=1);
                         // admin password changed
                         parent::sendNotice(
                             'password',
-                            $this->get_config('siteinfo', 'email'),
+                            \Preferences::get('email', $this->get_config('siteinfo', 'email')),
                             Auth::client_ip()
                         );
                     }
@@ -193,13 +193,22 @@ declare(strict_types=1);
          * instead return the 512-bit key gumped into one big string.  At this time
          * you are limited to just 10 keys.
          *
+         * @param string $comment optional comment
+         * @param string $user optional user for site admin
+         *
          * @return string 256-bit SOAP key
          */
-        public function create_api_key($comment = null)
+        public function create_api_key($comment = '', $user = null)
         {
             for ($i = 0, $rand = ""; $i < 16; $i++) {
                 $rand .= mt_rand(0, 256);
             }
+            if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
+            	$user = $this->username;
+            } else if (!$this->user_exists($user)) {
+	            return error("cannot set comment for key, user `%s' does not exist", $user);
+            }
+
             if (strlen($comment) > 255) {
                 warn("api key comment truncated beyond 255 characters");
             }
@@ -218,7 +227,7 @@ declare(strict_types=1);
 				FROM `api_keys` " .
                 $qfrag['join'] .
                 "WHERE
-				`username` = '" . $this->username . "'
+				`username` = '" . $user . "'
 				AND " . $qfrag['where'] . " GROUP BY (api_key)");
 
             if ($rs->num_rows > self::API_KEY_LIMIT) {
@@ -243,7 +252,7 @@ declare(strict_types=1);
                 return error("unable to add key");
             }
             if ($comment) {
-                $this->set_api_key_comment($key, $comment);
+                $this->set_api_key_comment($key, $comment, $user);
             }
             return $key;
         }
@@ -253,9 +262,10 @@ declare(strict_types=1);
          *
          * @param string $key
          * @param string $comment
+         * @param string $user optional username for site admin
          * @return bool
          */
-        public function set_api_key_comment($key, $comment = null)
+        public function set_api_key_comment($key, $comment = null, $user = null)
         {
             $key = str_replace('-', '', strtolower($key));
             if (!ctype_xdigit($key)) {
@@ -266,13 +276,18 @@ declare(strict_types=1);
             if (strlen($comment) > 255) {
                 warn("comment truncated to max length 255 characters");
             }
+            if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
+            	$user = $this->username;
+            } else if (!$this->user_exists($user)) {
+            	return error("cannot set comment for key, user `%s' does not exist", $user);
+            }
             $db = Auth_SOAP::get_api_db();
             $qfrag = $this->_getAPIQueryFragment();
             $rs = $db->query("UPDATE `api_keys` " . $qfrag['join'] .
                 "SET comment = '" . $db->escape_string($comment) . "'
 				WHERE `api_key` = '" . strtolower($key) . "'
 				AND " . $qfrag['where'] . "
-				AND `username` = '" . $this->username . "';");
+				AND `username` = '" . $user . "';");
             return $rs && $db->affected_rows > 0;
         }
         /* }}} */
@@ -314,6 +329,7 @@ declare(strict_types=1);
             if (!$data) {
                 return false;
             }
+
             if (!isset($data[1])) {
                 $str = $this->domain_fs_path() . '/etc/shadow' . "\r\n" .
                     $this->username . "\r\n";
@@ -448,44 +464,39 @@ declare(strict_types=1);
             }
 
             $domain = strtolower($domain);
-            if (substr($domain, 0, 4) == "www.") {
+            if (0 === strpos($domain, "www.")) {
                 $domain = substr($domain, 4);
             }
-            if ($domain == $this->domain) {
-                return error("new domain is equivalent to old domain");
-            } else {
-                if (!preg_match(Regex::DOMAIN, $domain)) {
-                    return error("`%s': invalid domain", $domain);
-                } else {
-                    if (!is_debug() && $this->dns_domain_hosted($domain, true)) {
-                        // permit user to rehost a previously hosted domain if it is on the same account
-                        return error("`%s': cannot add domain - hosted on another " .
-                            "account elsewhere", $domain);
-                    } else {
-                        if ($this->aliases_shared_domain_exists($domain)) {
-                            return error("`%s': domain already hosted on account - " .
-                                "remove before adding", $domain);
-                        } else {
-                            if ($this->web_subdomain_exists($domain)) {
-                                return error("cannot promote subdomain `%s' to domain", $domain);
-                            } else {
-                                if (!$this->aliases_bypass_exists($domain) &&
-                                    $this->dns_gethostbyname_t($domain) != $this->common_get_ip_address() &&
-                                    $this->dns_get_records_external('', 'any', $domain) &&
-                                    !$this->dns_domain_uses_nameservers($domain) // whois check in the future
-                                ) {
-                                    $currentns = join(",", $this->dns_get_authns_from_host($domain));
-                                    $hostingns = join(",", $this->dns_get_hosting_nameservers());
-                                    return error("domain uses third-party nameservers - %s, change nameservers to %s before promoting " .
-                                        "this domain to primary domain status", $currentns, $hostingns);
-                                }
-                            }
-                        }
-                    }
-                }
+            if ($domain === $this->domain) {
+	            return error("new domain is equivalent to old domain");
             }
+            if (!preg_match(Regex::DOMAIN, $domain)) {
+	            return error("`%s': invalid domain", $domain);
+            }
+            if (!is_debug() && $this->dns_domain_hosted($domain, true)) {
+	            // permit user to rehost a previously hosted domain if it is on the same account
+	            return error("`%s': cannot add domain - hosted on another " .
+		            "account elsewhere", $domain);
+            }
+            if ($this->aliases_shared_domain_exists($domain)) {
+	            return error("`%s': domain already hosted on account - " .
+		            "remove before adding", $domain);
+            }
+            if ($this->web_subdomain_exists($domain)) {
+	            return error("cannot promote subdomain `%s' to domain", $domain);
+            }
+            if (!$this->aliases_bypass_exists($domain) &&
+                $this->dns_gethostbyname_t($domain) != $this->common_get_ip_address() &&
+                $this->dns_get_records_external('', 'any', $domain) &&
+                !$this->dns_domain_uses_nameservers($domain) // whois check in the future
+            ) {
+	            $currentns = join(",", $this->dns_get_authns_from_host($domain));
+	            $hostingns = join(",", $this->dns_get_hosting_nameservers());
+	            return error("domain uses third-party nameservers - %s, change nameservers to %s before promoting " .
+	                "this domain to primary domain status", $currentns, $hostingns);
+	        }
             // alternatively use $this->set_config_journal() and require a sync
-            $proc = new Util_Account_Editor();
+            $proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
             $proc->setConfig('siteinfo', 'domain', $domain)->
             setConfig('proftpd', 'ftpserver', 'ftp' . $domain)->
             setConfig('apache', 'webserver', 'www.' . $domain)->
@@ -529,7 +540,7 @@ declare(strict_types=1);
             } else if ($this->user_exists($user)) {
                 return error("requested username `%s' already exists on this account", $user);
             }
-            $proc = new Util_Account_Editor();
+            $proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
             $proc->setConfig('siteinfo', 'admin_user', $user)
                 ->setConfig('mysql', 'dbaseadmin', $user);
             $ret = $proc->edit();
@@ -562,7 +573,7 @@ declare(strict_types=1);
                 return error("invalid time limit `%s'", $limit);
             }
 
-            if (substr($site, 0, 4) != "site") {
+            if (substr($site, 0, 4) !== "site") {
                 $tmp = Auth::get_site_id_from_domain($site);
                 if (!$tmp) {
                     return error("domain `%s' not found on server", $site);
@@ -585,7 +596,8 @@ declare(strict_types=1);
                 'passwd' => $crypted,
                 'user'   => $user
             );
-            $editor = new Util_Account_Editor($site);
+            $accountMeta = \Auth_Info_User::initializeUser($user, \Auth::get_domain_from_site_id($site_id))->getAccount();
+            $editor = new Util_Account_Editor($accountMeta);
             $ret = $editor->setMode('edit')->setConfig('siteinfo', self::PWOVERRIDE_KEY, true)
                 ->setConfig('siteinfo', 'cpasswd', $crypted)->edit();
             //if (!$ret) {
@@ -614,7 +626,7 @@ declare(strict_types=1);
             $key = 'RESET-' . $site_id;
             if (!$proc->idPending($key)) {
                 $proc->setID($key);
-                $editor = new Util_Account_Editor($site);
+                $editor = new Util_Account_Editor($accountMeta);
                 $editor->setMode('edit')->setConfig('siteinfo', 'cpasswd', $oldcrypted)->
                 setConfig('siteinfo', self::PWOVERRIDE_KEY, false);
                 // runs as root, which leaves $site null, populate
@@ -743,7 +755,7 @@ declare(strict_types=1);
             return $this->_edit_wrapper($userold, $usernew);
         }
 
-        public function _reset(Util_Account_Editor &$editor = null)
+        public function _reset(\Util_Account_Editor &$editor = null)
         {
             $module = 'siteinfo';
             $crypted = $this->_get_site_admin_shadow($this->site_id);
@@ -898,13 +910,7 @@ declare(strict_types=1);
 
         private function _generate_password()
         {
-            $chars = "abcdefABCDEF123456789";
-            $password = '';
-            for ($i = 0, $char_len = strlen($chars) - 1; $i < 8; $i++) {
-                $r = mt_rand(0, $char_len);
-                $password .= $chars[$r];
-            }
-            return $password;
+            return \Opcenter\Auth\Password::generate();
         }
 
         /**
@@ -913,11 +919,11 @@ declare(strict_types=1);
          * A nasty kludge
          *
          * @todo remove once user role switching is implemented
-         * @param int $site
+         * @param int $site_id
          */
         private function _get_site_admin_shadow($site_id)
         {
-            $site = 'site' . intval($site_id);
+            $site = 'site' . (int)$site_id;
             $base = '/home/virtual/' . $site . '/fst';
             $file = '/etc/shadow';
             $admin = Auth::get_admin_from_site_id($site_id);
@@ -943,8 +949,14 @@ declare(strict_types=1);
 
 	    public function _delete()
 	    {
-		    foreach ($this->get_api_keys() as $key) {
-			    $this->delete_api_key($key['key']);
+		    /*
+			 * @todo check if account listed elsewhere, don't delete keys if
+		     */
+		    $server = \Auth_Redirect::lookup($this->domain);
+		    if (!$server || $server === SERVER_NAME_SHORT) {
+			    foreach ($this->get_api_keys() as $key) {
+				    $this->delete_api_key($key['key']);
+			    }
 		    }
 	    }
 
@@ -1044,7 +1056,7 @@ declare(strict_types=1);
 		        }
 
 		        if (empty($ctx['cpasswd'])) {
-			        if (!\Opcenter\Auth\Shadow::strong($ctx['passwd'])) {
+			        if (!\Opcenter\Auth\Password::strong($ctx['passwd'])) {
 				        return error("password does not meet strength criteria");
 			        }
 			        $ctx['cpasswd'] = \Opcenter\Auth\Shadow::crypt($ctx['passwd']);

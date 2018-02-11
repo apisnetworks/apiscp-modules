@@ -26,6 +26,11 @@ class Telemetry_Module extends Module_Skeleton {
     }
 
     public function _cron() {
-
+	    /**
+	     * Prevent losing configuration settings in allkeys-lru purge
+	     */
+	    $cache = \Cache_Global::spawn();
+	    $cache->get(CONFIGURATION_KEY);
+	    \Lararia\JobDaemon::snapshot();
     }
 }

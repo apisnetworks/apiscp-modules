@@ -20,6 +20,7 @@ declare(strict_types=1);
     class Crontab_Module extends Module_Skeleton
     {
         const CRON_SPOOL = '/var/spool/cron';
+        const CRON_PID = '/var/run/crond.pid';
 
         /**
          * {{{ void __construct(void)
@@ -139,12 +140,12 @@ declare(strict_types=1);
             if (!$this->get_service_value("ssh", "enabled")) {
                 return false;
             }
-            $pid = $this->domain_fs_path() . '/var/run/crond.pid';
-            if (!file_exists($pid)) {
+            $pidfile = $this->domain_fs_path() . self::CRON_PID;
+            if (!file_exists($pidfile)) {
                 return false;
             }
-            $proc = '/proc/' . trim(file_get_contents($pid)) . '/cmdline';
-            return file_exists($proc) && basename(trim(file_get_contents($proc))) === 'crond';
+            $pid = (int)file_get_contents($pidfile);
+            return \Opcenter\Process::pidMatches($pid, 'crond');
         }
 
         public function user_permitted($user = null)
@@ -690,29 +691,25 @@ declare(strict_types=1);
                     return error("%s: invalid args passed to %s", $status, __FUNCTION__);
                 }
             }
-            $pid_file = $this->domain_fs_path() . '/var/run/crond.pid';
+            $pid_file = $this->domain_fs_path() . self::CRON_PID;
             $kill_cmd = '/bin/kill -%s `cat ' . $pid_file . '`';
             switch ($status) {
                 case 1:
                     if (!file_exists($this->domain_fs_path() . '/usr/sbin/crond')) {
-                        Util_Process::exec('/root/replicatedomain.sh vixie-cron ' . $this->domain);
+                        return error("crond missing from filesystem template");
                     }
-                    if (platform_version() < 5) {
-                        $cmd = '/sbin/initlog -q -c \'nice -20 /usr/sbin/crond\'';
-                    } else {
-                        $cmd = '/bin/sh -c \'nice -20 /usr/sbin/crond\'';
-                    }
+                    $cmd = '/bin/sh -c \'nice -20 /usr/sbin/crond\'';
                     $status = Util_Process::exec('/usr/sbin/chroot %s %s',
                         $this->domain_fs_path(),
                         $cmd,
                         array(
-                            'mute_stderr' => true
+                            'mute_stderr' => false
                         )
                     );
                     return $status['success'];
                 case 0:
                     if (!file_exists($pid_file)) {
-                        return error("/var/run/crond.pid: file not found");
+                        return error("%s: file not found", self::CRON_PID);
                     }
                     $status = Util_Process::exec($kill_cmd,
                         9);
@@ -723,7 +720,7 @@ declare(strict_types=1);
                     return $status['success'];
                 case -1:
                     if (!file_exists($pid_file)) {
-                        return error("/var/run/crond.pid: file not found");
+                        return error("%s: file not found", self::CRON_PID);
                     }
                     $status = Util_Process::exec($kill_cmd, 'HUP');
                     return $status['success'];

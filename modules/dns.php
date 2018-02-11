@@ -108,7 +108,9 @@ declare(strict_types=1);
                 'get_server_from_domain' => PRIVILEGE_ADMIN,
                 'release_ip'             => PRIVILEGE_ADMIN,
                 'ip_allocated'           => PRIVILEGE_ADMIN,
-                'add_zone'               => PRIVILEGE_ADMIN
+                'add_zone'               => PRIVILEGE_ADMIN,
+	            'gethostbyaddr_t'        => PRIVILEGE_ALL,
+                'gethostbyname_t'        => PRIVILEGE_ALL,
             );
         }
 
@@ -263,7 +265,7 @@ declare(strict_types=1);
          */
         protected function owned_zone($zone)
         {
-            if (is_debug() || (Auth::profile()->level & PRIVILEGE_ADMIN)) {
+            if (is_debug() || ($this->getAuthContext()->level & PRIVILEGE_ADMIN)) {
                 return true;
             }
             $aliases = $this->aliases_list_aliases();
@@ -282,7 +284,7 @@ declare(strict_types=1);
             $zoneData = array();
             $offset = strlen($domain) + 1; // domain.com.
             foreach (explode("\n", $data) as $line) {
-                if (strstr($line, 'Transfer failed.')) {
+                if (false !== strpos($line, 'Transfer failed.')) {
                     return null;
                 }
                 if (!preg_match(Regex::DNS_AXFR_REC, $line, $match)) {
@@ -1426,7 +1428,7 @@ declare(strict_types=1);
             $regex = Regex::compile(Regex::DNS_AXFR_REC_DOMAIN, str_replace(".", "\\.", $domain));
             foreach (explode("\n", $output) as $line) {
 
-                if (strlen($line) < 1 || $line[0] == ';') {
+                if ('' === $line || $line[0] == ';') {
                     continue;
                 }
                 if (!preg_match($regex, $line, $rec)) {

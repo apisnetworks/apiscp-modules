@@ -48,6 +48,7 @@ declare(strict_types=1);
 				'get_password'      => PRIVILEGE_ALL,
 				'set_password'      => PRIVILEGE_ALL,
 				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_prefix'        => PRIVILEGE_SITE | PRIVILEGE_USER,
 
 				// necessary for DB backup routines
 				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
@@ -360,9 +361,11 @@ declare(strict_types=1);
 		 */
 		public function database_exists($db)
 		{
-			$prefix = $this->get_prefix();
-			if (0 !== strpos($db, $prefix)) {
-				$db = $prefix . $db;
+			if (!$this->permission_level & PRIVILEGE_ADMIN) {
+				$prefix = $this->get_prefix();
+				if (0 !== strpos($db, $prefix)) {
+					$db = $prefix . $db;
+				}
 			}
 			$pgdb = $this->pgsql;
 			$q = $pgdb->query_params("SELECT 1 FROM pg_database WHERE datname = $1", array($pgdb->escape_string($db)));
@@ -917,7 +920,7 @@ declare(strict_types=1);
 				$path,
 				$db);
 			if ($user != self::MASTER_USER) {
-				$this->_delete_temp_user('pgsql', $user);
+				$this->_delete_temp_user($user);
 			}
 			if (!is_null($fsizelimit)) {
 				Util_Ulimit::set('fsize', $fsizelimit);

@@ -63,7 +63,10 @@ declare(strict_types=1);
                 /** Vacation methods */
                 'add_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'set_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
+                'set_vacation_options'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+                'get_vacation_options'            => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'vacation_exists'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
+                'enable_vacation'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'remove_vacation'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'get_vacation_message'            => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'change_vacation_message'         => PRIVILEGE_SITE | PRIVILEGE_USER,
@@ -125,8 +128,7 @@ declare(strict_types=1);
             } else if ($filter == self::MAILBOX_SPECIAL) {
 
             } else if ($filter == self::MAILBOX_SINGLE) {
-                $filter_clause = 'email_lookup."user" ' . (strstr($address,
-                    '%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
+                $filter_clause = 'email_lookup."user" ' . (false !== strpos($address, '%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
             } else if ($filter == self::MAILBOX_ENABLED) {
                 $filter_clause = 'enabled = 1::bit';
             } else if ($filter == self::MAILBOX_DISABLED) {
@@ -871,11 +873,17 @@ declare(strict_types=1);
             if (!$keepdns) {
                 $split = $this->web_split_host($domain);
                 $mailsub = rtrim('mail.' . $split['subdomain'], '.');
-                if ($this->dns_record_exists($split['domain'], $mailsub, 'A')) {
-                    $this->dns_remove_record($split['domain'], $mailsub, 'A');
-                }
-                if ($this->dns_record_exists($split['domain'], $split['subdomain'], 'MX')) {
-                    $this->dns_remove_record($split['domain'], $split['subdomain'], 'MX');
+                $records = [
+                	[$mailsub, 'A'],
+	                [$split['subdomain'], 'MX'],
+	                ['_autodiscover._tcp', 'SRV'],
+	                ['autoconfig', 'CNAME'],
+	                ['autodiscover', 'CNAME']
+                ];
+                foreach ($records as $r) {
+                	if ($this->dns_record_exists($split['domain'], $r[0], $r[1])) {
+                		$this->dns_remove_record($split['domain'], $r[0], $r[1]);
+	                }
                 }
             }
             return $ok;
@@ -924,8 +932,11 @@ declare(strict_types=1);
              */
             if ($this->dns_record_exists($domain, $mymailrec, 'A')) {
                 $srvrec = $this->dns_get_records($mymailrec, 'A', $domain);
-                // should only be 1 record...
-                $srvrec = array_pop($srvrec);
+	            if (count($srvrec) === 0) {
+		            $srvrec = $this->dns_get_records('*', 'A', $domain);
+	            }
+	            // should only be 1 record...
+	            $srvrec = array_pop($srvrec);
                 if ($srvrec['parameter'] != $myip) {
                     $hostname = join(".", array($mymailrec, $domain));
                     warn("A record for %s points to %s, not overwriting! Email will not " .
@@ -949,7 +960,7 @@ declare(strict_types=1);
             $rec = $this->dns_get_records($subdomain, 'MX', $domain);
             // just examine the first record...
             $rec = array_pop($rec);
-            list($priority, $host) = preg_split("/\s+/", $rec['parameter']);
+            list($priority, $host) = preg_split("/\s+/", (string)$rec['parameter']);
             $mxip = $this->dns_gethostbyname_t($host);
             if ($mxip != $myip) {
                 $hostname = ltrim($subdomain . '.' . $domain, ".");
@@ -1070,7 +1081,7 @@ declare(strict_types=1);
             $fspath = $paths[$app];
             $this->web_add_subdomain_raw($subdomain, $fspath);
             $locations[$app] = $subdomain;
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $cache->set('em.webmail', $locations);
 
             $file = $this->_customWebmailFile();
@@ -1087,7 +1098,7 @@ declare(strict_types=1);
         public function webmail_apps()
         {
             if (!IS_CLI) {
-                $cache = Cache_Account::spawn();
+                $cache = Cache_Account::spawn($this->getAuthContext());
                 if (false !== ($webmail = $cache->get('em.webmail'))) {
                     return $webmail;
                 }
@@ -1100,7 +1111,7 @@ declare(strict_types=1);
 
         public function get_webmail_location($app)
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             if (false !== ($webmail = $cache->get('em.webmail'))) {
                 return $webmail[$app];
             }
@@ -1582,11 +1593,24 @@ declare(strict_types=1);
 
         public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
         {
-	        if (!preg_match(Regex::DOMAIN, $ctx['mailserver'])) {
-	        	$ctx['mailserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
+	        if (!$ctx['enabled']) {
+		        return true;
 	        }
+
+	        $defaultws = $ctx->getDefaultServiceValue('mail', 'mailserver');
+	        if ($ctx['mailserver'] === $defaultws) {
+		        $ctx['mailserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
+	        }
+	        if (!preg_match(Regex::DOMAIN, $ctx['mailserver'])) {
+		        fatal("verify conf failed: domain `%s' is not valid", $ctx['webserver']);
+	        }
+
 	        if (!is_int($ctx['preference'])) {
 	        	return error("MX priority must be numeric, `%s' given", $ctx['preference']);
+	        }
+
+	        if (!in_array($ctx['provider'], Opcenter\Mail::providers())) {
+	        	return error("Unknown mail provider `%s'", $ctx['provider']);
 	        }
 	        return true;
         }

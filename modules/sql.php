@@ -56,6 +56,7 @@ declare(strict_types=1);
             parent::__construct();
             $this->exportedFunctions = array(
                 '*'                             => PRIVILEGE_SITE,
+                'get_prefix'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
                 'pgsql_version'                 => PRIVILEGE_ALL,
                 'mysql_version'                 => PRIVILEGE_ALL,
                 'version'                       => PRIVILEGE_ALL,
@@ -83,7 +84,7 @@ declare(strict_types=1);
 
         public function mysql_user_exists($user, $host = 'localhost')
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_user_exists', [$user, $host]);
+            return parent::__call('mysql_user_exists', [$user, $host]);
         }
 
         public function get_prefix()
@@ -107,7 +108,7 @@ declare(strict_types=1);
         public function pgsql_user_exists($user)
         {
         	// tricky
-            return apnscpFunctionInterceptor::init()->call('pgsql_user_exists', [$user]);
+            return parent::__call('pgsql_user_exists', [$user]);
         }
 
         // {{{ connect_mysql_root()
@@ -241,7 +242,7 @@ declare(strict_types=1);
             if (array_key_exists($normalizedPrefix, $map)) {
                 return error("prefix `%s' already in use", $prefix);
             }
-            $editor = new \Util_Account_Editor();
+            $editor = new \Util_Account_Editor($this->getAuthContext()->getAccount());
             $editor->setConfig('mysql', 'dbaseprefix', $normalizedPrefix);
             $status = $editor->edit();
             if (!$status) {
@@ -305,7 +306,7 @@ declare(strict_types=1);
 
         public function mysql_charset_valid($charset)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_charset_valid', [$charset]);
+            return parent::__call('mysql_charset_valid', [$charset]);
         }
 
         public function get_supported_mysql_charsets()
@@ -321,7 +322,7 @@ declare(strict_types=1);
          */
         public function mysql_collation_valid($collation)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_collation_valid', [$collation]);
+            return parent::__call('mysql_collation_valid', [$collation]);
         }
 
         public function get_supported_mysql_collations()
@@ -339,7 +340,7 @@ declare(strict_types=1);
          */
         public function mysql_collation_compatible($collation, $charset)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_collation_compatible', [$collation, $charset]);
+            return parent::__call('mysql_collation_compatible', [$collation, $charset]);
         }
 
         /**
@@ -350,7 +351,7 @@ declare(strict_types=1);
          */
         public function mysql_database_exists($db)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_database_exists', [$db]);
+            return parent::__call('mysql_database_exists', [$db]);
         }
 
         /**
@@ -445,7 +446,7 @@ declare(strict_types=1);
          */
         public function mysql_version($pretty = false)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_version', [$pretty]);
+            return parent::__call('mysql_version', [$pretty]);
 
         }
 
@@ -567,7 +568,7 @@ declare(strict_types=1);
          */
         public function pgsql_database_exists($db)
         {
-	        return apnscpFunctionInterceptor::init()->call('pgsql_database_exists', [$db]);
+	        return parent::__call('pgsql_database_exists', [$db]);
         }
 
         /**
@@ -703,7 +704,7 @@ declare(strict_types=1);
 
         public function pgsql_version($pretty = false)
         {
-            return apnscpFunctionInterceptor::init()->call('pgsql_version', [$pretty]);
+            return parent::__call('pgsql_version', [$pretty]);
         }
 
         public function empty_pgsql_database($db)
@@ -912,7 +913,7 @@ declare(strict_types=1);
          */
         public function mysql_kill($id)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_kill', [$id]);
+            return parent::__call('mysql_kill', [$id]);
         }
 
         /**
@@ -936,7 +937,7 @@ declare(strict_types=1);
          */
         public function mysql_processlist()
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_processlist');
+            return parent::__call('mysql_processlist');
         }
 
         /**
@@ -947,7 +948,7 @@ declare(strict_types=1);
          */
         public function mysql_schema_column_maxlen($field)
         {
-            return apnscpFunctionInterceptor::init()->call('mysql_schema_column_maxlen', [$field]);
+            return parent::__call('mysql_schema_column_maxlen', [$field]);
         }
 
         public function _delete()

@@ -94,7 +94,7 @@ declare(strict_types=1);
                 $rubyver = self::RUBY_VERSION;
             }
             if (!IS_CLI) {
-                $cache = Cache_Account::spawn()->get('web:gems:i:' . $rubyver);
+                $cache = Cache_Account::spawn($this->getAuthContext())->get('web:gems:i:' . $rubyver);
                 if (!empty($cache)) {
                     return $cache;
                 }
@@ -134,7 +134,7 @@ declare(strict_types=1);
                     'versions' => $versions
                 );
             }
-            Cache_Account::spawn()->add(
+            Cache_Account::spawn($this->getAuthContext())->add(
                 'web:gems:i' . $rubyver, $gems, 3600
             );
             return $gems;

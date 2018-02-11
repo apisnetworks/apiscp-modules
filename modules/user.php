@@ -29,7 +29,7 @@ declare(strict_types=1);
          * that possess the same uid/gid as the main user
          * majordomo, ftp, and mail
          */
-        private static $uid_mappings = array();
+        protected static $uid_mappings = array();
 
         /**
          * void __construct(void)
@@ -37,7 +37,7 @@ declare(strict_types=1);
          * @ignore
          */
 
-        public function _init()
+        public function __construct()
         {
             $this->exportedFunctions = array(
                 '*'                     => PRIVILEGE_SITE,
@@ -138,7 +138,7 @@ declare(strict_types=1);
                 $user = $this->username;
             }
             $virtpwnam = $this->domain_fs_path() . '/etc/passwd';
-	        $cache = Cache_Account::spawn();
+	        $cache = Cache_Account::spawn($this->getAuthContext());
             if (!IS_CLI) {
                 $gen = $cache->get('users:pwd.gen');
                 if ($gen === filemtime($virtpwnam)) {
@@ -150,7 +150,7 @@ declare(strict_types=1);
                 return $this->query('user_getpwnam', $user);
             }
             $pwd = \Opcenter\Role\User::bindTo($this->domain_fs_path())->getpwnam(null);
-            Cache_Account::spawn()->mset(
+            Cache_Account::spawn($this->getAuthContext())->mset(
                 array(
                     'users:pwd.gen' => filemtime($virtpwnam),
                     'users:pwd'     => $pwd,
@@ -313,7 +313,7 @@ declare(strict_types=1);
         public function get_users()
         {
             if (!IS_CLI) {
-                $cache = Cache_Account::spawn();
+                $cache = Cache_Account::spawn($this->getAuthContext());
                 $gen = $cache->get('users.gen');
                 $mtime = filemtime($this->domain_fs_path() . '/etc/passwd');
                 if ($gen == $mtime) {
@@ -343,7 +343,7 @@ declare(strict_types=1);
             }
             fclose($fp);
             ksort($users);
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $cache->set('users.gen', $mtime, 43200);
             $cache->set('users', $users, 43200);
             return $users;
@@ -519,7 +519,7 @@ declare(strict_types=1);
          */
         public function flush()
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $keys = array('users:pwd.gen', 'users');
             foreach ($keys as $key) {
                 // don't worry about Redis::delete() response
@@ -595,7 +595,7 @@ declare(strict_types=1);
         public function get_quota_history($mUser, $mBegin = 0, $mEnd = null)
         {
             $key = "q." . base64_encode(pack("LLa*", $mBegin, $mEnd, $mUser));
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $data = $cache->get($key);
             if ($data) {
                 return unserialize(gzinflate($data));

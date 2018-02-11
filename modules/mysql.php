@@ -44,6 +44,7 @@ declare(strict_types=1);
 				'export_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'repair_mysql_database'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_prefix'        => PRIVILEGE_SITE | PRIVILEGE_USER,
 
 				// necessary for DB backup routines
 				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
@@ -355,7 +356,7 @@ declare(strict_types=1);
 			$status = Util_Process_Safe::exec("mysql -u %s %s < %s",
 				$user, $db, $realfile
 			);
-			$this->_delete_temp_user('mysql', $user);
+			$this->_delete_temp_user($user);
 			$this->_postImport($unlink);
 
 			return $status['success'];
@@ -434,7 +435,7 @@ declare(strict_types=1);
 			if (!$rs) {
 				return error("failed to create temp mysql user");
 			}
-			$q = "GRANT ALL ON `" . $db . "`.* to '" . $user . "'@localhost";
+			$q = "GRANT ALL ON `" . $db . "`.* to '" . $sqldb->escape_string($user) . "'@localhost";
 			$rs = $sqldb->query($q);
 			if (!$rs) {
 				return error("failed to create temp mysql user");
@@ -652,7 +653,7 @@ declare(strict_types=1);
 
 			$conn = new mysqli('localhost', self::MASTER_USER, $this->_get_elevated_password());
 			$conn->select_db("mysql");
-			$conn->query("GRANT ALL ON `" . $db . "`.* to " . $this->username . "@localhost;");
+			$conn->query("GRANT ALL ON `" . $db . "`.* to '" . $conn->escape_string($this->username) . "'@localhost;");
 			if ($conn->error) {
 				echo "DROPPING";
 				\Opcenter\Database\MySQL::dropDatabase($db);
@@ -674,7 +675,7 @@ declare(strict_types=1);
 			return array_key_exists($charset, $charsets);
 		}
 
-		public function get_supported_charsets()
+		public function get_supported_charsets(): array
 		{
 			$cache = Cache_Global::spawn();
 			$key = 's:mysql.char';
@@ -772,12 +773,15 @@ declare(strict_types=1);
 			if (!$db) {
 				return false;
 			}
-			$sqlroot = $this->domain_fs_path() . self::MYSQL_DATADIR;
-			$normal = \Opcenter\Database\MySQL::canonicalize($db);
-			$prefix = $this->get_prefix();
-			if (!file_exists($sqlroot . '/' . $normal)) {
-				// tut-tut. Resolve db with prefix in mind
-				$db = $prefix . $db;
+
+			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER)) {
+				$sqlroot = $this->domain_fs_path() . self::MYSQL_DATADIR;
+				$normal = \Opcenter\Database\MySQL::canonicalize($db);
+				$prefix = $this->get_prefix();
+				if (!file_exists($sqlroot . '/' . $normal)) {
+					// tut-tut. Resolve db with prefix in mind
+					$db = $prefix . $db;
+				}
 			}
 
 			$conn = $this->_connect_root();
@@ -1359,9 +1363,9 @@ declare(strict_types=1);
 			if ($stmt->error) {
 				return new MySQLError("Invalid query, " . $stmt->error);
 			}
-			if ($host != $defaults['host']) {
+			if ($mergeopts['host'] != $defaults['host']) {
 				$stmt = $conn->prepare("UPDATE db SET host = ? WHERE user = ? AND host = ?");
-				$stmt->bind_param("sss", $mergeopts['host'], $user, $host);
+				$stmt->bind_param("sss", $mergeopts['host'], $user, $defaults['host']);
 				$stmt->execute();
 				if ($stmt->error) {
 					return error("error while updating DB grants, %s", $stmt->error);
@@ -1537,7 +1541,7 @@ declare(strict_types=1);
 			);
 
 			if ($user != self::MASTER_USER) {
-				$this->_delete_temp_user('mysql', $user);
+				$this->_delete_temp_user($user);
 			}
 
 			if (!is_null($fsizelimit)) {
@@ -1822,8 +1826,11 @@ declare(strict_types=1);
 				);
 				$cmd = 'myisamchk -r -c ' . $sqlroot . '/%s/*.MYI';
 			}
-			$ret = Util_Process_Safe::exec($cmd, array($db));
-			if (!$ret['success'] && !strstr($ret['stderr'], "doesn't exist")) {
+			$fsizelimit = Util_Ulimit::get('fsize');
+			Util_Ulimit::set('fsize', 'unlimited');
+			$ret = Util_Process_Safe::exec($cmd, array($db), ['mute_stderr' => true]);
+			Util_Ulimit::set('fsize', $fsizelimit);
+			if (!$ret['success'] && false === strpos($ret['stderr'], "doesn't exist")) {
 				return error("`%s' repair failed:\n%s", $db, $ret['stderr']);
 			}
 			return info("`%s' repair succeeded:\n%s", $db, $ret['output']);

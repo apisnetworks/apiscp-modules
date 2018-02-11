@@ -46,22 +46,28 @@ declare(strict_types=1);
             $cache = Cache_Super_Global::spawn();
             $key = 'g:cp_rev';
             if (false == ($cp = $cache->get($key))) {
-                $xml = simplexml_load_string(shell_exec('svn info --xml ' . INCLUDE_PATH));
+                $proc = \Util_Process::exec('cd %(path)s && git log --submodule -n 1', ['path' => INCLUDE_PATH]);
 
-                if (!is_object($xml)) {
-                    return warn("can't fetch svn rev info");
+	            if (!$proc['success'] || !preg_match(Regex::CHANGELOG_COMMIT, $proc['output'], $commit)) {
+		            return error("failed to fetch git log");
                 }
-                $commit = $xml->entry->commit;
-                $cp = array(
-                    'revision'  => (string)$commit->attributes()->revision,
-                    'timestamp' => strtotime($commit->date),
-                    'ver_min'   => APNSCP_VERSION,
-                    'ver_maj'   => 0
+                $tokens = explode('.', APNSCP_VERSION);
+                $n = 3-sizeof($tokens);
+                while ($n > 0) {
+                    $tokens[] = '0';
+                    $n--;
+                }
+	            $cp = array(
+                    'revision'  => (string)$commit['commit'],
+                    'timestamp' => strtotime($commit['date']),
+                    'ver_maj'   => $tokens[0],
+                    'ver_min'   => $tokens[1],
+                    'ver_patch' => $tokens[2]
                 );
 
-                $ts = mktime(3, 30, 0);
-                if (time() >= $ts) {
-                    $ts += 86400;
+	            $ts = mktime(3, 30, 0);
+	            if (time() >= $ts) {
+	                $ts += 86400;
                 }
                 $cache->set($key, $cp, $ts - $_SERVER['REQUEST_TIME']);
             }
@@ -126,11 +132,9 @@ declare(strict_types=1);
             // helios & apollo automatically mount fcgi
             if ($svc == 'fcgi' && version_compare(platform_version(), '4.5', '>=')) {
                 return true;
-            } else {
-                if (version_compare(platform_version(), '6', '>=')) {
-                    // sol automatically mounts procfs
-                    return true;
-                }
+            } else if (version_compare(platform_version(), '6', '>=')) {
+                // sol automatically mounts procfs
+                return true;
             }
             $proc = Util_Process::exec('%s mounted %s %s',
                 self::MOUNTRC,
@@ -172,10 +176,9 @@ declare(strict_types=1);
             // helios & apollo automatically mount fcgi
             if ($svc == 'fcgi' && version_compare(platform_version(), '4.5', '>=')) {
                 return true;
-            } else {
-                if ($svc == 'procfs' && version_compare(platform_version(), '6', '>=')) {
+            }
+            if ($svc == 'procfs' && version_compare(platform_version(), '6', '>=')) {
                     return true;
-                }
             }
             if (!IS_CLI) {
                 return $this->query('misc_mount_service', $svc);
@@ -200,19 +203,35 @@ declare(strict_types=1);
 
         public function changelog()
         {
-            if (!IS_CLI) {
-                return $this->query('misc_changelog');
+            $cache = \Cache_Global::spawn();
+            $key = 'misc.changelog';
+            $changelog = $cache->get($key);
+            if ($changelog) {
+                return $changelog;
             }
-            $path = '/usr/local/apnscp_esprit';
-            if (version_compare(platform_version(), '5', '>=')) {
-                $path = '/usr/local/apnscp';
-            }
-            $proc = Util_Process::exec('/usr/bin/svn log '
-                . $path . '/lib -v --limit 15');
+
+            $proc = Util_Process::exec('cd ' . INCLUDE_PATH . ' && git log --submodule -n 15 ');
             if (!$proc['success']) {
-                return false;
+                return [];
             }
-            return $proc['output'];
+            $res = [];
+	        preg_match_all(Regex::CHANGELOG_COMMIT, $proc['output'], $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                foreach (array_keys($match) as $key) {
+                    if (is_numeric($key)) {
+                        unset($match[$key]);
+                    } else if ($key === 'msg') {
+                        $match[$key] = trim($match[$key]);
+                    } else if ($key === 'date') {
+                    	// rename to ts for more appropriate data type
+	                    $match['ts'] = strtotime($match[$key]);
+	                    unset($match[$key]);
+                    }
+                }
+                $res[] = $match;
+            }
+            $cache->set($key, $res);
+            return $res;
         }
 
         public function _edit()

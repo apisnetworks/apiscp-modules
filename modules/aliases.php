@@ -112,7 +112,7 @@ declare(strict_types=1);
         		return false;
 	        }
 
-	        $template = \Blade::factory('views/email');
+	        $template = \BladeLite::factory('views/email');
         	$html = $template->make('aliases.domain-add',
 	            [
 	            	'domain' => $domain,
@@ -272,15 +272,14 @@ declare(strict_types=1);
             }
             if (!$this->shared_domain_exists($domain)) {
                 return error("domain `$domain' is not attached to account");
-            } else {
-                if ($this->shared_domain_hosted($domain)) {
-                    return error("domain `$domain' is hosted by another account");
-                } else {
-                    if ($domain == $this->get_config('siteinfo', 'domain')) {
-                        return error("cannot modify primary domain");
-                    }
-                }
             }
+            if ($this->shared_domain_hosted($domain)) {
+	            return error("domain `$domain' is hosted by another account");
+            }
+            if ($domain == $this->get_config('siteinfo', 'domain')) {
+                return error("cannot modify primary domain");
+            }
+
             $params = array('type', 'domain', 'location', 'owner');
             if (isset($newparams['owner'])) {
                 $newowner = $newparams['owner'];
@@ -313,7 +312,12 @@ declare(strict_types=1);
         public function remove_shared_domain($domain)
         {
             if (!IS_CLI) {
-                $status = $this->query('aliases_remove_shared_domain', $domain);
+	            $docroot = $this->web_get_docroot($domain);
+	            $status = $this->query('aliases_remove_shared_domain', $domain);
+	            if ($status && $docroot) {
+                    $meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
+                    $meta->forget($docroot);
+                }
                 return $status;
             }
             $domain = strtolower($domain);
@@ -463,7 +467,7 @@ declare(strict_types=1);
                 return $this->query('aliases_synchronize_changes');
             }
 
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $time = $cache->get('aliases.sync');
             $aliases = array_keys($this->list_shared_domains());
             $this->set_config_journal('aliases', 'enabled', intval(count($aliases) > 0));
@@ -652,7 +656,7 @@ declare(strict_types=1);
             }
             // domain not hosted, 5 second timeout
             $ip = silence(function() use ($domain) {
-            	return apnscpFunctionInterceptor::init()->dns_gethostbyname_t($domain, 5000);
+            	return parent::__call('dns_gethostbyname_t', [$domain, 5000]);
             });
             if (!$ip) {
                 return true;
@@ -934,6 +938,8 @@ declare(strict_types=1);
                 $this->_add_apache_map($domain, $oldpath);
                 return error("domain `$domain' path change failure - reverting");
             }
+            $meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
+            $meta->rename($oldpath, $newpath);
             return true;
 
         }
@@ -960,7 +966,7 @@ declare(strict_types=1);
             if (file_exists($this->domain_info_path() . '/suspended')) {
                 return error('account is suspended, will not resync');
             }
-            $cmd = new Util_Account_Editor();
+            $cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
             // pull in latest, unsynchronized config from new/
             $cmd->importConfig();
             $status = $cmd->edit();
@@ -968,7 +974,7 @@ declare(strict_types=1);
                 return error("failed to activate domain changes");
             }
             info("Hang tight! Domain changes will be active within a few minutes, but may take up to 24 hours to work properly.");
-            Auth::profile()->importAccount()->reset();
+            $this->getAuthContext()->importAccount()->reset();
             return true;
         }
 

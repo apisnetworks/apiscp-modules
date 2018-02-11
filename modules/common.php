@@ -110,7 +110,7 @@ declare(strict_types=1);
             }
             if ($this->permission_level & PRIVILEGE_USER) {
                 $prefs = $this->get_user_preferences();
-                return isset($prefs['email']) ? $prefs['email'] : null;
+                return $prefs['email'] ?? null;
             }
             if ($this->permission_level & PRIVILEGE_ADMIN) {
                 return $this->admin_get_email();
@@ -562,7 +562,7 @@ declare(strict_types=1);
             $procs = array();
             $i = 0;
             foreach (explode("\n", $cpuinfo) as $line) {
-                if (strstr($line, ':')) {
+                if (false !== strpos($line, ':')) {
                     list ($key, $val) = explode(":", $line);
                     switch (trim($key)) {
                         case 'processor':
@@ -749,13 +749,16 @@ declare(strict_types=1);
          */
         public function load_preferences()
         {
-            $cache = Cache_User::spawn();
-            $key = $this->_getPreferencesKey();
-            $pref = $cache->get($key);
-            if (false !== $pref) {
-                return $pref;
-            }
             if (!IS_CLI) {
+            	if ($this->getAuthContext()) {
+            		return $this->query('common_load_preferences');
+	            }
+	            $cache = Cache_User::spawn($this->getAuthContext());
+	            $key = $this->_getPreferencesKey();
+	            $pref = $cache->get($key);
+	            if ($pref) {
+		            return $pref;
+	            }
                 $prefs = $this->query('common_load_preferences');
                 $cache->set($key, $prefs);
                 return $prefs;
@@ -779,7 +782,7 @@ declare(strict_types=1);
             	if ($this->permission_level & PRIVILEGE_USER) {
             		return error("cannot load preferences for any user except self");
 	            }
-            } else if (!$this->user_exists($user)) {
+            } else if (!($this->permission_level & PRIVILEGE_ADMIN) && !$this->user_exists($user)) {
                 return error("cannot get preferences - user `%s' does not exist", $user);
             }
             $path = '';
@@ -792,7 +795,7 @@ declare(strict_types=1);
             if (!file_exists($path)) {
                 return array();
             }
-            return (array)unserialize(file_get_contents($path));
+            return (array)\Util_PHP::unserialize(file_get_contents($path));
         }
 
         public function get_global_preferences()
@@ -817,17 +820,16 @@ declare(strict_types=1);
             // session data is only resync'd if the worker
             // session id changes during its service life
             \Session::set(\Preferences::SESSION_KEY, $prefs);
-            return $this->set_user_preferences($this->username, $prefs);
+	        $ret = $this->set_user_preferences($this->username, $prefs);
+	        \Preferences::reload();
+	        return $ret;
         }
 
         public function set_user_preferences($user, array $prefs)
         {
-            if (!IS_CLI) {
-                $ret = $this->query('common_set_user_preferences', $user, $prefs);
-                if ($user === $this->username) {
-                	\Preferences::reload();
-                }
-                return $ret;
+
+	        if (!IS_CLI) {
+	            return $this->query('common_set_user_preferences', $user, $prefs);
             }
             if ($user !== $this->username && !$this->user_exists($user)) {
                 return error("unable to save preferences, invalid user `%s' specified", $user);
@@ -844,19 +846,20 @@ declare(strict_types=1);
             }
             $blocked = true;
             for ($i = 0; true; $i++) {
-                $lock = flock($fp, LOCK_EX|LOCK_NB, $blocked);
+                flock($fp, LOCK_EX|LOCK_NB, $blocked);
                 if (!$blocked) {
                 	break;
                 }
 	            if ($i === 10) {
 	                return error("failed to get lock on user pref file `%s'", $user);
 	            }
+	            usleep(100);
             }
             ftruncate($fp, 0);
             fwrite($fp, serialize($prefs));
             fclose($fp);
             if ($user === $this->username) {
-	            $cache = Cache_User::spawn();
+	            $cache = \Cache_User::spawn($this->getAuthContext());
 	            $cache->delete($this->_getPreferencesKey());
 	            \Preferences::reload();
             }
@@ -934,6 +937,9 @@ declare(strict_types=1);
             if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
                 $prefix = $this->domain_info_path();
                 $dir = opendir($this->domain_info_path() . "/current");
+                if (!$dir) {
+                	fatal('failed to collect services - account meta does not exist?');
+                }
                 while (false !== ($cfg = readdir($dir))) {
                     if ($cfg == "." || $cfg == "..") {
                         continue;

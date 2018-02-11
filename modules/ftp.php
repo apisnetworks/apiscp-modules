@@ -114,7 +114,7 @@ declare(strict_types=1);
                     continue;
                 }
 
-                if (strstr($line, '=')) {
+                if (false !== strpos($line, '=')) {
                     list($lval, $rval) = explode("=", $line, 2);
                 } else {
                     $rval = '';

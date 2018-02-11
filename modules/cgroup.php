@@ -43,7 +43,7 @@ declare(strict_types=1);
             if (!in_array($controller, $this->get_controllers())) {
                 return error("unknown controller `%s'");
             }
-            return call_user_func(array($this, '_get_' . $controller . '_usage'));
+            return $this->{'_get_' . $controller . '_usage'}();
         }
 
         public function get_controllers()

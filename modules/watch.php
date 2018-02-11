@@ -58,7 +58,7 @@
          */
         public function fetch($id)
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $map = $cache->get($this->_getWatchCachePrefix() . $id);
             if (!$map) {
                 return array();
@@ -84,7 +84,7 @@
             }
             $hash = $this->_makeKeyFromResults($data);
             $key = $this->_getWatchCachePrefix() . $hash;
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             if (!$cache->set($key, $data, self::CACHE_STORAGE_DURATION)) {
                 return error("failed to import checkpoint data: (%d) %s",
                     $cache->getResultCode(),
@@ -157,7 +157,7 @@
             );
             $key = $this->_makeKeyFromResults($struct);
             $key = $this->_getWatchCachePrefix() . $key;
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             if (is_debug()) {
                 $duration = null;
             } else {
@@ -181,7 +181,7 @@
          */
         public function compare($id1, $id2)
         {
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $res1 = $cache->get($this->_getWatchCachePrefix() . $id1);
             if (false === $res1) {
                 return error("invalid or expired watch key, `%s'", $id1);

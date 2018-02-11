@@ -207,21 +207,18 @@ declare(strict_types=1);
 
             if ($this->is_self_signed($cert)) {
                 $chain = null;
-            } else {
-                if (!$chain) {
-                    // try to resolve hierarchy
-                    $supplemental = $this->resolve_chain($cert);
-                    if (!$supplemental) {
-                        return error("certificate chain is irresolvable - contact support for help");
-                    }
-                    info("downloaded chain certificates to satisfy requirement, one or more additional pathways may be missing");
-                    $chain = join("\n", $supplemental);
-                } else {
-                    if (!$this->verify_certificate_chain($cert, $chain)) {
-                        return error("chain not valid for certificate");
-                    }
+            } else if (!$chain) {
+                // try to resolve hierarchy
+                $supplemental = $this->resolve_chain($cert);
+                if (!$supplemental) {
+                    return error("certificate chain is irresolvable - contact support for help");
                 }
+                info("downloaded chain certificates to satisfy requirement, one or more additional pathways may be missing");
+                $chain = join("\n", $supplemental);
+            } else if (!$this->verify_certificate_chain($cert, $chain)) {
+                return error("chain not valid for certificate");
             }
+
             $this->file_purge();
             $prefix = $this->domain_fs_path();
             $crtfile = $prefix . self::CRT_PATH . '/server.crt';
@@ -275,7 +272,7 @@ declare(strict_types=1);
                     $directive = "SSLCertificateChainFile";
                     foreach ($contents as $line) {
 
-                        if (!strncmp($line, $directive, strlen($directive))) {
+                        if (0 === strpos($line, $directive)) {
                             continue;
                         }
                         $newcontents[] = $line;
@@ -289,13 +286,13 @@ declare(strict_types=1);
             }
 
             // pre-flight checks done, let's install
-            if (!$overwrite || !$this->get_service_value('openssl','enabled')) {
-	            $cmd = new Util_Account_Editor();
+            if (!$overwrite || !$this->enabled()) {
+	            $cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
 	            $cmd->setConfig('openssl', 'enabled', 1);
                 // ensure HTTP config is rebuild
                 $cmd->edit();
             }
-
+			$this->file_purge();
             \Opcenter\Http\Apache::reload();
             info("reloading web server in 2 minutes, stay tuned!");
 
@@ -305,6 +302,10 @@ declare(strict_types=1);
         public function permitted()
         {
             return true;
+        }
+
+        public function enabled(): bool {
+            return (bool)$this->get_service_value('openssl', 'enabled');
         }
 
         /**
@@ -496,7 +497,7 @@ declare(strict_types=1);
             // so a second pass to look for a non-OCSP URL
             $url = $matches['url'][0];
             foreach ($matches['url'] as $candidate) {
-                if (stristr($candidate, "ocsp")) {
+                if (false !== stripos($candidate, "ocsp")) {
                     continue;
                 }
                 $url = $candidate;
@@ -662,7 +663,7 @@ declare(strict_types=1);
                 file_put_contents($sslextra, join("\n", $newconfig));
             }
             // reload HTTP server and rebuild config
-            $editor = new Util_Account_Editor();
+            $editor = new Util_Account_Editor($this->getAuthContext()->getAccount());
             $editor->setConfig('openssl', 'enabled', 0);
             $status = $editor->edit();
             if (!$status) {
@@ -678,7 +679,7 @@ declare(strict_types=1);
          * @param string $name certificate name
          * @return bool|string
          */
-        public function get_certificate($name)
+        public function get_certificate($name = 'server.crt')
         {
             if (!IS_CLI) {
                 return $this->query('ssl_get_certificate', $name);
@@ -1086,7 +1087,7 @@ declare(strict_types=1);
                         continue;
                     }
                     $tmp = substr($name, 4);
-                    if ($tmp != $commonname) {
+                    if ($tmp !== $commonname) {
                         $extensions[] = $tmp;
                     }
                 }

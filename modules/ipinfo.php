@@ -199,7 +199,7 @@ declare(strict_types=1);
 			// there will always be a 1:1 pairing for IP addresses
 			foreach ($ipadd as $newip) {
 				$oldip = array_pop($ipdel);
-				$class = apnscpFunctionInterceptor::autoload_class_from_module('dns');
+				$class = apnscpFunctionInterceptor::get_autoload_class_from_module('dns');
 				$newparams = array('ttl' => $class::DNS_TTL, 'parameter' => $newip);
 				foreach ($domains as $domain) {
 					$records = $this->get_records_by_rr('A', $domain);

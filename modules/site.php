@@ -373,12 +373,12 @@ declare(strict_types=1);
                 return $this->query('site_wipe', $token);
             }
 
-            $editor = new Util_Account_Editor();
+            $editor = new Util_Account_Editor($this->getAuthContext()->getAccount());
             // assemble domain creation cmd from current config
             $editor->importConfig();
-            $afi = apnscpFunctionInterceptor::init();
+            $afi = $this->apnscpFunctionInterceptor ?? apnscpFunctionInterceptor::init();
             $modules = $afi->list_all_modules();
-            $auth = Auth::get_driver()->profile();
+            $auth = $this->getAuthContext();
             foreach ($modules as $m) {
                 $c = $afi->get_class_from_module($m);
                 $class = new $c;
@@ -391,7 +391,7 @@ declare(strict_types=1);
             // send a copy of the command in case the account gets wiped and
             // never comes back from the dead
             Mail::send(Crm_Module::COPY_ADMIN, "Account Wipe", $addcmd);
-            $delproc = new Util_Account_Editor();
+            $delproc = new Util_Account_Editor($this->getAuthContext()->getAccount());
             $site_id = $this->site_id;
             if (!$delproc->delete()) {
                 return false;
@@ -440,7 +440,7 @@ declare(strict_types=1);
 
             $storage = $this->common_get_service_value('diskquota', 'quota');
             $newstorage = $storage * self::AMNESTY_MULTIPLIER;
-            $acct = new Util_Account_Editor();
+            $acct = new Util_Account_Editor($this->getAuthContext()->getAccount());
             $acct->setConfig('diskquota', 'quota', $newstorage)->
             setConfig('diskquota', 'amnesty', $now);
             $ret = $acct->edit();
@@ -467,15 +467,6 @@ declare(strict_types=1);
             $time = isset($_SERVER['REQUEST_TIME']) ? $_SERVER['REQUEST_TIME'] : time();
             $amnesty = $this->get_service_value('diskquota', 'amnesty');
             return ($time - $amnesty) <= self::AMNESTY_DURATION;
-        }
-
-        public function find_and_store($base = '/{home,usr/local,var/www,var/lib,var/log}')
-        {
-            $cache = Cache_Account::spawn();
-            $key = 'fas';
-
-            Util_Filesystem_Collector::collect();
-
         }
 
 	    public function _create()

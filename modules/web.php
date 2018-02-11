@@ -70,7 +70,7 @@ declare(strict_types=1);
 
         public function ruby_exists()
         {
-            return $this->ruby_exists();
+            return parent::__call('ruby_exists');
         }
 
         public function gem_exists()
@@ -283,6 +283,9 @@ declare(strict_types=1);
             $subdomains = array();
             if ($filter == 'path') {
                 $re = $domains;
+                if ($re[0] !== $re[-1]) {
+                	$re = '!' . preg_quote($re, '!') . '!';
+                }
             } else {
                 $re = null;
             }
@@ -291,13 +294,13 @@ declare(strict_types=1);
             }
             foreach (glob($this->domain_fs_path() . '/var/subdomain/*/') as $entry) {
                 $subdomain = basename($entry);
-                $path = null;
+                $path = '';
                 if (is_link($entry . '/html') || is_dir($entry . '/html') /* smh... */) {
                     if (!is_link($entry . '/html')) {
                         warn("subdomain `%s' doc root is directory", $subdomain);
                         $path = '/var/subdomain/' . $entry . '/html';
                     } else {
-                        $path = substr(File_Module::convert_relative_absolute($entry . '/html',
+                        $path = (string)substr(File_Module::convert_relative_absolute($entry . '/html',
                             readlink($entry . '/html')),
                             strlen($this->domain_fs_path()));
                     }
@@ -306,23 +309,22 @@ declare(strict_types=1);
                         $filter == 'global' && strpos($subdomain, '.'))
                 ) {
                     continue;
-                } else {
-                    if ($filter == 'path' && !preg_match($re, $path)) {
-                        continue;
-                    } else {
-                        if (strpos($subdomain, '.') && $domains) {
-                            $skip = 0;
-                            foreach ($domains as $domain) {
-                                $lendomain = strlen($domain);
-                                if (substr($subdomain, -$lendomain) != $domain) {
-                                    $skip = 1;
-                                    break;
-                                }
-                            }
-                            if ($skip) {
-                                continue;
-                            }
+                }
+                if ($filter == 'path' && !preg_match($re, $path)) {
+                    continue;
+                }
+
+                if ($filter !== 'path' && strpos($subdomain, '.') && $domains) {
+                    $skip = 0;
+                    foreach ($domains as $domain) {
+                        $lendomain = strlen($domain);
+                        if (substr($subdomain, -$lendomain) != $domain) {
+                            $skip = 1;
+                            break;
                         }
+                    }
+                    if ($skip) {
+                        continue;
                     }
                 }
 
@@ -483,7 +485,7 @@ declare(strict_types=1);
              */
             if ($subdomain[0] == '*') {
                 $domain = substr($subdomain, 2);
-                $subdomain = null;
+                $subdomain = '';
             }
             $domains = array_keys($this->list_domains());
             // is it a fully-qualified domain name? i.e. www.apisnetworks.com or
@@ -504,7 +506,7 @@ declare(strict_types=1);
                     );
                     break;
                 } else {
-                    if ($subdomain == $domain) {
+                    if ($subdomain === $domain) {
                         // subdomain is fallthrough
                         $recs_to_add[] = array(
                             'subdomain' => '*',
@@ -607,14 +609,11 @@ declare(strict_types=1);
             $subdomain_path = Opcenter\Http\Apache::makeSubdomainPath($subdomain);
             $subdomain_parent = dirname($prefix . $subdomain_path);
             if (!file_exists($subdomain_parent)) {
-                mkdir($subdomain_parent);
-                chown($subdomain_parent, $this->user_id);
-                chgrp($subdomain_parent, $this->group_id);
+            	\Opcenter\Filesystem::mkdir($subdomain_parent, $this->user_id, $this->group_id);
             }
-            if ($docroot[0] === '.' && $docroot[1] == '.') {
-                $tmp = $subdomain_parent . DIRECTORY_SEPARATOR . $docroot;
-            } else {
-                $tmp = $docroot;
+	        $tmp = $docroot;
+	        if ($docroot[0] === '.' && $docroot[1] == '.') {
+	            $tmp = $subdomain_parent . DIRECTORY_SEPARATOR . $docroot;
             }
 
             $user = fileowner($tmp);
@@ -643,6 +642,7 @@ declare(strict_types=1);
             } elseif (!$this->subdomain_exists($subdomain)) {
                 return warn($subdomain . ": subdomain does not exist") || true;
             }
+	        $this->map_subdomain('delete', $subdomain);
             $path = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
             $dh = opendir($path);
             while (false !== ($entry = readdir($dh))) {
@@ -658,7 +658,7 @@ declare(strict_types=1);
             }
             closedir($dh);
             rmdir($path);
-            return $this->map_subdomain('delete', $subdomain);;
+            return true;
         }
 
         /**
@@ -707,28 +707,32 @@ declare(strict_types=1);
                 return error($mode . ": invalid mapping operation");
             }
             if ($mode == 'del') {
+            	$docroot = $this->get_docroot($subdomain);
+            	if ($docroot) {
+		            $prefs = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
+		            $prefs->forget($docroot);
+	            }
                 return $this->file_delete('/home/*/all_subdomains/' . $subdomain);
-            } else {
-                if ($mode == 'add') {
-                    if (!$user) {
-                        $stat = $this->file_stat($path);
-                        if ($stat instanceof Exception) {
-                            return $stat;
-                        }
-                        $user = $this->user_get_username_from_uid($stat['uid']);
+            }
+            if ($mode == 'add') {
+                if (!$user) {
+                    $stat = $this->file_stat($path);
+                    if ($stat instanceof Exception) {
+                        return $stat;
                     }
-                    $user_home = '/home/' . $user;
-                    $user_home_abs = $this->domain_fs_path() . $user_home;
-
-                    if (!file_exists($this->domain_fs_path() . $path)) {
-                        warn($path . ": path does not exist, creating link");
-                    }
-                    if (!file_exists($user_home_abs . '/all_subdomains')) {
-                        $this->file_create_directory($user_home . '/all_subdomains');
-                        $this->file_chown($user_home . '/all_subdomains', $user);
-                    }
-                    $this->file_create_symlink($path, $user_home . '/all_subdomains/' . $subdomain);
+                    $user = $this->user_get_username_from_uid($stat['uid']);
                 }
+                $user_home = '/home/' . $user;
+                $user_home_abs = $this->domain_fs_path() . $user_home;
+
+                if (!file_exists($this->domain_fs_path() . $path)) {
+                    warn($path . ": path does not exist, creating link");
+                }
+                if (!file_exists($user_home_abs . '/all_subdomains')) {
+                    $this->file_create_directory($user_home . '/all_subdomains');
+                    $this->file_chown($user_home . '/all_subdomains', $user);
+                }
+                $this->file_create_symlink($path, $user_home . '/all_subdomains/' . $subdomain);
             }
 
             return true;
@@ -771,7 +775,6 @@ declare(strict_types=1);
             // case when html is missing due to erroneous deletion of symlink
 
             if ($link) {
-                dd($sdpath, $old_stat);
                 $old_path = $this->file_convert_relative_absolute(dirname($sdpath), $old_stat['referent']);
             } else {
                 $old_path = $sdpath;
@@ -816,7 +819,8 @@ declare(strict_types=1);
          * Doubly useful to evaluate where documents
          * will be served given a particular domain
          *
-         * @param  string $hostname HTTP host
+         * @param string $hostname HTTP host
+         * @param string $path optional path component
          * @return string document root path
          */
 
@@ -830,14 +834,14 @@ declare(strict_types=1);
             $docroot = $this->get_docroot($hostname);
 
             if ($path) {
-                $docroot .= DIRECTORY_SEPARATOR . $path;
+                $docroot .= DIRECTORY_SEPARATOR . ltrim($path,'/');
             }
 
             $checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
             if (\Util_PHP::is_link($checkpath)) {
                 // take the referent always
                 $checkpath = realpath($checkpath);
-                if (0 !== strpos($prefix, $checkpath)) {
+                if (0 !== strpos($checkpath, $prefix)) {
                     return error("docroot for `%s/%s' exceeds site root", $hostname, $path);
                 }
                 $docroot = substr($checkpath, strlen($prefix));
@@ -962,11 +966,11 @@ declare(strict_types=1);
             return $split;
         }
 
-        public function get_docroot($hostname)
+        public function get_docroot($hostname, $path = '')
         {
             $domains = $this->list_domains();
             if (isset($domains[$hostname])) {
-                return $domains[$hostname];
+                return rtrim($domains[$hostname] . '/' . $path, '/');
             }
 
             $domains = $this->list_subdomains();
@@ -976,14 +980,37 @@ declare(strict_types=1);
                     return $domains[$hostname];
                 }
                 $info = $this->subdomain_info($hostname);
-                return $info['path'];
+                return rtrim($info['path'] . '/' . $path, '/');
             }
 
             if (0 === strpos($hostname, "www.")) {
                 $tmp = substr($hostname, 4);
                 return $this->get_docroot($tmp);
             }
+            if (false !== strpos($hostname, '.')) {
+                $host = $this->split_host($hostname);
+                if ($host['subdomain']) {
+                    return $this->get_docroot($host['subdomain']);
+                }
+
+            }
             return error("unknown domain `$hostname'");
+        }
+
+        public function get_hostname_from_docroot(string $docroot): ?string {
+        	$docroot = rtrim($docroot, '/');
+        	if ($docroot === '/var/www/html') {
+		        return $this->get_service_value('siteinfo', 'domain');
+	        }
+        	$aliases = $this->aliases_list_shared_domains();
+        	if (false !== ($domain = array_search($docroot, $aliases))) {
+        		return $domain;
+	        }
+
+	        if ($subdomain = $this->list_subdomains('path', $docroot)) {
+        		return key($subdomain);
+	        }
+	        return null;
         }
 
         /**
@@ -1002,7 +1029,7 @@ declare(strict_types=1);
             if (!$this->verco_svn_enabled() && (strtolower($provider) == 'svn')) {
                 return error("Cannot use Subversion provider when not enabled");
             } else {
-                if (substr($location, 0, 1) != '/') {
+                if ($location[0] != '/') {
                     return error("DAV location `%s' is not absolute", $location);
                 } else {
                     if (!file_exists($this->domain_fs_path() . $location)) {
@@ -1114,7 +1141,7 @@ declare(strict_types=1);
                     do {
                         unset($lines[$i]);
                         $i++;
-                    } while (!stristr($lines[$i], '</Directory>') && ($i < sizeof($lines)));
+                    } while (false === stripos($lines[$i], '</Directory>') && ($i < sizeof($lines)));
                     unset($lines[$i]);
                     break;
                 }
@@ -1144,7 +1171,7 @@ declare(strict_types=1);
                     $match[1] = strtolower($match[1]);
                     $dav_locations[$idx]['provider'] = ($match[1] == 'on' ? 'dav' : $match[1]);
 
-                } else if (stristr($line, '</Directory>')) {
+                } else if (false !== stripos($line, '</Directory>')) {
                     $inside = 0;
                     $idx++;
                 }
@@ -1210,14 +1237,16 @@ declare(strict_types=1);
         public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
         {
         	if (!$ctx['enabled']) {
-        		return true;
+        		fatal('web service must be enabled');
 	        }
         	$defaultws = $ctx->getDefaultServiceValue('apache', 'webserver');
-
-	        if ($ctx['webserver']) {
-
+			if ($ctx['webserver'] === $defaultws) {
+				$ctx['webserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
+			}
+	        if (!preg_match(Regex::DOMAIN, $ctx['webserver'])) {
+				fatal("verify conf failed: domain `%s' is not valid", $ctx['webserver']);
 	        }
-
+	        return true;
         }
 
 	    public function _reload($why = null)

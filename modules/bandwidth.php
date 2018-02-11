@@ -67,7 +67,7 @@ declare(strict_types=1);
 
             $cachekey = 'bandwidth.gacbd.' . substr($grouping, 0, 2);
 
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $bw = $cache->get($cachekey);
             if ($bw !== false) {
                 return $bw;
@@ -98,7 +98,7 @@ declare(strict_types=1);
         {
 
             $cachekey = 'bandwidth.gcp';
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $periods = $cache->get($cachekey);
             if ($periods !== false) {
                 return $periods;
@@ -141,7 +141,7 @@ declare(strict_types=1);
             }
             // there may be collisions, but sacrifice for key len
             $cachekey = 'bandwidth.gbd.' . crc32($begin . $end);
-            $cache = Cache_Account::spawn();
+            $cache = Cache_Account::spawn($this->getAuthContext());
             $services = $cache->get($cachekey);
             if ($services !== false) {
                 return $services;

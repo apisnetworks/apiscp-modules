@@ -129,7 +129,7 @@ declare(strict_types=1);
             $link = '/usr/local/frontpage/' . $domain . ':80.cnf';
             symlink('/usr/local/frontpage/www.' . $domain . ':80.cnf', $link);
             $domains[] = $domain;
-            array_push($paths, $path);
+            $paths[] = $path;
 
             $this->set_config('frontpage', 'enabled', count($domains) > 0);
             $this->set_config('frontpage', 'paths', $paths);
