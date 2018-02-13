@@ -1,11 +1,14 @@
 #!/bin/sh
+set -euo pipefail
+
 APNSCP_HOME="/usr/local/apnscp"
 pushd `dirname $0`
-LAST=$(git log -n 1 modules/ | grep 'Date:' | cut -d' ' -f1 --complement)
+LAST=$(git log -n 1 modules/ | grep '^Date:' | cut -d' ' -f1 --complement)
 rm -rf modules
 git clone --depth=0 $APNSCP_HOME/lib/modules modules
 pushd $APNSCP_HOME/lib/modules
 TMPFILE=`/bin/mktemp`
+trap (){ rm -f $TMPFILE; }
 git log --after="$LAST" . | apnscp_php $APNSCP_HOME/bin/scripts/changelogparser.php | php -R '$line = strip_tags($argn); $line && print($line."\n");' > $TMPFILE
 popd
 if [[ ! -s $TMPFILE ]]; then

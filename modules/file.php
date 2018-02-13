@@ -86,6 +86,7 @@ declare(strict_types=1);
             if ($this->_optimizedShadowAssertion && version_compare((string)platform_version(), '6', '>=')) {
                 $this->_optimizedShadowAssertion = 2;
             }
+
             $this->exportedFunctions = array(
                 '*'                               => PRIVILEGE_ALL,
                 'canonicalize_site'               => PRIVILEGE_SITE | PRIVILEGE_USER,
@@ -106,9 +107,6 @@ declare(strict_types=1);
                 'takeover_user'                   => PRIVILEGE_SITE,
             );
 
-            if (is_debug()) {
-                $this->exportedFunctions = ['*' => PRIVILEGE_ALL];
-            }
             $this->__wakeup();
         }
 
@@ -721,11 +719,11 @@ declare(strict_types=1);
                 $acl_dir = dirname($path);
                 $cache = \Cache_Account::spawn($this->getAuthContext());
                 $entry = $cache->get($apcu_key);
+
                 if (false !== $entry) {
                     self::$acl_cache = array_merge_recursive(self::$acl_cache,
-	                    $entry);
+	                    [$cache_key => $entry]);
                     return $entry[basename($path)] ?? [];
-
                 }
             }
 
@@ -3442,5 +3440,3 @@ declare(strict_types=1);
             return file_exists($path) ? $path : null;
         }
     }
-
-?>
