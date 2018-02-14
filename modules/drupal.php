@@ -121,7 +121,9 @@ declare(strict_types=1);
             $ret = $this->_exec('/tmp', $cmd . ' --drupal-project-rename --destination=%(tempdir)s -q', $args);
 
             if (!$ret['success']) {
-                return error('failed to download Drupal - out of space?');
+                return error('failed to download Drupal - out of space? Error: `%s\'',
+	                coalesce($ret['stderr'], $ret['stdout'])
+                );
             }
             if ($this->file_file_exists($docroot)) {
                 $this->file_delete($docroot, true);
@@ -284,7 +286,7 @@ declare(strict_types=1);
 			if (!empty($opts['ssl'])) {
 				// @todo force redirect to HTTPS
 			}
-			if (array_get($opts, 'ssl', true)) {
+			if (array_get($opts, 'notify', true)) {
 				\Lararia\Bootstrapper::minstrap();
 				\Illuminate\Support\Facades\Mail::to($opts['email'])->
 				send((new \Module\Support\Webapps\Mailer('install.drupal', [
