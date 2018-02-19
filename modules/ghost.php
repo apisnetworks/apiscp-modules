@@ -412,7 +412,7 @@ declare(strict_types=1);
                 }
             }
 
-            return $this->file_file_exists($docroot . '/wp-config-sample.php');
+            return false;
         }
 
         /**
@@ -530,7 +530,7 @@ declare(strict_types=1);
 	     * @param string $path
 	     * @return string version number
 	     */
-        public function get_version(string $hostname, string $path = ''): string
+        public function get_version(string $hostname, string $path = ''): ?string
         {
             if (!$this->valid($hostname, $path)) {
                 return null;

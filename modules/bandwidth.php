@@ -72,7 +72,7 @@ declare(strict_types=1);
             if ($bw !== false) {
                 return $bw;
             }
-            $query = $this->pgsql->query($q);
+            $query = \PostgreSQL::initialize()->query($q);
             $bandwidth = array();
             while (($bw = $query->fetch_object()) != false) {
                 $bandwidth[] = array(
@@ -104,7 +104,7 @@ declare(strict_types=1);
                 return $periods;
             }
 
-            $query = $this->pgsql->query(
+            $query = \PostgreSQL::initialize()->query(
                 "SELECT
 					EXTRACT(epoch FROM bandwidth_spans.begindate)::integer as begin,
 					EXTRACT(epoch FROM bandwidth_spans.enddate)::integer   as end
@@ -146,8 +146,8 @@ declare(strict_types=1);
             if ($services !== false) {
                 return $services;
             }
-
-            $query = $this->pgsql->query(
+			$pgdb = \PostgreSQL::initialize();
+            $query = $pgdb->query(
                 "SELECT
                     name,
 					sum(in_bytes)  AS in_sum,
@@ -165,10 +165,10 @@ declare(strict_types=1);
 				 WHERE
 					 bandwidth_log.site_id = " . $this->site_id . "
 					AND
-					 bandwidth_log.ts >= " . $this->pgsql->escape_string($begin) . "::abstime
+					 bandwidth_log.ts >= " . $pgdb->escape_string($begin) . "::abstime
 					AND
 						" . ($end ? " bandwidth_log.ts < "
-                    . $this->pgsql->escape_string($end) . "::abstime AND " : "") . "
+                    . $pgdb->escape_string($end) . "::abstime AND " : "") . "
 					 bandwidth_services.svc_id = bandwidth_log.svc_id
 					GROUP BY
 						name, info");
@@ -227,7 +227,7 @@ declare(strict_types=1);
         {
             // only worry about username changes, since domain traffic is not
             // anticipated to carry over to new user
-            $db = $this->pgsql;
+            $db = \PostgreSQL::initialize();
             $db->query("UPDATE bandwidth_extendedinfo SET info = '" .
                 pg_escape_string($newinfo) . "' WHERE site_id = " . $this->site_id .
                 " AND info = '" . pg_escape_string($oldinfo) . "'");

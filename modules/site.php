@@ -112,9 +112,10 @@ declare(strict_types=1);
             if (!$site_id) {
                 Error_Reporter::report(var_export($this, true));
             }
+            $pgdb = \PostgreSQL::initialize();
             switch ($type) {
                 case null:
-                    $bw_rs = $this->pgsql->query("SELECT
+                    $bw_rs = $pgdb->query("SELECT
 						begindate,
 						rollover,
 						threshold as threshold
@@ -140,7 +141,7 @@ declare(strict_types=1);
                         return $this->get_bandwidth_usage($type);
                     }
 
-                    $used_rs = $this->pgsql->query("SELECT
+                    $used_rs = $pgdb->query("SELECT
 						SUM(in_bytes)+SUM(out_bytes) AS sum
 						FROM
 						bandwidth_log
@@ -163,7 +164,7 @@ declare(strict_types=1);
 
         private function _autofix_bandwidth($site, $rollover)
         {
-            $db = $this->pgsql;
+        	$db = \PostgreSQL::initialize();
             $site = intval($site);
             $ts = mktime(0, 0, 0, date("m"), $rollover);
             $ts2 = strtotime('last month', $ts);
@@ -207,11 +208,12 @@ declare(strict_types=1);
                 return error("Invalid e-mail address, " . $email);
             }
             $oldemail = $this->get_config('siteinfo', 'email');
-            $this->pgsql->query("UPDATE siteinfo SET email = '" . $email . "' WHERE site_id = '" . $this->site_id . "';");
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query("UPDATE siteinfo SET email = '" . $email . "' WHERE site_id = '" . $this->site_id . "';");
             // no need to trigger a costly account config rebuild
             $this->set_config('siteinfo', 'email', $email);
 
-            $ret = $this->pgsql->affected_rows() > 0;
+            $ret = $pgdb->affected_rows() > 0;
             if (!$ret) {
                 return false;
             }

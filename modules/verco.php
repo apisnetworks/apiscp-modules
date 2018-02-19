@@ -104,8 +104,8 @@ declare(strict_types=1);
             if ($data instanceof Exception) {
                 return $data;
             }
-
-            $this->mysql->query("INSERT INTO `repository_paths`
+            $db = \MySQL::initialize();
+            $db->query("INSERT INTO `repository_paths`
 													(`id`,
 													 `domain`,
 													 `type`,
@@ -136,8 +136,8 @@ declare(strict_types=1);
             if ($data instanceof Exception) {
                 return $data;
             }
-
-            $this->mysql->query("DELETE FROM repository_paths WHERE `domain` = '" . $this->domain . "' AND `type` = 'svn' AND path = '" . $mPath . "';");
+            $db = \MySQL::initialize();
+            $db->query("DELETE FROM repository_paths WHERE `domain` = '" . $this->domain . "' AND `type` = 'svn' AND path = '" . $mPath . "';");
 
             return true;
 
@@ -207,7 +207,8 @@ declare(strict_types=1);
          */
         public function list_known_svn_repositories()
         {
-            $q = $this->mysql->query("SELECT path, date_installed FROM `repository_paths` WHERE domain = '" . $this->domain . "' AND type = 'svn'");
+            $db = \MySQL::initialize();
+            $q = $db->query("SELECT path, date_installed FROM `repository_paths` WHERE domain = '" . $this->domain . "' AND type = 'svn'");
             $repos = array();
             while ($row = $q->fetch_object()) {
                 $repos[] = array('path' => $row->path, 'date' => $row->date_installed);
@@ -221,8 +222,8 @@ declare(strict_types=1);
             if ($status['output'] instanceof Exception) {
                 return $status['output'];
             }
-
-            $stat = $this->mysql->query("INSERT INTO `repository_paths`
+            $db = \MySQL::initialize();
+            $stat = $db->query("INSERT INTO `repository_paths`
 													(`id`,
 													 `domain`,
 													 `type`,
@@ -251,8 +252,8 @@ declare(strict_types=1);
             if ($data instanceof Exception) {
                 return $data;
             }
-
-            $this->mysql->query("DELETE FROM repository_paths WHERE `domain` = '" . $this->domain . "' AND `type` = 'cvs' AND path = '" . $mPath . "';");
+            $db = \MySQL::initialize();
+            $db->query("DELETE FROM repository_paths WHERE `domain` = '" . $this->domain . "' AND `type` = 'cvs' AND path = '" . $mPath . "';");
 
             return true;
 
@@ -324,7 +325,8 @@ declare(strict_types=1);
          */
         public function list_known_cvs_repositories()
         {
-            $q = $this->mysql->query("SELECT path, date_installed FROM `repository_paths` WHERE domain = '" . $this->domain . "' AND type = 'cvs'");
+            $db = \MySQL::initialize();
+            $q = $db->query("SELECT path, date_installed FROM `repository_paths` WHERE domain = '" . $this->domain . "' AND type = 'cvs'");
             $repos = array();
             while ($row = $q->fetch_object()) {
                 $repos[] = array('path' => $row->path, 'date' => $row->date_installed);

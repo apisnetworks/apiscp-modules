@@ -3406,8 +3406,9 @@ declare(strict_types=1);
             return $proc['success'];
         }
 
-        public function _resetID()
+        public function _resetModule()
         {
+        	parent::_resetModule();
             // reset cache to use new user id
             $this->__wakeup();
             self::$stat_cache = null;

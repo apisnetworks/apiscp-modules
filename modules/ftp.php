@@ -17,7 +17,7 @@ declare(strict_types=1);
      *
      * @package core
      */
-    class Ftp_Module extends Module_Skeleton
+    class Ftp_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
         /**
          * {{{ void __construct(void)
@@ -250,7 +250,7 @@ declare(strict_types=1);
             return true;
         }
 
-        public function _delete_user($user)
+        public function _delete_user(string $user)
         {
             if ($this->user_jailed($user)) {
                 $this->unjail_user($user);
@@ -295,7 +295,7 @@ declare(strict_types=1);
                 $line = trim((string)fgets($fp));
                 if (!$line) {
                     continue;
-                } else if ($user == $line) {
+                } else if ($user === $line) {
                     $seen = true;
                     continue;
                 }
@@ -304,7 +304,7 @@ declare(strict_types=1);
             fclose($fp);
 
             if (!$seen) {
-                warn("user " . $user . " not found in jail conf");
+                warn("user `%s' not found in jail conf", $user);
             }
             $prefix = $this->domain_fs_path();
             $path = $prefix . self::VSFTPD_CHROOT_FILE;
@@ -321,6 +321,33 @@ declare(strict_types=1);
                 Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
             }
         }
-    }
 
-?>
+	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+	    {
+		    if (!$ctx['enabled']) {
+			    return true;
+		    }
+		    $defserver = $ctx->getDefaultServiceValue('ftp', 'ftpserver');
+		    if ($ctx['ftpserver'] === $defserver) {
+			    $ctx['ftpserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
+		    }
+		    if (!preg_match(Regex::DOMAIN, $ctx['ftpserver'])) {
+			    fatal("verify conf failed: domain `%s' is not valid", $ctx['ftpserver']);
+		    }
+
+		    return true;
+	    }
+
+	    public function _delete()
+	    {
+
+	    }
+
+	    public function _edit()
+	    {
+	    }
+
+	    public function _create_user(string $user)
+	    {
+	    }
+    }

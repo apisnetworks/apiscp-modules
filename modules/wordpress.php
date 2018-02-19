@@ -507,7 +507,6 @@
         {
             $ret = ($this->update_themes($hostname, $path) && $this->update_plugins($hostname, $path) &&
                 $this->update($hostname, $path, $version)) || error('failed to update all components');
-
             parent::setInfo($this->getDocumentRoot($hostname, $path), [
 	            'version' => $this->get_version($hostname, $path),
 	            'failed'  => !$ret
@@ -913,5 +912,20 @@
 	    public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
 	    {
 		    return parent::next_version($version, $maximalbranch);
+	    }
+
+	    /**
+	     * Reconfigure a WordPress instance
+	     * @param            $field
+	     * @param string     $attribute
+	     * @param array      $new
+	     * @param array|null $old
+	     */
+	    public function reconfigure(string $field, string $attribute, array $new, array $old = null) {
+
+	    }
+
+	    public function get_configuration($field) {
+
 	    }
     }

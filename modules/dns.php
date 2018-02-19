@@ -17,7 +17,7 @@ declare(strict_types=1);
      *
      * @package core
      */
-    class Dns_Module extends Module_Skeleton
+    class Dns_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
         /** primary nameserver */
         const MASTER_NAMESERVER = DNS_INTERNAL_MASTER;
@@ -1526,4 +1526,33 @@ declare(strict_types=1);
         {
 			return \Opcenter\Net\Iface::interfaces();
         }
+
+	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+	    {
+		    if (!$ctx['enabled']) {
+		    	fatal('dns must be enabled');
+		    }
+
+		    if (!\Opcenter\Dns::providerValid($ctx['provider'])) {
+			    return error("Unknown dns provider `%s'", $ctx['provider']);
+		    }
+
+		    return true;
+	    }
+
+	    public function _create_user(string $user)
+	    {
+		    return;
+	    }
+
+	    public function _delete_user(string $user)
+	    {
+		    return;
+	    }
+
+	    public function _edit_user(string $userold, string $usernew, array $oldpwd)
+	    {
+		    return;
+	    }
+
     }

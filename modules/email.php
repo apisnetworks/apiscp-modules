@@ -162,9 +162,9 @@ declare(strict_types=1);
 			USING(uid)
 			WHERE
 				(domain_lookup.site_id = " . $this->site_id . ") AND " . $filter_clause . " ORDER BY \"user\", domain;";
-
-            $this->pgsql->query($query);
-            while (null !== ($row = $this->pgsql->fetch_object())) {
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query($query);
+            while (null !== ($row = $pgdb->fetch_object())) {
                 $mailboxes[] = array(
                     'user'        => trim($row->user),
                     'domain'      => trim($row->domain),
@@ -185,8 +185,9 @@ declare(strict_types=1);
             if ($domain) {
                 $where .= 'AND domain_lookup.domain = \'' . pg_escape_string($domain) . '\'';
             }
-            $this->pgsql->query('UPDATE email_lookup SET enabled = 1::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
-            return $this->pgsql->affected_rows() > 0;
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query('UPDATE email_lookup SET enabled = 1::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
+            return $pgdb->affected_rows() > 0;
         }
 
 	    /**
@@ -247,62 +248,62 @@ declare(strict_types=1);
             foreach ($args as $var) {
                 ${$var} = strtolower(${$var});
             }
-            if (!$newuser && !$newdomain) {
-                $newuser = $olduser;
-                $newdomain = $olddomain;
-            }
+			if (!$newuser && !$newdomain) {
+				$newuser = $olduser;
+				$newdomain = $olddomain;
+			}
 
-	        if ($olduser === "majordomo" && $this->majordomo_list_mailing_lists()) {
-		        return error("cannot remove majordomo email address while mailing lists exist");
-	        }
+			if ($olduser === "majordomo" && $this->majordomo_list_mailing_lists()) {
+				return error("cannot remove majordomo email address while mailing lists exist");
+			}
 
-            if (($olduser . '@' . $olddomain != $newuser . '@' . $newdomain) && $this->address_exists($newuser,
+			if (($olduser . '@' . $olddomain != $newuser . '@' . $newdomain) && $this->address_exists($newuser,
                     $newdomain)
             ) {
-                return error("Email address %s@%s already exists. Can't rename!",
+				return error("Email address %s@%s already exists. Can't rename!",
                     $newuser, $newdomain);
-            }
+			}
 
-            if (!$newtype) {
-                $newtype = $this->mailbox_type($olduser, $olddomain);
-            }
+			if (!$newtype) {
+				$newtype = $this->mailbox_type($olduser, $olddomain);
+			}
 
-            if ($newtype == self::MAILBOX_USER) {
-                if (false != ($uid = intval($newdestination))) {
-                    $uid = intval($newdestination);
-                    $local_user = $this->user_get_username_from_uid($uid);
-                    $newdestination = '/home/' . $local_user . '/' . self::MAILDIR_HOME;
-                    if (!$local_user) {
-                        return error("Invalid mailbox destination, invalid uid `%d'", $uid);
-                    }
-                } else if ($newdestination) {
-                        if (preg_match('!^/home/([^/]+)/' . self::MAILDIR_HOME . '([/.]*)$!', $newdestination,
+			$pgdb = \PostgreSQL::initialize();
+			if ($newtype == self::MAILBOX_USER) {
+				if (false != ($uid = intval($newdestination))) {
+					$uid = intval($newdestination);
+					$local_user = $this->user_get_username_from_uid($uid);
+					$newdestination = '/home/' . $local_user . '/' . self::MAILDIR_HOME;
+					if (!$local_user) {
+						return error("Invalid mailbox destination, invalid uid `%d'", $uid);
+					}
+				} else if ($newdestination) {
+					if (preg_match('!^/home/([^/]+)/' . self::MAILDIR_HOME . '([/.]*)$!', $newdestination,
                             $match)) {
-                            $local_user = $match[1];
-                            $newdestination = ltrim(str_replace(array('/', '..'), '.', $match[2]), '.');
-                        } else {
-                            $local_user = $newdestination;
-                            $newdestination = null;
-                        }
-                } else {
-                    // user rename
-                    $local_user = $newuser;
-                }
+						$local_user = $match[1];
+							$newdestination = ltrim(str_replace(array('/', '..'), '.', $match[2]), '.');
+						} else {
+							$local_user = $newdestination;
+							$newdestination = null;
+						}
+				} else {
+					// user rename
+					$local_user = $newuser;
+				}
 
-                $local_user = strtolower($local_user);
-                $users = $this->user_get_users();
-                if (!isset($users[$local_user])) {
-                    return error("User account `%s' does not exist", $local_user);
-                }
+				$local_user = strtolower($local_user);
+				$users = $this->user_get_users();
+				if (!isset($users[$local_user])) {
+					return error("User account `%s' does not exist", $local_user);
+				}
 
-                $uid = intval($users[$local_user]['uid']);
-                if ($newdestination == '') {
-                    $newdestination = null;
-                } else {
-                    $this->query('email_create_maildir_backend', $local_user, $newdestination);
-                }
-
-                $this->pgsql->query("UPDATE email_lookup SET \"user\" = '" . $newuser . "', domain = '" . $newdomain . "', " .
+				$uid = intval($users[$local_user]['uid']);
+				if ($newdestination == '') {
+					$newdestination = null;
+				} else {
+					$this->query('email_create_maildir_backend', $local_user, $newdestination);
+				}
+                $pgdb->query("UPDATE email_lookup SET \"user\" = '" . $newuser . "', domain = '" . $newdomain . "', " .
                     "fs_destination = " . (($newdestination != null) ? "'" . pg_escape_string(rtrim($newdestination,
                                 ' /') . '/') . "'" : "NULL") . ", " .
                     "alias_destination = NULL, uid = " . $uid . ", type = '" . self::MAILBOX_USER . "' WHERE \"user\" = '" . pg_escape_string($olduser) . "' " .
@@ -315,13 +316,13 @@ declare(strict_types=1);
                 if (!$newdestination) {
                     return error("no forwarding destination set for `%s@%s`", $newuser, $newdomain);
                 }
-                $this->pgsql->query("UPDATE email_lookup SET \"user\" = '" . pg_escape_string($newuser) . "', domain = '" . pg_escape_string($newdomain) . "', " .
+                $pgdb->query("UPDATE email_lookup SET \"user\" = '" . pg_escape_string($newuser) . "', domain = '" . pg_escape_string($newdomain) . "', " .
                     "alias_destination = '" . pg_escape_string($newdestination) . "', uid = NULL, type = '" .
                     self::MAILBOX_FORWARD . "', fs_destination = NULL WHERE \"user\" = '" .
                     pg_escape_string($olduser) . "' AND domain = '" . pg_escape_string($olddomain) . "';");
 
             }
-            $rows = $this->pgsql->affected_rows();
+            $rows = $pgdb->affected_rows();
             $this->_shutdown_save_mailboxes();
 
             return $rows > 0;
@@ -334,9 +335,10 @@ declare(strict_types=1);
             if (!preg_match('/^[a-z0-9\._@\+-]+$/', $user . '@' . $domain)) {
                 return error("invalid address `" . $user . '@' . $domain . "'");
             }
-            $this->pgsql->query("SELECT 1 FROM email_lookup WHERE \"user\" = '" . pg_escape_string($user) . "' AND domain = '" . pg_escape_string($domain) . "'");
+            $pgdb = \PostgreSQL::initialize();
+			$pgdb->query("SELECT 1 FROM email_lookup WHERE \"user\" = '" . pg_escape_string($user) . "' AND domain = '" . pg_escape_string($domain) . "'");
 
-            return $this->pgsql->num_rows() > 0;
+            return $pgdb->num_rows() > 0;
         }
 
         public function mailbox_type($user, $domain)
@@ -346,12 +348,13 @@ declare(strict_types=1);
             if (!preg_match(Regex::EMAIL, $user . '@' . $domain)) {
                 return error("invalid address `" . $user . '@' . $domain . "'");
             }
-            $this->pgsql->query("SELECT type FROM email_lookup WHERE \"user\" = '" . $user . "' AND domain = '" . $domain . "'");
+            $pgdb = \PostgreSQL::initialize();
+			$pgdb->query("SELECT type FROM email_lookup WHERE \"user\" = '" . $user . "' AND domain = '" . $domain . "'");
 
-            if ($this->pgsql->num_rows() < 1) {
+            if ($pgdb->num_rows() < 1) {
                 return null;
             }
-            return $this->pgsql->fetch_object()->type;
+            return $pgdb->fetch_object()->type;
         }
 
         /**
@@ -368,7 +371,7 @@ declare(strict_types=1);
             }
             $q = 'SELECT * FROM email_lookup WHERE domain IN
                 (select domain FROM domain_lookup WHERE site_id = ' . $this->site_id . ')';
-            $db = $this->pgsql;
+            $db = \PostgreSQL::initialize();
             $email = array();
             $rs = $db->query($q);
             while ($row = $db->fetch_assoc()) {
@@ -414,16 +417,17 @@ declare(strict_types=1);
             if ($type) {
                 $clause = "AND type = '$type' ";
             }
-            $this->pgsql->query('DELETE FROM
-										email_lookup
-								 WHERE
-										"user" = \'' . pg_escape_string($user) . "'
-										AND
-										domain = '" . pg_escape_string($domain) . "'
-										$clause
-										AND '" . pg_escape_string($domain) . "' IN
-											(SELECT domain from domain_lookup WHERE site_id = " . $this->site_id . ");");
-            $rows = $this->pgsql->affected_rows();
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query('DELETE FROM
+				email_lookup
+				WHERE
+				"user" = \'' . pg_escape_string($user) . "'
+				AND
+				domain = '" . pg_escape_string($domain) . "'
+				$clause
+				AND '" . pg_escape_string($domain) . "' IN
+					(SELECT domain from domain_lookup WHERE site_id = " . $this->site_id . ");");
+            $rows = $pgdb->affected_rows();
             $this->_shutdown_save_mailboxes();
 
             return $rows > 0;
@@ -495,7 +499,7 @@ declare(strict_types=1);
                 warn("mailbox backup `%s' not found", basename($file));
                 return -1;
             }
-            $db = $this->pgsql;
+            $db = \PostgreSQL::initialize();
             $recs = unserialize(file_get_contents($file));
             $escapef = function ($rec) {
                 return '"' . $rec . '"';
@@ -519,7 +523,7 @@ declare(strict_types=1);
                 }
                 return "'" . pg_escape_string($rec) . "'";
             };
-            $db = $this->pgsql->getHandler();
+            $db = \PostgreSQL::initialize()->getHandler();
             foreach ($recs as $r) {
                 $fields = array_map($escapef, array_keys($r));
                 $values = array_map($escapev, array_values($r));
@@ -569,7 +573,7 @@ declare(strict_types=1);
          */
         public function transport_exists($domain)
         {
-            $q = $this->pgsql->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "'");
+            $q = \PostgreSQL::initialize()->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "'");
             return $q->num_rows() > 0 && $q->fetch_object()->site_id == $this->site_id;
         }
 
@@ -813,17 +817,18 @@ declare(strict_types=1);
          */
         public function remove_virtual_transport($domain, $keepdns = null)
         {
-            $q = $this->pgsql->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "'");
+        	$pgdb = \PostgreSQL::initialize();
+            $q = $pgdb->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "'");
             if ($q->num_rows() < 1) {
                 return false;
             }
 
-            $site_id = $this->pgsql->fetch_object()->site_id;
+            $site_id = $pgdb->fetch_object()->site_id;
 
             if ($site_id && $site_id != $this->site_id) {
                 return error("Table entry " . $domain . " owned by another site (" . $site_id . ")");
             } else {
-                if ($this->pgsql->num_rows() < 1) {
+                if ($pgdb->num_rows() < 1) {
                     return error("Domain " . $domain . " not found in table");
                 }
             }
@@ -833,8 +838,8 @@ declare(strict_types=1);
                     warn("Mailing list `%s' sends from `%s'. Delete via Mail > Mailing Lists", $list, $domain);
                 }
             }
-            $this->pgsql->query("DELETE FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "' AND site_id = " . (int)$this->site_id . ";");
-            $ok = $this->pgsql->affected_rows() > 0;
+            $pgdb->query("DELETE FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "' AND site_id = " . (int)$this->site_id . ";");
+            $ok = $pgdb->affected_rows() > 0;
             if (is_null($keepdns)) {
                 // do an intelligent lookup to see if MX is default
                 $split = $this->web_split_host($domain);
@@ -896,9 +901,9 @@ declare(strict_types=1);
                 return error("domain `%s' not owned by site", $domain);
             }
             $transport = ($subdomain ? $subdomain . '.' : '') . $domain;
-
-            $rs = $this->pgsql->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($transport) . "'");
-            $nr = $this->pgsql->num_rows();
+            $pgdb = \PostgreSQL::initialize();
+            $rs = $pgdb->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($transport) . "'");
+            $nr = $pgdb->num_rows();
 
             if ($nr > 0) {
                 $site = $rs->fetch_object()->site_id;
@@ -908,8 +913,8 @@ declare(strict_types=1);
                 return true;
             }
 
-            $this->pgsql->query("INSERT INTO domain_lookup (domain, site_id) VALUES('" . pg_escape_string($transport) . "', " . (int)$this->site_id . ");");
-            if ($this->pgsql->affected_rows() < 1) {
+            $pgdb->query("INSERT INTO domain_lookup (domain, site_id) VALUES('" . pg_escape_string($transport) . "', " . (int)$this->site_id . ");");
+            if ($pgdb->affected_rows() < 1) {
                 return error("failed to add e-mail transport `%s'", $transport);
             }
             // default record
@@ -985,9 +990,10 @@ declare(strict_types=1);
             }
             $mailbox = ltrim(str_replace(array('/', '..'), '.', $mailbox), '.');
             $uid = intval($uid);
+            $pgdb = \PostgreSQL::initialize();
             if ($mailbox) {
-                $this->pgsql->query("SELECT \"user\" as name FROM uids WHERE uid = " . $uid . " AND site_id = " . $this->site_id);
-                $luser = $this->pgsql->fetch_object();
+                $pgdb->query("SELECT \"user\" as name FROM uids WHERE uid = " . $uid . " AND site_id = " . $this->site_id);
+                $luser = $pgdb->fetch_object();
                 if (!$luser) {
                     return error("lookup failed for `%s' with uid `%s'", $user, $uid);
                 }
@@ -996,14 +1002,14 @@ declare(strict_types=1);
                 $mailbox = pg_escape_string($mailbox);
             }
 
-            $this->pgsql->query("INSERT INTO email_lookup (\"user\", domain, uid, type, enabled, fs_destination)
+            $pgdb->query("INSERT INTO email_lookup (\"user\", domain, uid, type, enabled, fs_destination)
 				VALUES ('" . pg_escape_string($user) . "',
 					'" . pg_escape_string($domain) . "',
 					" . intval($uid) . ",
 					'" . self::MAILBOX_USER . "',
 					1::bit,
 					" . ($mailbox ? "'" . $mailbox . "'" : "NULL") . ");");
-            $rows = $this->pgsql->affected_rows();
+            $rows = $pgdb->affected_rows();
 
             $this->_shutdown_save_mailboxes();
 
@@ -1026,11 +1032,12 @@ declare(strict_types=1);
             if (!$destination) {
                 return error("no destination specified");
             }
-            $this->pgsql->query("INSERT INTO email_lookup " .
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query("INSERT INTO email_lookup " .
                 "(\"user\", domain, alias_destination, type, enabled) " .
                 "VALUES('" . pg_escape_string($user) . "', '" . pg_escape_string($domain) . "', '" .
                 trim(pg_escape_string($destination), ',') . "', '" . self::MAILBOX_FORWARD . "', 1::bit);");
-            $rows = $this->pgsql->affected_rows();
+            $rows = $pgdb->affected_rows();
             $this->_shutdown_save_mailboxes();
 
             return $rows > 0;
@@ -1042,8 +1049,9 @@ declare(strict_types=1);
             if ($domain) {
                 $where .= 'AND domain_lookup.domain = \'' . pg_escape_string($domain) . '\'';
             }
-            $this->pgsql->query('UPDATE email_lookup SET enabled = 0::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
-            return $this->pgsql->affected_rows() > 0;
+            $pgdb = \PostgreSQL::initialize();
+            $pgdb->query('UPDATE email_lookup SET enabled = 0::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
+            return $pgdb->affected_rows() > 0;
         }
 
         public function set_webmail_location($app, $subdomain)
@@ -1329,7 +1337,7 @@ declare(strict_types=1);
             }
             unmute_warn();
             // update uids in uids table
-            $db = $this->pgsql;
+            $db = \PostgreSQL::initialize();
             $q = 'UPDATE "uids" SET "user" = \'' . pg_escape_string($usernew) . '\' ' .
                 'WHERE "user" = \'' . pg_escape_string($userold) . '\' AND uid = ' . $uid;
             $db->query($q);
@@ -1421,8 +1429,8 @@ declare(strict_types=1);
         public function list_virtual_transports()
         {
             $virtual = array();
-            $this->pgsql->query("SELECT domain FROM domain_lookup WHERE site_id = " . $this->site_id);
-            while (null !== ($row = $this->pgsql->fetch_object())) {
+            $res = \PostgreSQL::initialize()->query("SELECT domain FROM domain_lookup WHERE site_id = " . $this->site_id);
+            while (null !== ($row = $res->fetch_object())) {
                 $virtual[] = trim($row->domain);
             }
             return $virtual;
@@ -1601,6 +1609,9 @@ declare(strict_types=1);
 	        if ($ctx['mailserver'] === $defaultws) {
 		        $ctx['mailserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
 	        }
+	        if (empty($ctx['provider'])) {
+	        	$ctx['provider'] = $ctx->getDefaultServiceValue('mail','provider');
+	        }
 	        if (!preg_match(Regex::DOMAIN, $ctx['mailserver'])) {
 		        fatal("verify conf failed: domain `%s' is not valid", $ctx['webserver']);
 	        }
@@ -1609,8 +1620,12 @@ declare(strict_types=1);
 	        	return error("MX priority must be numeric, `%s' given", $ctx['preference']);
 	        }
 
-	        if (!in_array($ctx['provider'], Opcenter\Mail::providers())) {
+	        if (!\Opcenter\Mail::providerValid($ctx['provider'])) {
 	        	return error("Unknown mail provider `%s'", $ctx['provider']);
+	        }
+
+	        if ($ctx['filter'] && !\Opcenter\Mail::filterValid($ctx['filter'])) {
+	        	return error("Unknown inbound mail filter `%s'", $ctx['filter']);
 	        }
 	        return true;
         }

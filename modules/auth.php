@@ -392,8 +392,8 @@ declare(strict_types=1);
                 $limit = 10;
             }
             $limitStr = 'LIMIT ' . ($limit + 1);
-
-            $q = $this->mysql->query("SELECT
+			$handler = \MySQL::initialize();
+            $q = $handler->query("SELECT
 				UNIX_TIMESTAMP(`login_date`) AS login_date,
 				INET_NTOA(`ip`) AS ip FROM `login_log`
 				WHERE
@@ -665,12 +665,8 @@ declare(strict_types=1);
         {
             if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
                 $user = $this->username;
-            } else {
-                if ($user) {
-                    if (!$this->user_exists($user)) {
-                        return error("user `%s' does not exist", $user);
-                    }
-                }
+            } else if ($user && !$this->user_exists($user)) {
+                return error("user `%s' does not exist", $user);
             }
             return $this->_get_api_keys_real($user);
         }
@@ -858,7 +854,6 @@ declare(strict_types=1);
                     $qfrag['where'] = '1 = 0';
                     return $qfrag;
                 }
-                $qfrag['join'] = "JOIN domain_information ON (domain_information.di_invoice = api_keys.invoice AND domain_information.parent_domain IS NULL)";
                 $qfrag['where'] = "api_keys.invoice = '" . Auth_SOAP::get_api_db()->real_escape_string($invoice) . "'";
             }
             return $qfrag;

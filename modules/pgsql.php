@@ -77,7 +77,7 @@ declare(strict_types=1);
 
 		public function user_exists($user)
 		{
-			$db = $this->pgsql;
+			$db = \PostgreSQL::initialize();
 			$prefix = $this->get_prefix();
 			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
 				0 !== strpos($user, $prefix)
@@ -130,11 +130,12 @@ declare(strict_types=1);
 			} else {
 				$usersafe = '"' . pg_escape_string($user) . '"';
 			}
-			$this->pgsql->query('REVOKE ALL ON TABLESPACE ' . $tblspace . ' FROM ' . $usersafe . '');
-			$this->pgsql->query("DROP ROLE " . $usersafe);
+			$pghandler = \PostgreSQL::initialize();
+			$pghandler->query('REVOKE ALL ON TABLESPACE ' . $tblspace . ' FROM ' . $usersafe . '');
+			$pghandler->query("DROP ROLE " . $usersafe);
 
-			if ($this->pgsql->error) {
-				return new PostgreSQLError("Invalid query, " . $this->pgsql->error);
+			if ($pghandler->error) {
+				return new PostgreSQLError("Invalid query, " . $pghandler->error);
 			}
 
 			return true;
@@ -305,13 +306,13 @@ declare(strict_types=1);
 				return error("Max connections, queries, and updates must be greater than -1");
 			}
 			$vendor = Opcenter\Database\PostgreSQL::vendor();
-
-			$rs = $this->pgsql->query($vendor->createUser($user, $password));
+			$pghandler = \PostgreSQL::initialize();
+			$rs = $pghandler->query($vendor->createUser($user, $password));
 
 			if ($rs->error) {
 				return error("user creation for `%s' failed", $user);
 			}
-			$this->pgsql->query($vendor->setMaxConnections($user, $maxconn));
+			$pghandler->query($vendor->setMaxConnections($user, $maxconn));
 			return true;
 		}
 
@@ -346,9 +347,10 @@ declare(strict_types=1);
 			if (version_compare(platform_version(), '6', '>=')) {
 				$template = "TEMPLATE = template1";
 			}
-			$this->pgsql->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->_get_tablespace() . "\" CONNECTION LIMIT = " . static::PER_DATABASE_CONNECTION_LIMIT);
-			if ($this->pgsql->error) {
-				return error("error while creating database: %s", $this->pgsql->error);
+			$pghandler = \PostgreSQL::initialize();
+			$pghandler->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->_get_tablespace() . "\" CONNECTION LIMIT = " . static::PER_DATABASE_CONNECTION_LIMIT);
+			if ($pghandler->error) {
+				return error("error while creating database: %s", $pghandler->error);
 			}
 			return info("created database `%s'", $db);
 		}
@@ -367,7 +369,7 @@ declare(strict_types=1);
 					$db = $prefix . $db;
 				}
 			}
-			$pgdb = $this->pgsql;
+			$pgdb = \PostgreSQL::initialize();
 			$q = $pgdb->query_params("SELECT 1 FROM pg_database WHERE datname = $1", array($pgdb->escape_string($db)));
 			return !$q || $pgdb->num_rows() > 0;
 		}
@@ -431,11 +433,12 @@ declare(strict_types=1);
 		public function list_databases()
 		{
 			$prefix = $this->get_prefix();
-			$this->pgsql->query("SELECT datname FROM pg_database WHERE datname LIKE '"
+			$pgdb = \PostgreSQL::initialize();
+			$pgdb->query("SELECT datname FROM pg_database WHERE datname LIKE '"
 				. str_replace(array("-", '_'), array("", '\_'), $prefix) . "%' OR datdba = "
 				. "(SELECT oid FROM pg_roles WHERE rolname = '" . $this->username . "')");
 			$dbs = array();
-			while ($row = $this->pgsql->fetch_object()) {
+			while ($row = $pgdb->fetch_object()) {
 				$dbs[] = $row->datname;
 			}
 			return $dbs;
@@ -497,7 +500,8 @@ declare(strict_types=1);
 		 */
 		public function delete_database($db)
 		{
-			$db = $this->pgsql->escape_string($db);
+			$pgdb = \PostgreSQL::initialize();
+			$db = $pgdb->escape_string($db);
 			$prefix = $this->get_prefix();
 			if (0 !== strpos($db, $prefix)) {
 				$db = $prefix . $db;
@@ -508,7 +512,7 @@ declare(strict_types=1);
 			$resp = \Opcenter\Database\PostgreSQL::dropDatabase($db);
 			$this->delete_backup($db);
 			if (!$resp) {
-				return error("Error while dropping database, " . $this->pgsql->error);
+				return error("Error while dropping database, " . $pgdb->error);
 			}
 			return true;
 		}
@@ -555,26 +559,27 @@ declare(strict_types=1);
 			if ($password && strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("pgsql password must be at least %d characters long", 3);
 			}
-			$user = $this->pgsql->escape_string($user);
-			$password = $this->pgsql->escape_string($password);
+			$pgdb = \PostgreSQL::initialize();
+			$user = $pgdb->escape_string($user);
+			$password = $pgdb->escape_string($password);
 
 			if (!$password && is_int($maxconn)) {
-				$this->pgsql->query_params('UPDATE pg_authid SET rolconnlimit = $1 WHERE rolname = $2;',
+				$pgdb->query_params('UPDATE pg_authid SET rolconnlimit = $1 WHERE rolname = $2;',
 					array(intval($maxconn), $user)
 				);
 			} else {
 				if ($password && is_int($maxconn)) {
-					$this->pgsql->query_params('UPDATE pg_authid SET rolpassword = $1, rolconnlimit = $2 WHERE rolname = $3;',
+					$pgdb->query_params('UPDATE pg_authid SET rolpassword = $1, rolconnlimit = $2 WHERE rolname = $3;',
 						array($password, intval($maxconn), $user));
 				} else {
 					if ($password && !is_int($maxconn)) {
-						$this->pgsql->query_params('UPDATE pg_authid SET rolpassword = $1 WHERE rolname = $2;',
+						$pgdb->query_params('UPDATE pg_authid SET rolpassword = $1 WHERE rolname = $2;',
 							array($password, $user));
 					}
 				}
 			}
-			if ($this->pgsql->error) {
-				return new PostgreSQLError("Invalid query while editing user, " . $this->pgsql->error);
+			if ($pgdb->error) {
+				return new PostgreSQLError("Invalid query while editing user, " . $pgdb->error);
 			}
 			if ($user == $this->get_username()) {
 				$this->set_password($password);
@@ -617,12 +622,12 @@ declare(strict_types=1);
 				return error("PostgreSQL service not enabled for account.");
 			}
 			$prefix = $this->get_prefix();
-
-			$q = $this->pgsql->query("SELECT rolname, rolpassword, rolconnlimit FROM pg_authid WHERE rolname = '"
+			$pgdb = \PostgreSQL::initialize();
+			$q = $pgdb->query("SELECT rolname, rolpassword, rolconnlimit FROM pg_authid WHERE rolname = '"
 				. $this->username . "' OR rolname LIKE '" . str_replace(array("-", "_"), array("", '\_'),
 					$prefix) . "%' ORDER BY rolname");
 			$users = array();
-			while ($row = $this->pgsql->fetch_object()) {
+			while ($row = $pgdb->fetch_object()) {
 				$users[$row->rolname] = array(
 					'max_connections' => $row->rolconnlimit,
 					'password'        => $row->rolpassword
@@ -639,7 +644,8 @@ declare(strict_types=1);
 		 */
 		public function vacuum($db)
 		{
-			$db = $this->pgsql->escape_string($db);
+			$pgdb = \PostgreSQL::initialize();
+			$db = $pgdb->escape_string($db);
 			$prefix = $this->get_prefix();
 
 			// db name passed without prefix
@@ -648,8 +654,8 @@ declare(strict_types=1);
 			}
 			$q = "SELECT 1 FROM pg_database WHERE datname = $1 " .
 				"AND datdba = (SELECT oid FROM pg_roles WHERE rolname = '" . $this->username . "')";
-			$this->pgsql->query_params($q, array($db));
-			if ($this->pgsql->num_rows() < 1) {
+			$pgdb->query_params($q, array($db));
+			if ($pgdb->num_rows() < 1) {
 				return error("Database `$db' not owned by main user");
 			}
 
@@ -768,7 +774,7 @@ declare(strict_types=1);
 				$user .= $chars[$n];
 			}
 
-			$sqldb = $this->pgsql;
+			$sqldb = \PostgreSQL::initialize();
 			$q = "SELECT rolname FROM pg_authid WHERE rolname = '" . $user . "'";
 			$rs = $sqldb->query($q);
 			if ($sqldb->num_rows() > 0) {
@@ -870,7 +876,7 @@ declare(strict_types=1);
 		 */
 		public function get_database_size($db)
 		{
-			$size = $this->pgsql->query("SELECT pg_database_size(" . pg_escape_literal($db) . ") as size")->fetch_object();
+			$size = \PostgreSQL::initialize()->query("SELECT pg_database_size(" . pg_escape_literal($db) . ") as size")->fetch_object();
 			return (int)$size->size;
 		}
 		// }}}

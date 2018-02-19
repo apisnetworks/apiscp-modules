@@ -44,7 +44,8 @@ declare(strict_types=1);
          */
         public function get_domains()
         {
-            $q = $this->pgsql->query("SELECT domain,site_id FROM siteinfo ORDER BY domain");
+
+            $q = \PostgreSQL::initialize()->query("SELECT domain,site_id FROM siteinfo ORDER BY domain");
             $domains = array();
             while (null !== ($row = $q->fetch_object())) {
                 $domains[$row->site_id] = $row->domain;
@@ -67,8 +68,9 @@ declare(strict_types=1);
             if (!$siteid) {
                 return false;
             }
-            $q = $this->pgsql->query("SELECT email FROM siteinfo WHERE site_id = " . intval($siteid));
-            if ($this->pgsql->num_rows() > 0) {
+            $pgdb = \PostgreSQL::initialize();
+            $q = $pgdb->query("SELECT email FROM siteinfo WHERE site_id = " . intval($siteid));
+            if ($pgdb->num_rows() > 0) {
                 return $q->fetch_object()->email;
             }
             return false;
@@ -85,8 +87,9 @@ declare(strict_types=1);
             if (!preg_match(Regex::DOMAIN, $domain)) {
                 return error("invalid domain `%s'", $domain);
             }
-            $q = $this->pgsql->query("SELECT site_id FROM siteinfo WHERE domain = '" . $domain . "'");
-            if ($this->pgsql->num_rows() > 0) {
+            $pgdb = \PostgreSQL::initialize();
+            $q = $pgdb->query("SELECT site_id FROM siteinfo WHERE domain = '" . $domain . "'");
+            if ($pgdb->num_rows() > 0) {
                 return $q->fetch_object()->site_id;
             }
             $id = Auth::get_site_id_from_domain($domain);
@@ -178,23 +181,23 @@ declare(strict_types=1);
             if (!is_dir($configHome)) {
                 mkdir($configHome) && chmod($configHome, 0700);
             }
-	        $defplan = \Opcenter\Service::PLAN_PATH . '/' .
-		        \Opcenter\Service::DEFAULT_SVC_NAME;
+	        $defplan = \Opcenter\Service::planPath(\Opcenter\Service::DEFAULT_SVC_NAME);
             if (is_dir($defplan)) {
 	            return;
             }
+            $base = \Opcenter\Service::planPath('');
             // plan name change
-            $dh = opendir(\Opcenter\Service::PLAN_PATH);
+            $dh = opendir($base);
             if (!$dh) {
             	return error("Plan path `%s' missing, account creation will fail until fixed",
-		            \Opcenter\Service::PLAN_PATH
+		            $base
 	            );
             }
             while (false !== ($f = readdir($dh))) {
             	if ($f === '..' || $f === '.') {
             		continue;
 	            }
-	            $path = \Opcenter\Service::PLAN_PATH . '/' . $f;
+	            $path = $base . DIRECTORY_SEPARATOR . $f;
             	if (is_link($path)) {
             		unlink($path);
             		break;
