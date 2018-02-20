@@ -136,6 +136,7 @@ declare(strict_types=1);
 		    	$ctx['cpu'] = null;
 		    	return true;
 		    }
+
 		    if ($ctx['memory'] === 0) {
 		    	info('cgroup memory converted from `0\' to unenforced');
 		        $ctx['memory'] = null;
