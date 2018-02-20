@@ -97,7 +97,7 @@
 			}
 			$ip = $this->common_get_ip_address();
 			$this->_remove_bypass($domain);
-			return $this->dns_add_zone($domain, $ip);
+			return $this->dns_add_zone_backend($domain, $ip);
 		}
 
 		/**

@@ -109,6 +109,7 @@
 				'release_ip'             => PRIVILEGE_ADMIN,
 				'ip_allocated'           => PRIVILEGE_ADMIN,
 				'add_zone'               => PRIVILEGE_ADMIN,
+				'add_zone_backend'       => PRIVILEGE_ADMIN|PRIVILEGE_SITE|PRIVILEGE_SERVER_EXEC,
 				'gethostbyaddr_t'        => PRIVILEGE_ALL,
 				'gethostbyname_t'        => PRIVILEGE_ALL,
 			);
@@ -1095,6 +1096,17 @@
 		 */
 		public function add_zone($domain, $ip)
 		{
+			return $this->query('dns_add_zone_backend', $domain, $ip);
+		}
+
+		/**
+		 * Create DNS zone privileged mode
+		 *
+		 * @param string $domain
+		 * @param string $ip
+		 * @return bool
+		 */
+		public function add_zone_backend($domain, $ip): bool {
 			if (is_debug()) {
 				return info("not creating DNS zone for `%s' in development mode", $domain);
 			} else if (!static::MASTER_NAMESERVER) {
@@ -1106,6 +1118,7 @@
 			if (!is_null($res)) {
 				Error_Reporter::set_buffer($buffer);
 				warn("DNS for zone `%s' already exists, not overwriting", $domain);
+
 				return true;
 			}
 			// make sure DNS does not exist yet for the parent
@@ -1114,6 +1127,7 @@
 			Error_Reporter::set_buffer($buffer);
 			if (!is_null($res)) {
 				warn("DNS for zone `%s' already exists, not overwriting", $b);
+
 				return true;
 			}
 
@@ -1126,6 +1140,7 @@
 			}
 
 			info("Added domain `%s'", $domain);
+
 			/**
 			 * Now actually add the domain...
 			 */
