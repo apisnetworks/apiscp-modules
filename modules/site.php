@@ -513,7 +513,7 @@
 			if (!$ctx['enabled']) {
 				fatal('siteinfo service must be enabled');
 			}
-			if (0 === strpos($ctx['domain'], "www.")) {
+			if (0 === strpos($ctx['domain'], 'www.')) {
 				/** sigh... */
 				$ctx['domain'] = substr($ctx['domain'], 4);
 			}
@@ -537,11 +537,18 @@
 			} else if (posix_getpwnam($ctx['admin'])) {
 				return error("system user `%s' already exists", $ctx['admin']);
 			}
-
-			if (empty($ctx['email']) || !preg_match(Regex::EMAIL, $ctx['email'])) {
+			if (empty($ctx['email'])) {
 				return error("invalid contact address `%s'", $ctx['email']);
 			}
-			return true;
+			$emails = preg_split('/\s*,\s*', $ctx['email']);
+			$bad = array_filter($emails, function ($email) {
+				if (preg_match(\Regex::EMAIL, $email)) {
+					error("invalid email address `%s'", $email);
+					return true;
+				}
+				return false;
+			});
+			return !$bad;
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd) {

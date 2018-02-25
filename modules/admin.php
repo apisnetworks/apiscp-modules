@@ -222,15 +222,31 @@
 		/**
 		 * Force bulk update of webapps
 		 *
-		 * @param int|string $limit optional limit or site for batching
+		 * @param array $options
 		 * @return bool
 		 */
-		public function update_webapps($limit = null): bool {
+		public function update_webapps(array $options = []): bool {
 			$launcher = \Module\Support\Webapps\Updater::launch();
-			if (ctype_digit($limit)) {
-				$launcher->batch((int)$limit);
-			} else if ($limit) {
-				$launcher->limitSite($limit);
+			foreach ($options as $k => $v) {
+				switch ($k) {
+					case 'limit':
+						$launcher->batch((int)$v);
+						break;
+					case 'type':
+						$launcher->limitType($v);
+						break;
+					case 'assets':
+						$launcher->enableAssetUpdates((bool)$v);
+						break;
+					case 'core':
+						$launcher->enableCoreUpdates((bool)$v);
+						break;
+					case 'site':
+						$launcher->limitSite($v);
+						break;
+					default:
+						fatal("unknown option `%s'", $k);
+				}
 			}
 			return (bool)$launcher->run();
 		}

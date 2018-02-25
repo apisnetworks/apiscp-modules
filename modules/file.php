@@ -850,6 +850,8 @@
 				return error("cannot access file `%s'", $file);
 			} else if ($stat['file_type'] !== 'file') {
 				return error("file `%s' is not a regular file", $file);
+			} else if ($stat['nlinks'] > 1) {
+				return error("file `%s' must not be linked elsewhere", $file);
 			}
 			$tmppath = $this->make_path(TEMP_DIR);
 			$tempnam = tempnam($tmppath, 'ex');

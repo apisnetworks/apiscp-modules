@@ -30,6 +30,8 @@
 		const WP_CLI_URL = 'https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar';
 
 		const VERSION_CHECK_URL = 'https://api.wordpress.org/core/version-check/1.7/';
+		const PLUGIN_VERSION_CHECK_URL = 'https://api.wordpress.org/plugins/info/1.0/%plugin%.json';
+		const THEME_VERSION_CHECK_URL = 'https://api.wordpress.org/themes/info/1.2/?action=theme_information&request[slug]=%theme%&request[fields][versions]=1';
 		const DEFAULT_VERSION_LOCK = 'none';
 
 		protected $_aclList = array(
@@ -41,7 +43,8 @@
 			'max' => array(
 				'/wp-content/uploads',
 				'/wp-content/cache',
-				'/wp-content/wflogs'
+				'/wp-content/wflogs',
+				'/wp-content/updraft'
 			)
 		);
 
@@ -51,17 +54,6 @@
 		protected $controlFiles = [
 			'/wp-admin/includes/file.php'
 		];
-
-		/**
-		 * void __construct(void)
-		 *
-		 * @ignore
-		 */
-		public function __construct()
-		{
-
-			parent::__construct();
-		}
 
 		/**
 		 * Install WordPress
@@ -237,25 +229,72 @@
 		}
 
 
+		/**
+		 * Enumerate plugin states
+		 * @param string      $hostname
+		 * @param string      $path
+		 * @param string|null $plugin optional plugin
+		 * @return array|bool
+		 */
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
 		{
 			$docroot = $this->getDocumentRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
-			$args = array(
-				'plugin' => $plugin
-			);
-			$ret = $this->_exec($docroot, 'plugin status %s', $args);
+
+			$ret = $this->_exec($docroot, 'plugin status');
 			if (!$ret['success']) {
 				return error('failed to get plugin status');
 			}
 
-			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches)) {
+			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches, PREG_SET_ORDER)) {
 				return error('unable to parse WP plugin info');
 			}
+			$pluginmeta = [];
+			foreach ($matches as $match) {
+				$name = $match['name'];
+				$version = $match['version'];
+				if (!$versions = $this->pluginVersions($name)) {
+					continue;
+				}
+				$pluginmeta[$name] = [
+					'version' => $version,
+					'next' => \Opcenter\Versioning::nextVersion($versions, $version),
+					'max' => $this->pluginInfo($name)['version'] ?? end($versions)
+				];
+				// dev version may be present
+				$pluginmeta[$name]['current'] = version_compare((string)array_get($pluginmeta, "${name}.max", '99999999.999'), (string)$version, '<=') ?:
+					(bool)\Opcenter\Versioning::current($versions, $version);
+			}
+			return $plugin ? $pluginmeta[$plugin] ?? error("unknown plugin `%s'", $plugin) : $pluginmeta;
+		}
 
-			return error('@XXX @TODO');
+		protected function pluginVersions(string $plugin): ?array {
+			$info = $this->pluginInfo($plugin);
+			if (!$info || empty($info['versions'])) {
+				return null;
+			}
+			array_forget($info, 'versions.trunk');
+			return array_keys($info['versions']);
+		}
+
+		/**
+		 * Get information about a plugin
+		 *
+		 * @param string $plugin
+		 * @return array
+		 */
+		protected function pluginInfo(string $plugin): array {
+			$cache = \Cache_Super_Global::spawn();
+			$key = 'wp.pinfo-' . $plugin;
+			if (false !== ($data = $cache->get($key))) {
+				return $data;
+			}
+			$url = str_replace('%plugin%', $plugin, static::PLUGIN_VERSION_CHECK_URL);
+			$info = (array)json_decode(file_get_contents($url), true);
+			$cache->set($key, $info, 86400);
+			return $info;
 		}
 
 		/**
@@ -327,6 +366,40 @@
 
 			return true;
 		}
+
+		/**
+		 * Remove a Wordpress theme
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @param string $theme
+		 * @param bool $force deactive if necessary
+		 * @return bool
+		 */
+		public function uninstall_theme(string $hostname, string $path = '', string $theme, bool $force = false): bool
+		{
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			if (!$docroot) {
+				return error('invalid WP location');
+			}
+
+			$args = array(
+				'theme' => $theme
+			);
+			$cmd = 'theme uninstall %(plugin)s';
+			if ($force) {
+				$cmd .= ' --deactivate';
+			}
+			$ret = $this->_exec($docroot, $cmd, $args);
+
+			if (!$ret['stdout'] || !strncmp($ret['stdout'], 'Warning:', strlen('Warning:'))) {
+				return error("failed to uninstall plugin `%s': %s", $theme, coalesce($ret['stderr'], $ret['stdout']));
+			}
+			info("uninstalled theme `%s'", $theme);
+
+			return true;
+		}
+
 
 		/**
 		 * Recovery mode to disable all plugins
@@ -559,7 +632,7 @@
 			$this->assertOwnershipSystemCheck($docroot);
 
 			$cmd = 'core update';
-			$args = array();
+			$args = [];
 
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, '.0123456789')) {
@@ -568,6 +641,7 @@
 				$cmd .= ' --version=%(version)s';
 				$args['version'] = $version;
 			}
+
 			$oldversion = $this->get_version($hostname, $path);
 			$ret = $this->_exec($docroot, $cmd, $args);
 
@@ -613,37 +687,32 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
-			$cmd = 'plugin update';
-			$args = array();
 			if (!$plugins) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = count($plugins); $i < $n; $i++) {
-					$plugin = $plugins[$i];
-					$version = null;
-					if (isset($plugin['version'])) {
-						$version = $plugin['version'];
-					}
-					if (isset($plugin['name'])) {
-						$plugin = $plugin['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $plugin;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
+				$ret = $this->_exec($docroot, 'plugin update --all');
+				if (!$ret['success']) {
+					return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 				}
+				return $ret['success'];
 			}
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
+			$status = 1;
+			foreach ($plugins as $plugin)  {
+				$name = $plugin['name'] ?? $plugin;
+				$version = null;
+				$cmd = 'plugin update %(name)s';
+				$args = [
+					'name' => $name
+				];
+				if (isset($plugin['version'])) {
+					$cmd .= ' --version=%(version)s';
+					$args['version'] = $plugin['version'];
+				}
+				$ret = $this->_exec($docroot, $cmd, $args);
+				if (!$ret['success']) {
+					error("failed to update plugin `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));
+				}
+				$status &= $ret['success'];
 			}
-
-			return $ret['success'];
+			return (bool)$status;
 		}
 
 		/**
@@ -660,39 +729,145 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
-
-			$cmd = 'theme update';
-			$args = array();
 			if (!$themes) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = count($themes); $i < $n; $i++) {
-					$theme = $themes[$i];
-					$version = null;
-					if (isset($theme['version'])) {
-						$version = $theme['version'];
-					}
-					if (isset($theme['name'])) {
-						$plugin = $theme['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $theme;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
+				$ret = $this->_exec($docroot, 'theme update --all');
+				if (!$ret['success']) {
+					return error("theme update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 				}
+
+				return $ret['success'];
 			}
 
+			$status = 1;
+			foreach ($themes as $theme) {
+				$name = $theme['name'] ?? $theme;
+				$version = null;
+				$cmd = 'theme update %(name)s';
+				$args = [
+					'name' => $name
+				];
+				if (isset($theme['version'])) {
+					$cmd .= ' --version=%(version)s';
+					$args['version'] = $theme['version'];
+				}
+				$ret = $this->_exec($docroot, $cmd, $args);
+				if (!$ret['success']) {
+					error("failed to update theme `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));
+				}
+				$status &= $ret['success'];
+			}
+
+			return (bool)$status;
+		}
+
+		/**
+		 * Get theme status
+		 *
+		 * Sample response:
+		 * [
+		 *  hestia => [
+		 *      version => 1.1.50
+		 *      next => 1.1.51
+		 *      current => false
+		 *      max => 1.1.66
+		 *  ]
+		 * ]
+		 *
+		 * @param string      $hostname
+		 * @param string      $path
+		 * @param string|null $theme
+		 * @return array|bool
+		 */
+		public function theme_status(string $hostname, string $path = '', string $theme = null)
+		{
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			if (!$docroot) {
+				return error('invalid WP location');
+			}
+
+			$ret = $this->_exec($docroot, 'theme status');
+			if (!$ret['success']) {
+				return error('failed to get theme status');
+			}
+
+			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches, PREG_SET_ORDER)) {
+				return error('unable to parse WP theme info');
+			}
+			$themes = [];
+			foreach ($matches as $match) {
+				$name = $match['name'];
+				$version = $match['version'];
+				if (!$versions = $this->themeVersions($name)) {
+					continue;
+				}
+
+				$themes[$name] = [
+					'version' => $version,
+					'next'    => \Opcenter\Versioning::nextVersion($versions, $version),
+					'max'     => $this->themeInfo($name)['version'] ?? end($versions)
+				];
+				// dev version may be present
+				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max", '99999999.999'), (string)$version, '<=') ?:
+					(bool)\Opcenter\Versioning::current($versions, $version);
+			}
+
+			return $theme ? $themes[$theme] ?? error("unknown theme `%s'", $theme) : $themes;
+		}
+
+		/**
+		 * Get theme versions
+		 * @param string $theme
+		 * @return null|array
+		 */
+		protected function themeVersions($theme): ?array {
+			$info = $this->themeInfo($theme);
+			if (!$info || empty($info['versions'])) {
+				return null;
+			}
+			array_forget($info, 'versions.trunk');
+			return array_keys($info['versions']);
+		}
+
+		/**
+		 * Get theme information
+		 *
+		 * @param string $theme
+		 * @return array|null
+		 */
+		protected function themeInfo(string $theme): ?array {
+			$cache = \Cache_Super_Global::spawn();
+			$key = 'wp.tinfo-' . $theme;
+			if (false !== ($data = $cache->get($key))) {
+				return $data;
+			}
+			$url = str_replace('%theme%', $theme, static::THEME_VERSION_CHECK_URL);
+			$info = (array)json_decode(file_get_contents($url), true);
+			$cache->set($key, $info, 86400);
+			return $info;
+		}
+
+		public function install_theme(string $hostname, string $path = '', string $theme, string $version = null): bool
+		{
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			if (!$docroot) {
+				return error('invalid WP location');
+			}
+
+			$args = array(
+				'theme' => $theme
+			);
+			$cmd = 'theme install %(theme)s --activate';
+			if ($version) {
+				$cmd .= ' --version=%(version)s';
+				$args['version'] = $version;
+			}
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
-				return error("theme update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
+				return error("failed to install theme `%s': %s", $theme, coalesce($ret['stderr'], $ret['stdout']));
 			}
+			info("installed theme `%s'", $theme);
 
-			return $ret['success'];
+			return true;
 		}
 
 		/**
@@ -785,9 +960,7 @@
 			if ($path) {
 				$cmd = '--path=%(path)s ' . $cmd;
 				$args['path'] = $path;
-				$stat = $this->file_stat($path);
-				$user = !empty($stat['owner']) && $stat['uid'] >= \a23r::get_class_from_module('user')::MIN_UID ?
-					$stat['owner'] : $this->username;
+				$user = $this->getDocrootUser($path);
 			}
 			$cmd = $cli . ' ' . $cmd;
 			// $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php

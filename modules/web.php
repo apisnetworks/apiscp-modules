@@ -1261,6 +1261,7 @@
 			$map = Map::open(self::PROTOCOL_MAP, Map::MODE_WRITE);
 			$map->removeValues($this->site_id);
 			$map->sync();
+			// @todo remove virtual/.site if suspended
 			\Opcenter\Http\Apache::reload();
 
 		}
