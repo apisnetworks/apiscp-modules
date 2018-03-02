@@ -1106,7 +1106,7 @@
 		 * @param string $ip
 		 * @return bool
 		 */
-		public function add_zone_backend($domain, $ip): bool {
+		public function add_zone_backend(string $domain, string $ip): bool {
 			if (is_debug()) {
 				return info("not creating DNS zone for `%s' in development mode", $domain);
 			} else if (!static::MASTER_NAMESERVER) {
