@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Mysql_Module extends Module_Support_Sql implements \Opcenter\Contracts\Hookable
+	class Mysql_Module extends Module_Support_Sql
 	{
 		const MYSQL_USER_FIELD_SIZE = 16;
 
@@ -1992,6 +1992,7 @@
 				$this->renameUser($prefixold, $prefixnew);
 				// update grants and db table
 			}
+
 			if ($conf_cur['dbaseadmin'] != $conf_new['dbaseadmin']) {
 
 			}
@@ -1999,34 +2000,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if (!$ctx['enabled']) {
-				fatal("mysql service must be enabled");
-			}
-			if (!$ctx['dbaseprefix']) {
-				warn('no database prefix generated - suggesting');
-				if ($prefix =  $ctx->getServiceValue('pgsql','dbaseprefix', null)) {
-					$ctx['dbaseprefix'] = $prefix;
-				} else {
-					$ctx['dbaseprefix'] = \Opcenter\Database\MySQL::suggestPrefix($ctx->getServiceValue('siteinfo', 'domain'));
-				}
-				if (\Opcenter\Database\DatabaseCommon::prefixExists($ctx['dbaseprefix'])) {
-					return error("database prefix `%s' already in use", $ctx['dbaseprefix']);
-				}
-			}
-			if (!empty($ctx['dbaseadmin'])) {
-				$ctx['dbaseadmin'] = $ctx->getServiceValue('siteinfo', 'admin_user');
-			}
-			if (strlen($ctx['dbaseadmin']) > \Mysql_Module::MYSQL_USER_FIELD_SIZE) {
-				return error("database administrator max length is %d characters, %d provided in `%s'",
-					\Mysql_Module::MYSQL_USER_FIELD_SIZE,
-					strlen($ctx['dbaseadmin']),
-					$ctx['dbaseadmin']
-				);
-			}
-			// 3 is arbitrary, allows 26^2 options
-			if (strlen($ctx['dbaseprefix']) > \Mysql_Module::MYSQL_USER_FIELD_SIZE - 3) {
-
-			}
+			return $ctx->preflight();
 		}
 
 		public function _create_user(string $user)

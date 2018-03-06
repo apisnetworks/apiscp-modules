@@ -29,23 +29,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			$hasAmnesty = $ctx->getOldServiceValue('diskquota', 'amnesty');
-			if ($hasAmnesty && !empty($ctx['quota']) && empty($ctx['amnesty'])) {
-				// quota set independent of amnesty, clear amnesty flag
-				// as storage has been permanently upgraded
-				$ctx['amnesty'] = null;
-			}
-			if (!$ctx['enabled']) {
-				return true;
-			}
-			if (!is_float($ctx['quota'])) {
-				$tmp = (float)$ctx['quota'];
-				if ($ctx['quota'] != $tmp) {
-					return error("invalid diskquota encountered, `%s'", $ctx['quota']);
-				}
-				$ctx['quota'] = $tmp;
-			}
-			return true;
+			return $ctx->preflight();
 		}
 
 		public function _create()

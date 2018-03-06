@@ -820,12 +820,17 @@
 
 		public function save_preferences(array $prefs)
 		{
+			if ($this->permission_level & ~PRIVILEGE_SITE && !IS_CLI) {
+				return $this->query('common_save_preferences', $prefs);
+			}
 			// make sure this gets saved in the backend too
 			// session data is only resync'd if the worker
 			// session id changes during its service life
-			\Session::set(\Preferences::SESSION_KEY, $prefs);
 			$ret = $this->set_user_preferences($this->username, $prefs);
-			\Preferences::reload();
+			if (!$this->inContext()) {
+				\Session::set(\Preferences::SESSION_KEY, $prefs);
+				\Preferences::reload();
+			}
 			return $ret;
 		}
 

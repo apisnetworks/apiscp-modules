@@ -1000,4 +1000,19 @@
 				// update grants and db table
 			}
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return true;
+		}
+
+		public function _create_user(string $user)
+		{
+		}
+
+		public function _delete_user(string $user)
+		{
+		}
+
+
 	}

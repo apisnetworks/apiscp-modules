@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Billing_Module extends Module_Skeleton
+	class Billing_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		// @ignore
 		private static $BILLING_SERVER_HOST = BILLING_HOST_READ;
@@ -629,5 +629,41 @@
 		{
 			return false;
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _create()
+		{
+			// TODO: Implement _create() method.
+		}
+
+		public function _delete()
+		{
+			// TODO: Implement _delete() method.
+		}
+
+		public function _edit()
+		{
+			// TODO: Implement _edit() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			// TODO: Implement _edit_user() method.
+		}
+
 
 	}

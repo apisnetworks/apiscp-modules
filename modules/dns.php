@@ -1544,15 +1544,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if (!$ctx['enabled']) {
-				fatal('dns must be enabled');
-			}
-
-			if (!\Opcenter\Dns::providerValid($ctx['provider'])) {
-				return error("Unknown dns provider `%s'", $ctx['provider']);
-			}
-
-			return true;
+			return $ctx->preflight();
 		}
 
 		public function _create_user(string $user)

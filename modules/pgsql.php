@@ -1106,6 +1106,21 @@
 			if ($conf_cur['dbaseadmin'] != $conf_new['dbaseadmin']) {
 
 			}
-
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
 	}

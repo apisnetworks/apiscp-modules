@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Bandwidth_Module extends Module_Skeleton
+	class Bandwidth_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const BW_DIR = '/var/log/bw';
 
@@ -233,5 +233,26 @@
 				" AND info = '" . pg_escape_string($oldinfo) . "'");
 			return $db->affected_rows() > 0;
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _create()
+		{
+			// TODO: Implement _create() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
 
 	}

@@ -326,24 +326,10 @@
 			if (!$this->get_service_value('ssh', 'enabled')) {
 				return array();
 			}
-			$fmt = array('4%03u0', '4%03u9');
-			$prettify = function ($p) use ($fmt) {
-				return array(
-					sprintf($fmt[0], $p),
-					sprintf($fmt[1], $p)
-				);
-			};
-			if (platform_version() < 5) {
-				$site = $this->site_id;
-				return $prettify($site);
-			}
 
-			$ports = $this->get_service_value('ssh', 'port_index');
-
-			if (is_array($ports)) {
-				return array_map($prettify, $ports);
-			}
-			return $prettify($ports);
+			return \Opcenter\Terminal::formatPortRange(
+				$this->get_service_value('ssh', 'port_index')
+			);
 		}
 
 		/**
@@ -510,45 +496,7 @@
 		 * @return bool
 		 */
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool {
-			if (!$ctx['enabled']) {
-				fatal('siteinfo service must be enabled');
-			}
-			if (0 === strpos($ctx['domain'], 'www.')) {
-				/** sigh... */
-				$ctx['domain'] = substr($ctx['domain'], 4);
-			}
-
-			if (!preg_match(Regex::DOMAIN, $ctx['domain'])) {
-				return error("invalid domain `%s'", $ctx['domain']);
-			} else if ($id = \Auth::get_site_id_from_domain($ctx['domain'])) {
-				return error("domain `%s' already attached to site id `%d'",
-					$ctx['domain'], $id);
-			}
-
-			if ($id = \Auth::get_site_id_from_admin($ctx['admin_user'])) {
-				return error("username `%s' is already in use by site id `%d'",
-					$ctx['admin_user'], $id);
-			} else if (!preg_match(Regex::USERNAME, $ctx['admin_user'])) {
-				return error("invalid username `%s' specified", $ctx['admin_user']);
-			}
-
-			if (empty($ctx['admin'])) {
-				$ctx['admin'] = \Opcenter\Role\User::gen_admin();
-			} else if (posix_getpwnam($ctx['admin'])) {
-				return error("system user `%s' already exists", $ctx['admin']);
-			}
-			if (empty($ctx['email'])) {
-				return error("invalid contact address `%s'", $ctx['email']);
-			}
-			$emails = preg_split('/\s*,\s*', $ctx['email']);
-			$bad = array_filter($emails, function ($email) {
-				if (preg_match(\Regex::EMAIL, $email)) {
-					error("invalid email address `%s'", $email);
-					return true;
-				}
-				return false;
-			});
-			return !$bad;
+			return $ctx->preflight();
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd) {

@@ -1236,17 +1236,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if (!$ctx['enabled']) {
-				fatal('web service must be enabled');
-			}
-			$defaultws = $ctx->getDefaultServiceValue('apache', 'webserver');
-			if ($ctx['webserver'] === $defaultws) {
-				$ctx['webserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
-			}
-			if (!preg_match(Regex::DOMAIN, $ctx['webserver'])) {
-				fatal("verify conf failed: domain `%s' is not valid", $ctx['webserver']);
-			}
-			return true;
+			return $ctx->preflight();
 		}
 
 		public function _reload($why = null)

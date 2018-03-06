@@ -131,53 +131,7 @@ declare(strict_types=1);
 
 	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 	    {
-		    if (!$ctx['enabled']) {
-		    	$ctx['memory'] = null;
-		    	$ctx['cpu'] = null;
-		    	return true;
-		    }
-
-		    if ($ctx['memory'] === 0) {
-		    	info('cgroup memory converted from `0\' to unenforced');
-		        $ctx['memory'] = null;
-		    } else if ($ctx['memory'] < 0) {
-			    return error("cgroup memory must be positive number, `%s' provided", $ctx['memory']);
-		    } else if ($ctx['memory'] !== null && !is_numeric($ctx['memory'])) {
-		    	if (false === ($converted = Formatter::changeBytes($ctx['memory'], 'MB'))) {
-				    return error("memory configuration must be numeric, got `%s'", $ctx['memory']);
-			    }
-			    $ctx['memory'] = $converted;
-		    }
-			$converted = Formatter::changeBytes((int)$ctx['memory'] . 'MB', 'KB');
-		    $memavail = Opcenter\System\Memory::stats()['memtotal'];
-		    if ($converted > $memavail) {
-		    	$cap = (int)Formatter::changeBytes($memavail, 'MB', 'KB');
-		    	warn("requested cgroup memory `%s MB' exceeds available system memory - capping to `%s' MB",
-				    Formatter::changeBytes($converted . 'KB', 'MB'),
-					$cap
-			    );
-		    	$ctx['memory'] = $cap;
-		    }
-
-		    if (!empty($ctx['cpuweight'])) {
-		    	if (!is_int($ctx['cpuweight']) || $ctx['cpuweight'] <= 2) {
-		    		return error('CPU weight must be an integer at least 2');
-			    }
-		    }
-
-		    if (!empty($ctx['cpu'])) {
-		    	if (!is_int($ctx['cpu']) || $ctx['cpu'] <= 1) {
-		    		return error('CPU time limit must be a positive integer >= 1');
-			    }
-		    }
-
-		    if (!empty($ctx['proclimit'])) {
-		    	if (!is_int($ctx['proclimit']) || $ctx['proclimit'] < 1) {
-		    		return error('Max CPU processes must be an positive integer >= 1');
-			    }
-		    }
-
-		    return true;
+	    	return $ctx->preflight();
 	    }
 
 	    public function _edit()

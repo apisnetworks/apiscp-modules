@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Aliases_Module extends Module_Skeleton
+	class Aliases_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const CONFIG_DB_DIR = '/etc/httpd/conf/domains/';
 		/** addon domain dns verification record */
@@ -1004,5 +1004,21 @@
 		{
 			return $this->domain_info_path() . '/domain_map';
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
 
 	}

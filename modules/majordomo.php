@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Majordomo_Module extends Module_Skeleton
+	class Majordomo_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const  POSTFIX_LOCAL_ALIASES_FILE = '/etc/postfix/aliases';
 		const  MAJORDOMO_SETUID = 'nobody';
@@ -173,7 +173,12 @@
 				$this->email_add_alias('majordomo', $domain, 'majordomo+' . $domain);
 				$proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
 				// let this run independently
-				$proc->setConfig('majordomo', 'enabled', 1);
+				if (version_compare(platform_version(), '7.5', '>=')) {
+					$svc = 'mlist';
+				} else {
+					$svc = 'majordomo';
+				}
+				$proc->setConfig($svc, 'enabled', 1);
 				$proc->edit();
 			}
 
@@ -433,13 +438,35 @@
 			return array_merge($base, array_intersect_key($base, $base));
 		}
 
-		// currently handled by delete_mailing_list
-
-		private function _setup_initial_majordomo_configuration()
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
+			return $ctx->preflight();
 		}
 
-		private function _remove_initial_majordomo_configuration()
+		public function _create()
 		{
+			// TODO: Implement _create() method.
 		}
+
+		public function _edit()
+		{
+			// TODO: Implement _edit() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			// TODO: Implement _edit_user() method.
+		}
+
+
 	}

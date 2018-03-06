@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Ssh_Module extends Module_Skeleton
+	class Ssh_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const PAM_SVC_NAME = 'ssh';
 
@@ -101,4 +101,31 @@
 				Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
 			}
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _delete()
+		{
+			// TODO: Implement _delete() method.
+		}
+
+		public function _edit()
+		{
+			// TODO: Implement _edit() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+
 	}

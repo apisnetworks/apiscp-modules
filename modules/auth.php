@@ -45,6 +45,16 @@
 			);
 		}
 
+		/**
+		 * Remap siteinfo to auth on 7.5+ platforms
+		 *
+		 * @return string
+		 */
+		private function getAuthService(): string {
+			return version_compare(PLATFORM_VERSION, '7.5', '>=') ?
+				'auth' : 'siteinfo';
+		}
+
 		private static function _connect_db()
 		{
 			if (!is_null(self::$domain_db) && self::$domain_db->ping()) {
@@ -119,39 +129,39 @@
 				return error("demo account password changes disabled");
 			}
 
+			$user = $user ?: $this->username;
+			$domain = $domain ?: $this->domain;
+
 			if (!IS_CLI) {
 				$ret = $this->query('auth_change_cpassword', $cpassword, $user, $domain);
-				if (!$ret || $this->get_service_value('siteinfo', self::PWOVERRIDE_KEY)) {
+				if (!$ret || $this->get_service_value($this->getAuthService(), self::PWOVERRIDE_KEY)) {
 					return $ret;
-				} else {
-					if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-						// admin password changed
-						parent::sendNotice(
-							'password',
-							\Preferences::get('email', $this->get_config('siteinfo', 'email')),
-							Auth::client_ip()
-						);
-					}
 				}
-				\apnscpSession::invalidate_by_user($this->site_id, $this->username, true);
+				if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
+					// admin password changed
+					$prefs = \Preferences::factory($user);
+					parent::sendNotice(
+						'password',
+						[
+							'email' => array_get($prefs, 'email', $this->get_config('siteinfo', 'email')),
+							'ip' => Auth::client_ip(),
+							'username' => $user
+						]
+					);
+				}
+				\apnscpSession::invalidate_by_user($this->site_id, $user, true);
 				return $ret;
 			}
 
-			if ($user && $this->permission_level & PRIVILEGE_USER) {
-				return error("insufficient privileges to specify user");
-			}
 
-			if (!$user) {
-				$user = $this->username;
-			}
-			if (!$domain) {
-				$domain = $this->domain;
+			if ($user !== $this->username && $this->permission_level & PRIVILEGE_USER) {
+				return error("insufficient privileges to specify user");
 			}
 
 			if ($this->permission_level & PRIVILEGE_SITE) {
 				$users = $this->user_get_users();
 				if (!isset($users[$user])) {
-					return error($user . ": user not found");
+					return error('%s: user not found', $user);
 				}
 			}
 
@@ -451,8 +461,10 @@
 				if ($ret) {
 					parent::sendNotice(
 						'domain',
-						$this->get_config('siteinfo', 'email'),
-						Auth::client_ip()
+						[
+							'email' => $this->get_config('siteinfo', 'email'),
+							'ip' => Auth::client_ip()
+						]
 					);
 					$this->_purgeLoginKey($this->username, $olddomain);
 				}
@@ -518,8 +530,10 @@
 					// admin password changed
 					parent::sendNotice(
 						'username',
-						$this->get_config('siteinfo', 'email'),
-						Auth::client_ip()
+						[
+							'email' => $this->get_config('siteinfo', 'email'),
+							'ip' => Auth::client_ip()
+						]
 					);
 					$this->_purgeLoginKey($olduser, $this->domain);
 				}
@@ -598,8 +612,8 @@
 			);
 			$accountMeta = \Auth_Info_User::initializeUser($user, \Auth::get_domain_from_site_id($site_id))->getAccount();
 			$editor = new Util_Account_Editor($accountMeta);
-			$ret = $editor->setMode('edit')->setConfig('siteinfo', self::PWOVERRIDE_KEY, true)
-				->setConfig('siteinfo', 'cpasswd', $crypted)->edit();
+			$ret = $editor->setMode('edit')->setConfig($this->getAuthService(), self::PWOVERRIDE_KEY, true)
+				->setConfig($this->getAuthService(), 'cpasswd', $crypted)->edit();
 			//if (!$ret) {
 			// once Image/Augend go, we can use the above
 			//$editor = Util_Process_Safe::exec('chroot %(path)s usermod -p %(passwd)s %(user)s', $args);
@@ -627,8 +641,8 @@
 			if (!$proc->idPending($key)) {
 				$proc->setID($key);
 				$editor = new Util_Account_Editor($accountMeta);
-				$editor->setMode('edit')->setConfig('siteinfo', 'cpasswd', $oldcrypted)->
-				setConfig('siteinfo', self::PWOVERRIDE_KEY, false);
+				$editor->setMode('edit')->setConfig($this->getAuthService(), 'cpasswd', $oldcrypted)->
+				setConfig($this->getAuthService(), self::PWOVERRIDE_KEY, false);
 				// runs as root, which leaves $site null, populate
 				$cmd = $editor->getCommand();
 				$status = $proc->run($cmd);
@@ -1023,45 +1037,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			// allow backwards compatibility with older format that pass auth in siteinfo
-			$passwd = $ctx->getNewServiceValue('siteinfo', null);
-
-			if ($this->hasPasswordUpdate($passwd)) {
-				foreach ($ctx as $k => $v) {
-					if (isset($passwd[$k])) {
-						$ctx[$v] = $k;
-					}
-				}
-			}
-			if (!empty($ctx[\Auth_Module::PWOVERRIDE_KEY])) {
-				$ctx[\Auth_Module::PWOVERRIDE_KEY] = (bool)$ctx[\Auth_Module::PWOVERRIDE_KEY];
-			}
-			if (!$ctx->hasOld() || ($ctx->hasOld() && $this->hasPasswordUpdate($ctx))) {
-				// account creation or alter password necessary
-				if (!empty($ctx['cpasswd']) && !empty($ctx['passwd'])) {
-					return error("either cpasswd or passwd may be specified, but not both");
-				}
-				if (!empty($ctx['tpasswd'])) {
-					$ctx['passwd'] = \Util_Terminal::password_interactive();
-					$ctx['tpasswd'] = null;
-				} else if (!empty($ctx['cpasswd'])) {
-					if (!\Opcenter\Auth\Shadow::valid_crypted($ctx['cpasswd'])) {
-						return error("invalid crypted passwd format, `%s'", $ctx['passwd']);
-					}
-				}
-
-				if (empty($ctx['cpasswd'])) {
-					if (!\Opcenter\Auth\Password::strong($ctx['passwd'])) {
-						return error("password does not meet strength criteria");
-					}
-					$ctx['cpasswd'] = \Opcenter\Auth\Shadow::crypt($ctx['passwd']);
-					$ctx['passwd'] = null;
-					/**
-					 * @todo remove tpasswd/cpasswd/passwd trace from config,
-					 *       via Cardinal perhaps?
-					 */
-				}
-			}
-			return true;
+			return $ctx->preflight();
 		}
 	}

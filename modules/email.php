@@ -1601,29 +1601,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if (!$ctx['enabled']) {
-				return true;
-			}
-
-			$defaultws = $ctx->getDefaultServiceValue('mail', 'mailserver');
-			if ($ctx['mailserver'] === $defaultws) {
-				$ctx['mailserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
-			}
-			if (empty($ctx['provider'])) {
-				$ctx['provider'] = $ctx->getDefaultServiceValue('mail','provider');
-			}
-			if (!preg_match(Regex::DOMAIN, $ctx['mailserver'])) {
-				fatal("verify conf failed: domain `%s' is not valid", $ctx['webserver']);
-			}
-
-			if (!is_int($ctx['preference'])) {
-				return error("MX priority must be numeric, `%s' given", $ctx['preference']);
-			}
-
-			if (!\Opcenter\Mail::providerValid($ctx['provider'])) {
-				return error("Unknown mail provider `%s'", $ctx['provider']);
-			}
-
-			return true;
+			return $ctx->preflight();
 		}
 	}

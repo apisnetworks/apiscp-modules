@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Ssl_Module extends Module_Skeleton
+	class Ssl_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		/**
 		 * {{{ void __construct(void)
@@ -1170,4 +1170,31 @@
 			$der = base64_decode($data);
 			return $der;
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return $ctx->preflight();
+		}
+
+		public function _delete()
+		{
+			// TODO: Implement _delete() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			// TODO: Implement _edit_user() method.
+		}
+
+
 	}

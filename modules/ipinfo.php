@@ -141,7 +141,7 @@
 			// this can't happen yet, because configuration requires an IP before
 			// it can be committed (and therefore invoke editVirtDomain.sh)
 			if ($conf_cur['namebased'] && !$conf_new['namebased'] && !$conf_new['ipaddrs']) {
-				$ip = $this->_findFreePTR();
+				$ip = \Opcenter\Net\Ip4::allocate();
 				$conf_new['ipaddrs'] = array($ip);
 				info("allocated ip `%s'", $ip);
 			}
@@ -223,17 +223,6 @@
 		}
 
 		/**
-		 * Find free IP address in servers with contigous blocks
-		 *
-		 * @return void|string
-		 */
-		protected function _findFreePTR()
-		{
-
-			return Opcenter\Net\Ip4::allocate();
-		}
-
-		/**
 		 * Check whether IP is assigned
 		 *
 		 * Assigned IP addresses will have PTRs. Unassigned will be empty.
@@ -286,35 +275,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if ($ctx['namebased']) {
-				if (empty($ctx['nbaddrs'])) {
-					$pool = \Opcenter\Net\Ip4::nb_pool();
-					if (!$pool) {
-						return error("no IP addresses found to allocate to site `%s'",
-							$ctx->getServiceValue('siteinfo', 'domain'));
-					}
-					$ip = $pool[$this->site_id % count($pool)];
-					$ctx['nbaddrs'] = [$ip];
-				}
-			} else {
-				if (empty($ctx['ipaddrs'])) {
-					$ip = $this->_findFreePTR();
-					if (!$ip) {
-						return error("missing IP address for non-namebased");
-					}
-					info("assigning `%s' to site", $ip);
-					$ctx['ipaddrs'] = [$ip];
-				} else {
-					$ip = $ctx['ipinfo'];
-				}
-				if (!\Opcenter\Net\Iface::bound($ip)) {
-					\Opcenter\Net\Ip4::bind($ip);
-				}
-			}
-
-			if (!\Opcenter\Net\Iface::bound($ip)) {
-				return error("requested address `%s' not bound to server", $ip);
-			}
-			return true;
+			return $ctx->preflight();
 		}
 	}

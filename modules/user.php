@@ -970,6 +970,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
+			return $ctx->preflight();
 		}
 
 		public function _create()
