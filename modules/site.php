@@ -28,9 +28,6 @@
 		// 24 hours
 		const AMNESTY_MULTIPLIER = QUOTA_STORAGE_BOOST;
 
-		// increase storage by 100% max
-		private $user_srvc_cache = array();
-
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -217,7 +214,10 @@
 			if (!$ret) {
 				return false;
 			}
-			parent::sendNotice('email', $oldemail, Auth::client_ip());
+			parent::sendNotice('email', [
+				'email' => $oldemail,
+				'ip' => Auth::client_ip()
+			]);
 			return true;
 		}
 
@@ -496,7 +496,7 @@
 		 * @return bool
 		 */
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool {
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd) {
