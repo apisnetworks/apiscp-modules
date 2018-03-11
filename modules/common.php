@@ -660,7 +660,7 @@
 		{
 			foreach ($services as $srvc_name => $data) {
 				array_unshift($data, '[DEFAULT]');
-				$conf = Util_Conf::write_ini($data);
+				$conf = Util_Conf::build_ini($data);
 				if ($journal) {
 					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . '.new', $conf);
 				} else {
@@ -944,8 +944,12 @@
 		{
 			$svc = array();
 			if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				$prefix = $this->domain_info_path();
-				$dir = opendir($this->domain_info_path() . "/current");
+				$path = $this->domain_info_path('/current');
+				if (!file_exists($path . '/siteinfo')) {
+					$path = $this->domain_info_path('/new');
+				}
+				$prefix = dirname($path);
+				$dir = opendir($path);
 				if (!$dir) {
 					fatal('failed to collect services - account meta does not exist?');
 				}
@@ -953,8 +957,12 @@
 					if ($cfg == "." || $cfg == "..") {
 						continue;
 					}
-					$file = $prefix . '/new/' . $cfg . '.new';
-					if (!file_exists($file)) {
+
+					if (!file_exists($file = "${prefix}/new/${cfg}.new") &&
+						!file_exists($file = "${prefix}/new/${cfg}"))
+					{
+						// @todo v7.5+ platforms drop .new suffix
+						// update elsewhere
 						$file = $prefix . '/current/' . $cfg;
 					}
 
@@ -972,18 +980,19 @@
 
 		private function _getServices($svc, $type)
 		{
-			$suffix = '';
-			if ($type == 'new') {
-				$suffix = '.new';
-			}
-
 			$svcs = (array)$svc;
 			$conf = array();
 			$path = $this->domain_info_path() . '/' . $type;
 			foreach ($svcs as $s) {
-				$file = $path . '/' . $s . $suffix;
+				$file = $path . '/' . $s;
 				if (!file_exists($file)) {
-					continue;
+					// older platforms name "new/<svc>.new"
+					// removed as of v7.5
+					$file .= '.' . $type;
+					if (!file_exists($file))
+					{
+						continue;
+					}
 				}
 				$conf[$s] = Util_Conf::parse_ini($file);
 

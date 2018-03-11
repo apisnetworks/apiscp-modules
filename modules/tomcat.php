@@ -19,6 +19,7 @@
 	 */
 	class Tomcat_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = ['apache'];
 		const TOMCAT_PORT = 8080;
 
 		public $exportedFunctions;
@@ -189,7 +190,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create()

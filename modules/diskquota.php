@@ -12,6 +12,10 @@
 	 */
 
 	class Diskquota_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable {
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			'users'
+		];
 		public function _edit()
 		{
 			// TODO: Implement _edit() method.
@@ -29,7 +33,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create()

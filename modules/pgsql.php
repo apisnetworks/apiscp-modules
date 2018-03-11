@@ -19,6 +19,9 @@
 	 */
 	class Pgsql_Module extends Module_Support_Sql
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo'
+		];
 		const PG_TEMP_PASSWORD = '23f!eoj3';
 		const PGSQL_DATADIR = '/var/lib/pgsql';
 
@@ -1110,7 +1113,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create_user(string $user)

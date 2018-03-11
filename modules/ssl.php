@@ -19,11 +19,10 @@
 	 */
 	class Ssl_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
-		/**
-		 * {{{ void __construct(void)
-		 *
-		 * @ignore
-		 */
+		const DEPENDENCY_MAP = [
+			'apache', 'siteinfo'
+		] ;
+
 		const CRT_PATH = '/etc/httpd/conf/ssl.crt';
 		const KEY_PATH = '/etc/httpd/conf/ssl.key';
 		const CSR_PATH = '/etc/httpd/conf/ssl.csr';
@@ -1173,7 +1172,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _delete()

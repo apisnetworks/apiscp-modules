@@ -19,6 +19,11 @@
 	 */
 	class User_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			// user subdomains must be removed first
+			'apache'
+		];
 		const MIN_UID = 500;
 
 		// minimum non-system user id
@@ -245,7 +250,7 @@
 				info("Email not enabled for user");
 			}
 			$instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
-			$uid = $instance->capture_uid($this->site_id);
+			$uid = $instance->captureUid($this->site_id);
 			$ret = $instance->create($user, [
 				'cpasswd' => $password,
 				'gid'     => $this->group_id,
@@ -253,7 +258,7 @@
 				'uid'     => $uid
 			]);
 			if (!$ret) {
-				$instance->release_uid($uid);
+				$instance->releaseUid($uid);
 				// user creation failed
 				return false;
 			}
@@ -970,7 +975,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create()

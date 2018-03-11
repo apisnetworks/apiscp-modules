@@ -131,7 +131,7 @@ declare(strict_types=1);
 
 	    public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 	    {
-	    	return $ctx->preflight();
+	    	return true;
 	    }
 
 	    public function _edit()

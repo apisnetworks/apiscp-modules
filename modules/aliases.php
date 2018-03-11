@@ -19,6 +19,10 @@
 	 */
 	class Aliases_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			'users', // addon domain ownership
+		];
 		const CONFIG_DB_DIR = '/etc/httpd/conf/domains/';
 		/** addon domain dns verification record */
 		const DNS_VERIFICATION_RECORD = 'newacct';
@@ -1007,7 +1011,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create_user(string $user)

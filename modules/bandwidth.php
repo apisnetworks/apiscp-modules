@@ -19,6 +19,10 @@
 	 */
 	class Bandwidth_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			'apache'
+		];
 		const BW_DIR = '/var/log/bw';
 
 		public function __construct()
@@ -236,7 +240,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create()

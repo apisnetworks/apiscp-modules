@@ -19,6 +19,9 @@
 	 */
 	class Mysql_Module extends Module_Support_Sql
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo'
+		];
 		const MYSQL_USER_FIELD_SIZE = 16;
 
 		const MYSQL_DATADIR = '/var/lib/mysql';
@@ -1253,7 +1256,7 @@
 		 *                     x509_issuer
 		 * @return bool query succeeded
 		 */
-		public function edit_user($user, $host, $opts)
+		public function edit_user(string $user, string $host, array $opts): bool
 		{
 			$prefix = $this->get_prefix();
 			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
@@ -2000,7 +2003,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create_user(string $user)

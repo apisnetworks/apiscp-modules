@@ -19,6 +19,9 @@
 	 */
 	class Auth_Module extends Module_Support_Auth implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo', 'users'
+		];
 		const API_KEY_LIMIT = 10;
 		const API_USER_SYNC_COMMENT = "apnscp user sync";
 		// override in effect, don't report
@@ -1037,6 +1040,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 	}

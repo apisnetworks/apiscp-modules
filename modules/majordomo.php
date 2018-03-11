@@ -19,6 +19,9 @@
 	 */
 	class Majordomo_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'mail'
+		];
 		const  POSTFIX_LOCAL_ALIASES_FILE = '/etc/postfix/aliases';
 		const  MAJORDOMO_SETUID = 'nobody';
 
@@ -440,7 +443,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _create()

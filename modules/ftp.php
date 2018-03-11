@@ -19,6 +19,11 @@
 	 */
 	class Ftp_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			'users'
+		];
+
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -324,17 +329,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			if (!$ctx['enabled']) {
-				return true;
-			}
-			$defserver = $ctx->getDefaultServiceValue('ftp', 'ftpserver');
-			if ($ctx['ftpserver'] === $defserver) {
-				$ctx['ftpserver'] .= $ctx->getServiceValue('siteinfo', 'domain');
-			}
-			if (!preg_match(Regex::DOMAIN, $ctx['ftpserver'])) {
-				fatal("verify conf failed: domain `%s' is not valid", $ctx['ftpserver']);
-			}
-
 			return true;
 		}
 

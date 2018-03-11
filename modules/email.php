@@ -19,6 +19,9 @@
 	 */
 	class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo', 'ipinfo', 'ipinfo6', 'users'
+		];
 		const MAILDIR_HOME = 'Mail';
 		const MAILBOX_SPECIAL = 's';
 		const MAILBOX_FORWARD = 'a';
@@ -1093,7 +1096,7 @@
 			$cache->set('em.webmail', $locations);
 
 			$file = $this->_customWebmailFile();
-			file_put_contents($file, Util_Conf::write_ini($locations));
+			file_put_contents($file, Util_Conf::build_ini($locations));
 			if (!$this->dns_record_exists($this->domain, $subdomain, 'A')) {
 				$ip = $this->common_get_ip_address();
 				$this->dns_add_record($this->domain, $subdomain, 'A', $ip);
@@ -1601,6 +1604,6 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 	}

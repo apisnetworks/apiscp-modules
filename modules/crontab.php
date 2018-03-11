@@ -19,6 +19,11 @@
 	 */
 	class Crontab_Module extends Module_Skeleton
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo',
+			'ssh'
+		];
+
 		const CRON_SPOOL = '/var/spool/cron';
 		const CRON_PID = '/var/run/crond.pid';
 

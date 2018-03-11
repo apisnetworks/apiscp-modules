@@ -20,7 +20,9 @@
 	class Ssh_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const PAM_SVC_NAME = 'ssh';
-
+		const DEPENDENCY_MAP = [
+			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'auth'
+		];
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -104,7 +106,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _delete()

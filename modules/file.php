@@ -20,11 +20,6 @@
 	 * @todo add xattr support
 	 */
 
-	if (!defined('STDERR')) {
-		$fp = fopen('/dev/null', 'w');
-		define('STDERR', $fp);
-	}
-
 	class File_Module extends Module_Skeleton
 	{
 		const UPLOAD_UID = WS_UID;
@@ -544,7 +539,7 @@
 					// otherwise we can use normal posix functions to query /etc/passwd
 					$owner = posix_getpwuid($stat_details['uid']);
 					$owner = $owner['name'];
-					$group = posix_getgrnam($stat_details['gid']);
+					$group = posix_getgrgid($stat_details['gid']);
 					$group = $group['name'];
 				}
 
@@ -1868,7 +1863,6 @@
 		 * @return string
 		 *
 		 * @throws FileError if the requested file is not a file (directory)
-		 * @throws PermissionError if the user does not have access to read the file
 		 */
 		public function get_file_contents($mPath, $raw = true)
 		{
@@ -1908,14 +1902,14 @@
 				}
 			}
 			if (!is_readable($path)) {
-				return new FileError("Unable to read " . $mPath);
+				return error("Unable to read " . $mPath);
 			}
 			if (!$this->_assert_permissions($mPath, 'read')) {
-				return new PermissionError("Unable to read file");
+				return error("Unable to read file");
 			}
 			$stat = $this->stat($mPath);
-			if (!$stat['can_read']) {
-				return new PermissionError("Unable to read file " . $mPath);
+			if (!$stat || !$stat['can_read']) {
+				return error("Unable to read file " . $mPath);
 			}
 			$str = file_get_contents($path);
 			return ($mRaw ? $str : base64_encode($str));
@@ -1962,7 +1956,6 @@
 		 *
 		 * @privilege PRIVILEGE_ALL
 		 * @throws FileError the requested file exists and $mOverwrite is false
-		 * @throws PermissionError the user does not have access to write to the parent directory/file
 		 */
 		public function put_file_contents($file, $data, $overwrite = true, $binary = false)
 		{
@@ -1992,7 +1985,7 @@
 			}
 
 			if (!file_exists($path) && (!$dir_stat['can_write'])) {
-				return new PermissionError("Cannot write to destination directory " . dirname($mFile));
+				return error("Cannot write to destination directory " . dirname($mFile));
 			} else {
 				if ($binary && !preg_match('/^[a-zA-Z0-9\+\/=]*$/', $mData)) {
 					return new ArgumentError("File data not base64 encoded");
@@ -2007,7 +2000,7 @@
 						return new FileError("Target " . $mFile . " is not a file");
 					} else {
 						if (!$file_stat['can_write']) {
-							return new PermissionError("Cannot overwrite file");
+							return error("Cannot overwrite file");
 						}
 					}
 				}
@@ -2032,8 +2025,9 @@
 		 *
 		 * @param string $file file name to create
 		 * @param int    $mode mode for the file
+		 * @return bool|\Exception
 		 */
-		public function create_file($file, $mode = 0644)
+		public function create_file(string $file, $mode = 0644)
 		{
 			if (!IS_CLI) {
 				return $this->query('file_create_file', $file, $mode);
@@ -2045,15 +2039,15 @@
 			}
 			$stat = $this->stat(dirname($file));
 
-			if ($stat instanceof Exception) {
+			if ($stat instanceof Exception || !$stat) {
 				return $stat;
 			}
 
 			if (!$stat['can_write']) {
-				return new FileError(dirname($file) . ": cannot write to directory");
+				return error(dirname($file) . ": cannot write to directory");
 			}
 			if (file_exists($path)) {
-				return new FileError($file . ": file exists");
+				return error($file . ": file exists");
 			}
 			$fp = fopen($path, 'w');
 			fclose($fp);

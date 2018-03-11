@@ -21,6 +21,12 @@
 	 */
 	class Web_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
+		const DEPENDENCY_MAP = [
+			'ipinfo',
+			'ipinfo6',
+			'siteinfo',
+			'aliases' // addon domains
+		];
 
 		// primary domain document root
 		const MAIN_DOC_ROOT = '/var/www/html';
@@ -1236,7 +1242,7 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
-			return $ctx->preflight();
+			return true;
 		}
 
 		public function _reload($why = null)
