@@ -372,16 +372,21 @@
 			if (!IS_CLI) {
 				return $this->query('email_save_mailboxes');
 			}
+			$path = $this->domain_info_path();
+			if (!is_dir($path)) {
+				// site deleted, ignore save
+				return true;
+			}
 			$q = 'SELECT * FROM email_lookup WHERE domain IN
                 (select domain FROM domain_lookup WHERE site_id = ' . $this->site_id . ')';
 			$db = \PostgreSQL::initialize();
 			$email = array();
-			$rs = $db->query($q);
+			$db->query($q);
 			while ($row = $db->fetch_assoc()) {
 				$email[] = array_map('trim', $row);
 			}
-			$file = $this->domain_info_path() . '/email_addr';
-			return (bool)file_put_contents($file, serialize($email), LOCK_EX);
+			$path .= '/email_addr';
+			return (bool)file_put_contents($path, serialize($email), LOCK_EX);
 		}
 
 		/**

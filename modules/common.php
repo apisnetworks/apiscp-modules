@@ -650,13 +650,14 @@
 		/**
 		 * bool save_service_information_backend([bool = true])
 		 *
-		 * @param  bool $mSync sync configuration change to master configuration.
+		 * @param array $services
+		 * @param bool $journal sync configuration change to master configuration.
 		 *                     If the supplied parameter is false, then the new
 		 *                     configuration value will be commited to the journal
 		 *                     requiring EditVirtDomain to be called
 		 * @return bool
 		 */
-		public function save_service_information_backend($services, $journal = false)
+		public function save_service_information_backend(array $services, bool $journal = false): bool
 		{
 			foreach ($services as $srvc_name => $data) {
 				array_unshift($data, '[DEFAULT]');
@@ -670,7 +671,7 @@
 			return true;
 		}
 
-		public function save_service_information_old($services, $journal = false)
+		public function save_service_information_old(array$services, bool $journal = false): bool
 		{
 			foreach ($services as $srvc_name => $info) {
 				$data = "[DEFAULT]" . "\n";
@@ -721,10 +722,10 @@
 		 *
 		 * This is an API call. Use UCard::setPref() to set tz in app
 		 *
-		 * @param $zone
+		 * @param string $zone timezone name
 		 * @return bool
 		 */
-		public function set_timezone($zone)
+		public function set_timezone(string $zone): bool
 		{
 			$zi = timezone_open($zone);
 			if ($zi === false) {

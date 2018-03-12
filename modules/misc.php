@@ -42,36 +42,7 @@
 		 */
 		public static function cp_version($field = '')
 		{
-			// @TODO convert to cache
-			$cache = Cache_Super_Global::spawn();
-			$key = 'g:cp_rev';
-			if (false == ($cp = $cache->get($key))) {
-				$proc = \Util_Process::exec('cd %(path)s && git log --submodule -n 1', ['path' => INCLUDE_PATH]);
-
-				if (!$proc['success'] || !preg_match(Regex::CHANGELOG_COMMIT, $proc['output'], $commit)) {
-					return error("failed to fetch git log");
-				}
-				$tokens = explode('.', APNSCP_VERSION);
-				$n = 3-sizeof($tokens);
-				while ($n > 0) {
-					$tokens[] = '0';
-					$n--;
-				}
-				$cp = array(
-					'revision'  => (string)$commit['commit'],
-					'timestamp' => strtotime($commit['date']),
-					'ver_maj'   => $tokens[0],
-					'ver_min'   => $tokens[1],
-					'ver_patch' => $tokens[2]
-				);
-
-				$ts = mktime(3, 30, 0);
-				if (time() >= $ts) {
-					$ts += 86400;
-				}
-				$cache->set($key, $cp, $ts - $_SERVER['REQUEST_TIME']);
-			}
-			return $field ? $cp[$field] : $cp;
+			return \Opcenter::versionData($field);
 		}
 
 		public function platform_version()

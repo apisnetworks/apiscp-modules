@@ -31,7 +31,7 @@
 		// primary domain document root
 		const MAIN_DOC_ROOT = '/var/www/html';
 		const APACHE_HOME = '/etc/httpd';
-		const WEB_USERNAME = 'apache';
+		const WEB_USERNAME = APACHE_USER;
 		const PROTOCOL_MAP = '/etc/httpd/conf/http10';
 
 		protected $service_cache;
@@ -454,17 +454,16 @@
 		public function add_subdomain($subdomain, $docroot)
 		{
 
-			if (!IS_CLI) {
+			if (false && !IS_CLI) {
 				return $this->query('web_add_subdomain', $subdomain, $docroot);
 			}
 			$subdomain = strtolower(trim($subdomain));
-			if ($subdomain == "www") {
+			if ($subdomain === 'www') {
 				return error("illegal subdomain name");
 			}
 			$subdomain = preg_replace('/^www\./', '', strtolower($subdomain));
-
 			if (!preg_match(Regex::SUBDOMAIN, $subdomain) &&
-				substr($subdomain, 0, 2) != '*.' &&
+				0 !== strpos($subdomain, '*.') &&
 				!preg_match(Regex::DOMAIN, $subdomain)
 			) {
 				return error($subdomain . ": invalid subdomain");
@@ -489,11 +488,15 @@
 			 * add the record.  First we check to see if it's FQDN or not.  If
 			 * FQDN, check DNS and add.
 			 */
+			$domains = array_keys($this->list_domains());
 			if ($subdomain[0] == '*') {
 				$domain = substr($subdomain, 2);
 				$subdomain = '';
+				if (!in_array($domain, $domains)) {
+					return error("domain `%s' not attached to account (DNS > Addon Domains)", $domain);
+				}
 			}
-			$domains = array_keys($this->list_domains());
+
 			// is it a fully-qualified domain name? i.e. www.apisnetworks.com or
 			// a subdomain? e.g. "www"
 			$FQDN = false;
@@ -633,10 +636,12 @@
 		}
 
 		/**
-		 * @TODO handle log profiles
+		 * Remove a subdomain
 		 *
+		 * @param string $subdomain fully or non-qualified subdomain
+		 * @return bool
 		 */
-		public function remove_subdomain($subdomain)
+		public function remove_subdomain(string $subdomain): bool
 		{
 			if (!IS_CLI) {
 				return $this->query('web_remove_subdomain', $subdomain);
@@ -650,6 +655,12 @@
 			}
 			$this->map_subdomain('delete', $subdomain);
 			$path = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
+			if (is_link($path)) {
+				return unlink($path) && warn("subdomain `%s' path `%s' corrupted, removing reference",
+						$subdomain,
+						$this->file_unmake_path($path)
+					);
+			}
 			$dh = opendir($path);
 			while (false !== ($entry = readdir($dh))) {
 				if ($entry === '..' || $entry === '.') {
@@ -673,14 +684,16 @@
 		 * @param string $user
 		 * @return bool
 		 */
-		public function remove_user_subdomain($user)
+		public function remove_user_subdomain(string $user): bool
 		{
+			$ret = true;
 			foreach ($this->list_subdomains() as $subdomain => $dir) {
 				if (!preg_match('!^/home/' . preg_quote($user) . '(/|$)!', (string)$dir)) {
 					continue;
 				}
-				$this->web_remove_subdomain($subdomain);
+				$ret &= $this->web_remove_subdomain($subdomain);
 			}
+			return (bool)$ret;
 		}
 
 		// {{{ remove_user_subdomain()
@@ -695,7 +708,7 @@
 		 * @param  string $user      user to assign mapping
 		 * @return bool
 		 */
-		public function map_subdomain($mode, $subdomain, $path = null, $user = null)
+		public function map_subdomain(string $mode, string $subdomain, string $path = null, string $user = null): bool
 		{
 			if (!IS_CLI) {
 				return $this->query('web_map_subdomain',
@@ -752,7 +765,7 @@
 		 * @param string $newpath
 		 * @return bool
 		 */
-		public function rename_subdomain($subdomain, $newsubdomain = null, $newpath = null)
+		public function rename_subdomain(string $subdomain, string $newsubdomain = null, string $newpath = null): bool
 		{
 			if (!$this->subdomain_exists($subdomain)) {
 				return error($subdomain . ": subdomain does not exist");
@@ -776,14 +789,11 @@
 			$sdpath = Opcenter\Http\Apache::makeSubdomainPath($subdomain);
 			$link = null;
 			$old_stat = $this->file_make_path($sdpath, $link);
-			// default path in case the subdomain is not defined
-			$old_path = "/dev/null";
 			// case when html is missing due to erroneous deletion of symlink
 
+			$old_path = $sdpath;
 			if ($link) {
 				$old_path = $this->file_convert_relative_absolute(dirname($sdpath), $old_stat['referent']);
-			} else {
-				$old_path = $sdpath;
 			}
 			// rename subdomain, keep path
 
