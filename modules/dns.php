@@ -1310,10 +1310,10 @@
 		 *
 		 * @param  string $rr resource record [MX, A, AAAA, CNAME, DNAME, TXT, SRV]
 		 * @param  string $zone
-		 * @return array resource records
+		 * @return array|null resource records
 		 *
 		 */
-		public function get_records_by_rr($rr, $zone = null)
+		public function get_records_by_rr(string $rr, string $zone = null): ?array
 		{
 			if (is_null($zone)) {
 				$zone = $this->domain;
@@ -1321,7 +1321,8 @@
 
 			if (!$this->owned_zone($zone)) {
 				if (!$this->owned_zone($rr)) {
-					return error("access denied - cannot view zone `" . $zone . "'");
+					error("access denied - cannot view zone `" . $zone . "'");
+					return null;
 				}
 				// confusing half-assed backwards
 				// accept arguments in either form
@@ -1332,7 +1333,8 @@
 
 			$rr = strtolower($rr);
 			if ($rr !== 'any' && !in_array($rr, static::$permitted_records)) {
-				return error("`$rr' invalid resource record type");
+				error("`$rr' invalid resource record type");
+				return null;
 			}
 
 			$recs = $this->get_zone_information($zone);
@@ -1357,18 +1359,20 @@
 		 * @param string|null $domain domain or current domain to check
 		 * @return array
 		 */
-		public function get_zone_information($domain = null)
+		public function get_zone_information($domain = null): ?array
 		{
 			if (is_null($domain)) {
 				$domain = $this->domain;
 			}
 
 			if (!$this->permission_level & (PRIVILEGE_ADMIN) && !$this->owned_zone($domain)) {
-				return error("access denied - cannot view zone `" . $domain . "'");
+				error("access denied - cannot view zone `" . $domain . "'");
+				return null;
 			}
 			$rec = $this->_get_zone_information_raw($domain);
 			if (is_null($rec)) {
-				return error("Non-authorative for zone " . $domain);
+				error("Non-authorative for zone " . $domain);
+				return null;
 			}
 			return $rec;
 

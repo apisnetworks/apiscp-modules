@@ -454,7 +454,7 @@
 		public function add_subdomain($subdomain, $docroot)
 		{
 
-			if (false && !IS_CLI) {
+			if (!IS_CLI) {
 				return $this->query('web_add_subdomain', $subdomain, $docroot);
 			}
 			$subdomain = strtolower(trim($subdomain));

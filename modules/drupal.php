@@ -847,15 +847,11 @@
 			}
 			$user = $this->username;
 			if ($path) {
-				$cli = 'cd %(path)s && ' . $cli;
-				$args['path'] = $path;
-				$stat = $this->file_stat($path);
-				$user = !empty($stat['owner']) && $stat['uid'] >= \a23r::get_class_from_module('user')::MIN_UID ?
-					$stat['owner'] : $this->username;
+				$user = parent::getDocrootUser($path);
 			}
 			$cmd = $cli . ' ' . $cmd;
 			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
-			if (0 === strpos($ret['stdout'], 'Error:')) {
+			if (0 === strpos(coalesce($ret['stdout'], $ret['stdout']), 'Error:')) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
 				if (!$ret['stderr']) {
