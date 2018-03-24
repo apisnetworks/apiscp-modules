@@ -253,6 +253,12 @@
 					'store_body' => false
 				)
 			);
+			$ret = \Util_Process::exec('%s/artisan config:cache', INCLUDE_PATH);
+			if ($ret['success']) {
+				dlog("Cached Laravel configuration");
+			} else {
+				dlog("Failed to cache Laravel configuration - %s", $ret['stderr']);
+			}
 			try {
 				$http->send();
 			} catch (Exception $e) {

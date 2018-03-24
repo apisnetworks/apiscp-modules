@@ -801,22 +801,22 @@
 		/**
 		 * Generate a list of files contributing towards the account quota
 		 *
-		 * Upon successful generation, the list is stored under ~/filelist-apis.txt
+		 * Upon successful generation, the list is stored under ~/filelist-<PANEL_BRAND>.txt
 		 *
 		 * @param  string $user restrict search to user
 		 * @param  string $base glob-style directories to inspect
 		 * @param  bool   $sort sort by size
-		 * @return bool
+		 * @return bool|string
 		 */
 		public function find_quota_files(
-			$user = '',
-			$base = '/{home,usr/local,var/www,var/lib,var/log}',
-			$sort = true
+			string $user = '',
+			string $base = '/{home,usr/local,var/www,var/lib,var/log}',
+			bool $sort = true
 		) {
 			if (!IS_CLI) {
 				return $this->query('user_find_quota_files', $user, $base, $sort);
 			}
-			$file = 'filelist-apis.txt';
+			$file = 'filelist-' . PANEL_BRAND . '.txt';
 			if (!$user) {
 				$user_args = '';
 			} else {
@@ -873,14 +873,14 @@
 				return error("invalid group `%s'", $group);
 			}
 
-			$groups = $this->sgroups();
-			if (count($groups) == 1) {
-				return error("cannot remove last group");
-			} else {
-				if (!in_array($group, $groups)) {
-					return error("cannot remove non-existent group `%s'", $group);
-				}
+			if ($group === $this->username) {
+				return error("cannot remove base group name `%s'", $this->username);
 			}
+			$groups = $this->sgroups();
+			if (!in_array($group, $groups)) {
+				return error("cannot remove non-existent group `%s'", $group);
+			}
+
 			$file = $this->domain_fs_path() . '/etc/group';
 			$fp = fopen($file, 'r+');
 			flock($fp, LOCK_EX);
@@ -927,7 +927,7 @@
 		 * @param string $group
 		 * @return bool
 		 */
-		public function sgroupadd($group)
+		public function sgroupadd(string $group): bool
 		{
 			if (!preg_match(Regex::GROUPNAME, $group)) {
 				return error("invalid group `%s'", $group);
@@ -938,14 +938,11 @@
 				return error("duplicate group `%s'", $group);
 			}
 			// @XXX -o is a Redhat-specific param to override duplicate gid
-			$cmd = 'chroot %(path)s groupadd -o -f -g %(groupid)d %(group)s';
-			$args = array(
-				'path'    => $this->domain_fs_path(),
-				'groupid' => $this->group_id,
-				'group'   => $group
-			);
-			$proc = Util_Process_Safe::exec($cmd, $args);
-			return $proc['success'];
+			return (new \Opcenter\Role\Group($this->domain_fs_path()))->create($group, [
+				'force' => true,
+				'duplicate' => true,
+				'gid' => $this->group_id
+			]);
 		}
 
 

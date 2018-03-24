@@ -266,7 +266,7 @@
 		 */
 		protected function owned_zone($zone)
 		{
-			if (is_debug() || ($this->getAuthContext()->level & PRIVILEGE_ADMIN)) {
+			if (($this->getAuthContext()->level & PRIVILEGE_ADMIN)) {
 				return true;
 			}
 			$aliases = $this->aliases_list_aliases();

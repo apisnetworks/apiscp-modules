@@ -2782,7 +2782,7 @@
 				}
 				$path = $this->make_path(TEMP_DIR . '/' . $file);
 				$base = $this->make_path(TEMP_DIR);
-				if (substr($path, 0, strlen($base)) != $base) {
+				if (0 !== strpos($path, $base . '/')) {
 					error("file `$file' contains invalid characters");
 					report("Invalid chars? $path $base $file");
 					continue;
@@ -2939,17 +2939,17 @@
 		 * - "0" permission will disallow all access for named user
 		 *
 		 * @param string|array    $file
-		 * @param string|null     $user
+		 * @param string|null|array     $user
 		 * @param int|string|null $permission
 		 * @param array           $xtra map of default: bool, recursive: bool (not manageable by subuser)
 		 * @return bool
 		 */
-		public function set_acls($file, $user = null, $permission = null, $xtra = array())
+		public function set_acls($file, $user = null, $permission = null, array $xtra = array())
 		{
 			if (!IS_CLI) {
 				return $this->query('file_set_acls', $file, $user, $permission, $xtra);
 			}
-			if (!is_null($permission) && ctype_digit($permission)) {
+			if (null !== $permission && ctype_digit($permission)) {
 				$permission = intval($permission);
 			}
 			// @todo bring API up to consistent definition
@@ -3101,18 +3101,12 @@
 						for ($i = 0, $n = strlen($perms); $i < $n; $i++) {
 							if ($perms[$i] === 'r') {
 								$tmp |= 4;
-							} else {
-								if ($perms[$i] === 'w') {
-									$tmp |= 2;
-								} else {
-									if ($perms[$i] === 'x') {
-										$tmp |= 1;
-									} else {
-										if ($perms[$i] === 'd' && !$xtra[self::ACL_MODE_DEFAULT]) {
-											$default = true;
-										}
-									}
-								}
+							} else if ($perms[$i] === 'w') {
+								$tmp |= 2;
+							} else if ($perms[$i] === 'x') {
+								$tmp |= 1;
+							} else if ($perms[$i] === 'd' && !$xtra[self::ACL_MODE_DEFAULT]) {
+								$default = true;
 							}
 						}
 						$perms = $tmp;

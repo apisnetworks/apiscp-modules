@@ -31,7 +31,7 @@
 		 */
 		const VSFTPD_CONF_DIR = '/etc/vsftpd';
 		const VSFTPD_CHROOT_FILE = '/etc/vsftpd.chroot_list';
-		const PAM_SVC_NAME = 'proftpd';
+		const PAM_SVC_NAME = 'ftp';
 
 		public function __construct()
 		{
@@ -148,7 +148,7 @@
 
 		public function deny_user($user)
 		{
-			return Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->remove($user, $this->getPamServiceName());
 		}
 
 		public function permit_user($user)
@@ -156,7 +156,7 @@
 			if ($this->auth_is_demo()) {
 				return error("FTP disabled for demo account");
 			}
-			return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->add($user, $this->getPamServiceName());
 		}
 
 		public function _edit_user(string $user, string $usernew, array $pwd)
@@ -167,8 +167,8 @@
 			if (!$this->user_enabled($user)) {
 				return true;
 			}
-			Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
-			Util_Pam::add_entry($usernew, self::PAM_SVC_NAME);
+			(new Util_Pam($this->getAuthContext()))->remove($user, $this->getPamServiceName());
+			(new Util_Pam($this->getAuthContext()))->add($usernew, $this->getPamServiceName());
 
 			$home = $pwd['home'];
 			if ($this->_user_jailed_real($user)) {
@@ -199,7 +199,7 @@
 
 		public function user_enabled($user)
 		{
-			return Util_Pam::check_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->check($user, $this->getPamServiceName());
 		}
 
 		protected function _user_jailed_real($user)
@@ -322,9 +322,24 @@
 			// stupid thor...
 			$conf = Auth::profile()->conf->new;
 			$admin = $conf['siteinfo']['admin_user'];
-			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, self::PAM_SVC_NAME)) {
-				Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
+			$pam = new Util_Pam($this->getAuthContext());
+			if ($this->auth_is_demo() && $pam->check($admin, $this->getPamServiceName())) {
+				$pam->remove($admin, $this->getPamServiceName());
 			}
+		}
+
+		/**
+		 * Wrapper for backwards compatibility during dev
+		 * @todo yank before 3.0.0 release
+		 *
+		 * @return string
+		 */
+		protected function getPamServiceName(): string {
+			//@xxx temporary backwards compatibility
+			if (version_compare(platform_version(), '7', '<=')) {
+				return 'proftpd';
+			}
+			return static::PAM_SVC_NAME;
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

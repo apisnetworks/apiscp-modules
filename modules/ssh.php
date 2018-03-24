@@ -40,7 +40,7 @@
 
 		public function deny_user($user)
 		{
-			return Util_Pam::remove_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->remove($user, self::PAM_SVC_NAME);
 		}
 
 		public function permit_user($user)
@@ -48,7 +48,7 @@
 			if ($this->auth_is_demo()) {
 				return error("SSH disabled for demo account");
 			}
-			return Util_Pam::add_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->add($user, self::PAM_SVC_NAME);
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
@@ -61,8 +61,9 @@
 				return true;
 			}
 			// @TODO nuke active ssh sessions?
-			Util_Pam::remove_entry($userold, self::PAM_SVC_NAME);
-			Util_Pam::add_entry($usernew, self::PAM_SVC_NAME);
+			$pam = new Util_Pam($this->getAuthContext());
+			$pam->remove($userold, self::PAM_SVC_NAME);
+			$pam->add($usernew, self::PAM_SVC_NAME);
 			return true;
 		}
 
@@ -81,7 +82,7 @@
 				return warn("ssh not enabled on account");
 			}
 
-			return Util_Pam::check_entry($user, self::PAM_SVC_NAME);
+			return (new Util_Pam($this->getAuthContext()))->check($user, self::PAM_SVC_NAME);
 		}
 
 		public function _housekeeping()
@@ -99,8 +100,9 @@
 			// stupid thor...
 			$conf = Auth::profile()->conf->new;
 			$admin = $conf['siteinfo']['admin_user'];
-			if ($this->auth_is_demo() && Util_Pam::check_entry($admin, self::PAM_SVC_NAME)) {
-				Util_Pam::remove_entry($admin, self::PAM_SVC_NAME);
+			$pam = new Util_Pam($this->getAuthContext());
+			if ($this->auth_is_demo() && $pam->check($admin, self::PAM_SVC_NAME)) {
+				$pam->remove($admin, self::PAM_SVC_NAME);
 			}
 		}
 

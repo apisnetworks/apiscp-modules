@@ -22,6 +22,7 @@
 		const DEPENDENCY_MAP = [
 			'siteinfo', 'users'
 		];
+		const RESET_WRAPPER = INCLUDE_PATH . '/bin/scripts/reset_password';
 		const API_KEY_LIMIT = 10;
 		const API_USER_SYNC_COMMENT = "apnscp user sync";
 		// override in effect, don't report
@@ -443,7 +444,7 @@
 					return true;
 				}
 			}
-			return Util_Pam::check_entry($user, $svc);
+			return (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
 
 		public function user_permitted($user, $svc = 'cp')
@@ -747,7 +748,7 @@
 
 		public function deny_user($user, $svc = 'cp')
 		{
-			return Util_Pam::remove_entry($user, $svc);
+			return (new Util_Pam($this->getAuthContext()))->remove($user, $svc);
 		}
 
 		/**
@@ -760,7 +761,7 @@
 			if (!in_array($svc, $this->_pam_services())) {
 				return error("unknown service `$svc'");
 			}
-			return Util_Pam::add_entry($user, $svc);
+			return (new Util_Pam($this->getAuthContext()))->add($user, $svc);
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
@@ -1022,8 +1023,7 @@
 		public function _housekeeping() {
 			// ensure reset wrapper is always up to date, should be a
 			// git hook, but to-do
-			$rstwrapper = INCLUDE_PATH . '/bin/scripts/reset_password';
-			\Opcenter\Filesystem::chogp($rstwrapper, 'root', WS_GID, 04750);
+			\Opcenter\Filesystem::chogp(static::RESET_WRAPPER, 'root', WS_GID, 4750);
 			// convert domain map over to TokyoCabinet
 			$this->rebuildMap();
 		}

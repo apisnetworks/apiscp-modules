@@ -1145,9 +1145,10 @@
 			$user = $conf['siteinfo']['admin_user'];
 			// stupid thor...
 			$svcs = array('smtp_relay', 'imap');
+			$pam = new Util_Pam($this->getAuthContext());
 			foreach ($svcs as $svc) {
-				if ($this->auth_is_demo() && Util_Pam::check_entry($user, $svc)) {
-					Util_Pam::remove_entry($user, $svc);
+				if ($this->auth_is_demo() && $pam->check($user, $svc)) {
+					$pam->remove($user, $svc);
 				}
 			}
 			return $this->_create_user($user);
@@ -1335,12 +1336,13 @@
 			if (!$uid) {
 				return error("cannot determine uid from user `%s' in mailbox translation", $userold);
 			}
+			$pam = new Util_Pam($this->getAuthContext());
 			mute_warn();
 			foreach ($this->_pam_services() as $svc) {
 				if ($this->user_enabled($userold, $svc)) {
-					Util_Pam::remove_entry($userold, $svc);
+					$pam->remove($userold, $svc);
 					// edit_user hook renames user then calls
-					Util_Pam::add_entry($usernew, $svc);
+					$pam->add($usernew, $svc);
 				}
 			}
 			unmute_warn();
@@ -1386,7 +1388,7 @@
 			}
 			$enabled = 1;
 			if (!$svc) {
-				$enabled = Util_Pam::check_entry($user, $svc);
+				$enabled = (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 				$svc = 'smtp_relay';
 			} else {
 				if ($svc == 'smtp') {
@@ -1394,7 +1396,7 @@
 				}
 			}
 
-			return $enabled && Util_Pam::check_entry($user, $svc);
+			return $enabled && (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
 
 		public function permit_user($user, $svc = null)
@@ -1404,8 +1406,9 @@
 			} else if (is_debug()) {
 				return info("email service may not be permitted to users in demo mode");
 			}
+			$pam = new Util_Pam($this->getAuthContext());
 			if (!$svc) {
-				Util_Pam::add_entry($user, 'imap');
+				$pam->add($user, 'imap');
 				$svc = 'smtp_relay';
 			} else {
 				if ($svc == 'smtp') {
@@ -1415,7 +1418,7 @@
 			if ($this->auth_is_demo()) {
 				return error("Email disabled for demo account");
 			}
-			return Util_Pam::add_entry($user, $svc);
+			return $pam->add($user, $svc);
 		}
 
 		public function deny_user($user, $svc = null)
@@ -1423,15 +1426,16 @@
 			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
 				return error("service " . $svc . " not in list (imap, smtp)");
 			}
+			$pam = new Util_Pam($this->getAuthContext());
 			if (!$svc) {
-				Util_Pam::remove_entry($user, 'imap');
+				$pam->remove($user, 'imap');
 				$svc = 'smtp_relay';
 			} else {
 				if ($svc == 'smtp') {
 					$svc = 'smtp_relay';
 				}
 			} // Ensim bastardization
-			return Util_Pam::remove_entry($user, $svc);
+			return $pam->remove($user, $svc);
 		}
 
 		public function list_virtual_transports()

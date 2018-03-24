@@ -471,7 +471,7 @@
 		public function _delete()
 		{
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
-			$domain = array_get(Auth::conf('siteinfo'), 'domain', []);
+			$domain = array_get(\Auth::conf('siteinfo'), 'domain', []);
 			$db->delete($domain);
 			$db->close();
 		}

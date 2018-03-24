@@ -267,9 +267,9 @@
 		 *
 		 * @param  string $domain
 		 * @param  array  $newparams
-		 * @return int
+		 * @return bool
 		 */
-		public function modify_domain($domain, array $newparams)
+		public function modify_domain(string $domain, array $newparams): bool
 		{
 			if (!IS_CLI) {
 				return $this->query('aliases_modify_domain', $domain, $newparams);
@@ -280,7 +280,7 @@
 			if ($this->shared_domain_hosted($domain)) {
 				return error("domain `$domain' is hosted by another account");
 			}
-			if ($domain == $this->get_config('siteinfo', 'domain')) {
+			if ($domain === $this->get_config('siteinfo', 'domain')) {
 				return error("cannot modify primary domain");
 			}
 
