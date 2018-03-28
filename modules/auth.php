@@ -524,8 +524,9 @@
 		 * Change primary account username
 		 *
 		 * @param string $user
+		 * @return bool
 		 */
-		public function change_username($user)
+		public function change_username($user): bool
 		{
 			if (!IS_CLI) {
 				$olduser = $this->username;
@@ -558,6 +559,15 @@
 			} else if ($this->user_exists($user)) {
 				return error("requested username `%s' already exists on this account", $user);
 			}
+			if (version_compare(platform_version(), '7.5', '<')) {
+				// handled by Opcenter\Service\Validators\Siteinfo\AdminUser::reconfigure
+				$procs = \Opcenter\Process::matchUser(
+					$this->get_service_value('siteinfo', 'admin')
+				);
+				foreach ($procs as $proc) {
+					\Opcenter\Process::kill($proc, SIGTERM);
+				}
+			}
 			$proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
 			$proc->setConfig('siteinfo', 'admin_user', $user)
 				->setConfig('mysql', 'dbaseadmin', $user);
@@ -566,7 +576,6 @@
 			if (!$ret) {
 				return error("failed to change admin user");
 			}
-
 			return true;
 		}
 
@@ -937,7 +946,7 @@
 		private function _get_site_admin_shadow($site_id)
 		{
 			$site = 'site' . (int)$site_id;
-			$base = '/home/virtual/' . $site . '/fst';
+			$base = FILESYSTEM_VIRTBASE . "/${site}/fst";
 			$file = '/etc/shadow';
 			$admin = Auth::get_admin_from_site_id($site_id);
 			if (!file_exists($base . $file)) {
@@ -985,15 +994,20 @@
 			if ($userold === $usernew) {
 				return;
 			}
-			$db = $this->mysql;
+			$db = \MySQL::initialize();
 			foreach ($this->_get_api_keys_real($userold) as $key) {
-				$q = $db->query("UPDATE api_keys SET `username` = '" . $db->escape_string($usernew) . "' " .
+				if (!$db->query("UPDATE api_keys SET `username` = '" . $db->escape_string($usernew) . "' " .
 					"WHERE api_key = '" . $key['key'] . "' AND `username` = '" . $db->escape_string($userold) . "'"
-				);
+				)) {
+					warn("failed to rename API keys for user `%s' to `%s'", $userold, $usernew);
+				}
 			}
 			// @XXX centralize logins
-			/*$q = $db->query("UPDATE login_log SET `username` = '" . $db->escape_string($usernew) . "' " .
-				"WHERE `username` = '" . $db->escape_string($userold) . "' AND domain IS NULL");*/
+			$invoice = $this->billing_get_invoice();
+			if (!$db->query("UPDATE login_log SET `username` = '" . $db->escape_string($usernew) . "' " .
+				"WHERE `username` = '" . $db->escape_string($userold) . "' AND invoice = " . $db->escape_string($invoice))) {
+				warn("failed to rename loing history for user `%s' to `%s'", $userold, $usernew);
+			}
 
 
 			/**
@@ -1023,7 +1037,7 @@
 		public function _housekeeping() {
 			// ensure reset wrapper is always up to date, should be a
 			// git hook, but to-do
-			\Opcenter\Filesystem::chogp(static::RESET_WRAPPER, 'root', WS_GID, 4750);
+			\Opcenter\Filesystem::chogp(static::RESET_WRAPPER, 'root', WS_GID, 04750);
 			// convert domain map over to TokyoCabinet
 			$this->rebuildMap();
 		}

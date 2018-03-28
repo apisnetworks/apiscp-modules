@@ -55,7 +55,7 @@
 				'get_package_by_invoice'  => PRIVILEGE_ADMIN,
 
 				/** necessary for sanity checks */
-				'get_invoice'             => PRIVILEGE_SITE | PRIVILEGE_USER
+				'get_invoice'             => PRIVILEGE_ALL
 			);
 		}
 
@@ -81,10 +81,13 @@
 		/**
 		 * Invariant invoice tied to an account
 		 *
-		 * @return int|mixed|NULL|string
+		 * @return null|string
 		 */
-		public function get_invoice()
+		public function get_invoice(): ?string
 		{
+			if ($this->permission_level & (PRIVILEGE_ADMIN|PRIVILEGE_RESELLER)) {
+				return null;
+			}
 			$invoice = $this->get_config('billing', 'invoice');
 			if ($invoice) {
 				return $invoice;

@@ -264,13 +264,16 @@
 		 * @param  string $zone zone name
 		 * @return bool
 		 */
-		protected function owned_zone($zone)
+		protected function owned_zone(string $zone): bool
 		{
-			if (($this->getAuthContext()->level & PRIVILEGE_ADMIN)) {
+			if (is_debug()) {
+				return true;
+			}
+			if ($this->getAuthContext()->level & PRIVILEGE_ADMIN) {
 				return true;
 			}
 			$aliases = $this->aliases_list_aliases();
-			return ($zone == $this->domain) || in_array($zone, $aliases);
+			return ($zone === $this->domain) || in_array($zone, $aliases);
 		}
 
 		/**

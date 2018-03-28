@@ -364,7 +364,8 @@
 			} else if ($path[0] === "~") {
 				$path = $this->user_get_home() . substr($path, 1);
 			} else if ($path[0] !== '/') {
-				return error($path . ": path must be absolute");
+				// bubble up for brevity
+				throw new \Exception($path . ": path must be absolute");
 			}
 			$root = '';
 			$newpath = str_replace('//', '/', $path);
@@ -405,7 +406,7 @@
 				//return new FileError("Invalid path detected");
 			}
 			if (!self::sanitized($newpath)) {
-				return error($newpath . ": Garbage characters in file ");
+				throw new \Exception($newpath . ": Garbage characters in file ");
 			}
 			$newpath = $root . str_replace('//', '/', $newpath);
 			if (!isset($this->trans_paths[$this->site_id])) {

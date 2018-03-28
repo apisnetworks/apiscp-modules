@@ -30,7 +30,6 @@
 
 		// primary domain document root
 		const MAIN_DOC_ROOT = '/var/www/html';
-		const APACHE_HOME = '/etc/httpd';
 		const WEB_USERNAME = APACHE_USER;
 		const PROTOCOL_MAP = '/etc/httpd/conf/http10';
 
@@ -1280,12 +1279,12 @@
 
 		public function site_config_dir()
 		{
-			return $this->config_dir() . '/' . $this->site;
+			return \Opcenter\Http\Apache::siteStoragePath($this->site);
 		}
 
 		public function config_dir()
 		{
-			return self::APACHE_HOME . '/conf';
+			return \Opcenter\Http\Apache::CONFIG_PATH;
 		}
 
 		public function _delete_user(string $user)

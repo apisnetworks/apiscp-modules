@@ -336,7 +336,7 @@
 		 */
 		protected function getPamServiceName(): string {
 			//@xxx temporary backwards compatibility
-			if (version_compare(platform_version(), '7', '<=')) {
+			if (version_compare(platform_version(), '7.5', '<')) {
 				return 'proftpd';
 			}
 			return static::PAM_SVC_NAME;
