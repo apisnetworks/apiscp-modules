@@ -26,7 +26,7 @@
 		const DEFAULT_BRANCH = '8.x';
 		const DRUPAL_MAJORS = ['6.x', '7.x', '8.x'];
 		// latest release
-		const DRUPAL_CLI_URL = 'https://github.com/drush-ops/drush/releases/download/8.1.2/drush.phar';
+		const DRUPAL_CLI_URL = 'https://github.com/drush-ops/drush/releases/download/8.1.16/drush.phar';
 		const VERSION_CHECK_URL = 'https://updates.drupal.org/release-history';
 		const DEFAULT_VERSION_LOCK = 'major';
 

@@ -251,6 +251,65 @@
 			return (bool)$launcher->run();
 		}
 
+		/**
+		 * Reset failed apps
+		 *
+		 * @param array $constraints [site: <anything>, version: <operator> <version>, type: <type>]
+		 * @return int
+		 */
+		public function reset_webapp_failure(array $constraints = []): int {
+			if (isset($constraints['site'])) {
+				$siteid = Auth::get_site_id_from_anything($constraints['site']);
+				if (!$siteid) {
+					error("unknown site `%s'", $constraints['site']);
+					return 0;
+				}
+				$sites = ['site' . $siteid];
+			} else {
+				$sites = \Opcenter\Account\Enumerate::active();
+			}
+			$versionFilter = function(array $appmeta) use ($constraints) {
+				if (!isset($constraints['version'])) {
+					return true;
+				}
+				if (!isset($appmeta['version'])) {
+					return false;
+				}
+
+				$vercon = explode(' ', $constraints['version']);
+				if (count($vercon) === 1) {
+					$vercon = ['=', $vercon[0]];
+				}
+				return version_compare($appmeta['version'], ...array_reverse($vercon));
+			};
+			$typeFilter = function(array $appmeta) use ($constraints) {
+				if (!isset($constraints['type'])) {
+					return true;
+				}
+				return $appmeta['type'] === $constraints['type'];
+			};
+			$count = 0;
+			foreach ($sites as $site) {
+				$auth = Auth::context(null, $site);
+				$finder = new \Module\Support\Webapps\Finder($auth);
+				$apps = $finder->getApplications(function ($appmeta) {
+					return !empty($appmeta['failed']);
+				});
+				foreach ($apps as $path => $app) {
+					if (!$typeFilter($app)) {
+						continue;
+					}
+					if (!$versionFilter($app)) {
+						continue;
+					}
+					$instance =  \Module\Support\Webapps\App\Loader::factory(null, $path, $auth);
+					$instance->clearFailed();
+					$count++;
+				}
+			}
+			return $count;
+		}
+
 		public function locate_webapps($site = null): array {
 			return \Module\Support\Webapps\Finder::find($site);
 		}
