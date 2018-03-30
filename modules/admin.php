@@ -258,6 +258,11 @@
 		 * @return int
 		 */
 		public function reset_webapp_failure(array $constraints = []): int {
+			$known = ['site', 'version', 'type'];
+			if ($bad = array_diff(array_keys($constraints), $known)) {
+				error("unknown constraints: `%s'", implode(', ', $bad));
+				return 0;
+			}
 			if (isset($constraints['site'])) {
 				$siteid = Auth::get_site_id_from_anything($constraints['site']);
 				if (!$siteid) {
@@ -302,8 +307,12 @@
 					if (!$versionFilter($app)) {
 						continue;
 					}
+					/**
+					 * @var \Module\Support\Webapps\App\Type\Unknown $instance
+					 */
 					$instance =  \Module\Support\Webapps\App\Loader::factory(null, $path, $auth);
 					$instance->clearFailed();
+					info("Reset failed status on `%s/%s'", $instance->getHostname(), $instance->getPath());
 					$count++;
 				}
 			}

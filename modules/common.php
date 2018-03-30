@@ -513,11 +513,11 @@
 		/**
 		 *  int get_listening_ip_addr
 		 *
-		 * @return int primary ip address bound to the server as a long
+		 * @return string primary ip address bound to server
 		 */
-		public function get_listening_ip_addr()
+		public function get_listening_ip_addr(): string
 		{
-			return gethostbyname($this->get_canonical_hostname());
+			return (string)gethostbyname($this->get_canonical_hostname());
 		}
 
 		/**

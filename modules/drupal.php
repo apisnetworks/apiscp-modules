@@ -553,7 +553,7 @@
 				return error('failed to determine Drupal');
 			}
 			$code = 'include("./sites/default/settings.php"); $conf = $databases["default"]["default"]; print serialize(array("user" => $conf["username"], "password" => $conf["password"], "db" => $conf["database"], "prefix" => $conf["prefix"], "host" => $conf["host"]));';
-			$cmd = 'cd %(path)s && php -r %(code)s';
+			$cmd = 'php -r %(code)s';
 			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
 
 			if (!$ret['success']) {
@@ -848,6 +848,8 @@
 			$user = $this->username;
 			if ($path) {
 				$user = parent::getDocrootUser($path);
+				$cli = 'cd %(path)s && ' . $cli;
+				$args['path'] = $path;
 			}
 			$cmd = $cli . ' ' . $cmd;
 			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
