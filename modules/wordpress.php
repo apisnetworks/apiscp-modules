@@ -1072,7 +1072,7 @@
 			if (!array_get($options, 'fortify', 'min')) {
 				return $changed;
 			}
-			$user = array_get($options, 'user', $this->username);
+			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
 			foreach ($this->controlFiles as $file) {
 				$path = $docroot . $file;
 				if (!file_exists($this->domain_fs_path() . $path)) {
@@ -1096,7 +1096,7 @@
 		{
 			$changed = 0;
 			$options = $this->getOptions($docroot);
-			$user = array_get($options, 'user', $this->username);
+			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
 			foreach ($this->controlFiles as $file) {
 				$path = $docroot . $file;
 				if (!file_exists($this->domain_fs_path() . $path)) {

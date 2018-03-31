@@ -774,6 +774,11 @@
 
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
+				/**
+				 * NB: "Command pm-update needs a higher bootstrap level"...
+				 * Use an older version of Drush to bring the version up
+				 * to use the latest drush
+				 */
 				return error("plugin update failed: `%s'", $ret['stderr']);
 			}
 			return $ret['success'];

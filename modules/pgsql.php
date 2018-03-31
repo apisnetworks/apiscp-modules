@@ -308,12 +308,8 @@
 			} else if ($maxconn < 0) {
 				return error("Max connections, queries, and updates must be greater than -1");
 			}
-			$vendor = Opcenter\Database\PostgreSQL::vendor();
-			$pghandler = \PostgreSQL::initialize();
-			$rs = $pghandler->query($vendor->createUser($user, $password));
-
-			if ($rs->error) {
-				return error("user creation for `%s' failed", $user);
+			if (!\Opcenter\Database\PostgreSQL::createUser($user, $password)) {
+				return false;
 			}
 			$pghandler->query($vendor->setMaxConnections($user, $maxconn));
 			return true;
@@ -1061,6 +1057,9 @@
 
 		public function _delete()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			$conf = Auth::profile()->conf->new;
 			if ($this->enabled() && !parent::uninstallDatabaseService('pgsql')) {
 				warn("failed to delete pgsql service from `%s'", $conf['siteinfo']['domain']);
@@ -1069,6 +1068,9 @@
 
 		public function _create()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			$conf = Auth::profile()->conf->new;
 
 			if (!$conf['pgsql']['enabled']) {
@@ -1086,6 +1088,9 @@
 
 		public function _edit()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			$conf = Auth::profile()->conf;
 
 			if ($conf->new['pgsql']['enabled'] && !$conf->cur['pgsql']['enabled']) {

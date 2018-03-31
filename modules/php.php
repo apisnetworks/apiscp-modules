@@ -384,10 +384,6 @@
 			// composer.phar seems standard nowadays..
 			if ($this->composer_exists()) {
 				return true;
-			} else {
-				if (version_compare(platform_version(), '4.5', '<')) {
-					return false;
-				}
 			}
 
 			$versions = file_get_contents('https://getcomposer.org/versions');

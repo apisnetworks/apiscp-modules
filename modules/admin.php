@@ -181,11 +181,11 @@
 			if (!is_dir($configHome)) {
 				mkdir($configHome) && chmod($configHome, 0700);
 			}
-			$defplan = \Opcenter\ServiceConfiguration::planPath(\Opcenter\ServiceConfiguration::DEFAULT_SVC_NAME);
+			$defplan = \Opcenter\SiteConfiguration::planPath(\Opcenter\SiteConfiguration::DEFAULT_SVC_NAME);
 			if (is_dir($defplan)) {
 				return;
 			}
-			$base = \Opcenter\ServiceConfiguration::planPath('');
+			$base = \Opcenter\SiteConfiguration::planPath('');
 			// plan name change
 			$dh = opendir($base);
 			if (!$dh) {
@@ -205,7 +205,7 @@
 			}
 			if ($f !== false) {
 				info("old default plan `%s' renamed to `%s'",
-					$f, \Opcenter\ServiceConfiguration::DEFAULT_SVC_NAME
+					$f, \Opcenter\SiteConfiguration::DEFAULT_SVC_NAME
 				);
 			}
 			symlink(dirname($defplan) . '/.skeleton', $defplan);

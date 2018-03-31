@@ -1943,6 +1943,9 @@
 
 		public function _delete()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			if (!$this->enabled()) {
 				return;
 			}
@@ -1954,6 +1957,9 @@
 
 		public function _create()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			$conf = Auth::profile()->conf->new;
 			if ($conf['mysql']['enabled']) {
 				parent::installDatabaseService('mysql');
@@ -1962,6 +1968,9 @@
 
 		public function _edit()
 		{
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				return true;
+			}
 			$conf = Auth::profile()->conf;
 			if ($conf->new['mysql']['enabled'] && !$conf->cur['mysql']['enabled']) {
 				$this->installDatabaseService('mysql');
@@ -1994,10 +2003,6 @@
 				$this->renameDatabase($prefixold, $prefixnew);
 				$this->renameUser($prefixold, $prefixnew);
 				// update grants and db table
-			}
-
-			if ($conf_cur['dbaseadmin'] != $conf_new['dbaseadmin']) {
-
 			}
 		}
 
