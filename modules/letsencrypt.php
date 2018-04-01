@@ -82,7 +82,7 @@
 		public function renew(bool $verifyip = true)
 		{
 			if ($this->auth_is_inactive()) {
-				return false;
+				return error("account `%s' is inactive - not renewing SSL", $this->domain);
 			}
 			$cert = $this->ssl_get_certificates();
 			if (!$cert) {

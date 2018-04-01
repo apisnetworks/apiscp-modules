@@ -1182,7 +1182,8 @@
 			if ($why == "letsencrypt") {
 				// update ssl certs
 				Util_Process::exec('/sbin/service dovecot reload');
-				Util_Process::exec('/sbin/service postfix reload');
+				// restart necessary to load new cert
+				Util_Process::exec('/sbin/service postfix restart');
 			} else if ($why == "adduser") {
 				// just flush auth cache
 				$platformver = platform_version();
