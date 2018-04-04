@@ -867,6 +867,7 @@
 			}
 			ftruncate($fp, 0);
 			fwrite($fp, serialize($prefs));
+			flock($fp, LOCK_UN);
 			fclose($fp);
 			if ($user === $this->username) {
 				$cache = \Cache_User::spawn($this->getAuthContext());

@@ -346,6 +346,7 @@
 					$users[$line[0]] = $this->getpwnam($line[0]);
 				}
 			}
+			flock($fp, LOCK_UN);
 			fclose($fp);
 			ksort($users);
 			$cache = Cache_Account::spawn($this->getAuthContext());
@@ -896,6 +897,7 @@
 			ftruncate($fp, 0);
 			$lines = join("", $lines);
 			fwrite($fp, $lines);
+			flock($fp, LOCK_UN);
 			fclose($fp);
 			return true;
 		}

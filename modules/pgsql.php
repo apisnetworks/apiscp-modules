@@ -171,36 +171,11 @@
 			$file = $this->domain_fs_path() . $pwd['home'] . '/.pgpass';
 
 			if (!file_exists($file)) {
-				touch($file);
-				chown($file, $this->user_id);
-				chgrp($file, $this->group_id);
-				chmod($file, 0600);
+				\Opcenter\Filesystem::touch($file, $this->user_id, $this->group_id, 0600);
 			}
-			$pgpass = file_get_contents($file);
-			$struct = array(
-				'hostname' => '*',
-				'port'     => '*',
-				'database' => '*',
-				'username' => $this->username,
-				'password' => null
-			);
-			/**
-			 * @link http://wiki.postgresql.org/wiki/Pgpass
-			 */
-			if (preg_match(Regex::SQL_PGPASS, $pgpass, $matches)) {
-				$struct = array_merge($struct, $matches);
-			} else {
-				// old format, single token (password)
-				$struct['password'] = $pgpass;
-			}
-			$struct[$param] = $val;
-			return file_put_contents($file,
-				$struct['hostname'] . ":" .
-				$struct['port'] . ":" .
-				$struct['database'] . ":" .
-				$struct['username'] . ":" .
-				$struct['password']
-			);
+
+			return \Opcenter\Database\PostgreSQL::setUserConfigurationField($file, $param, $val);
+
 		}
 
 		public function set_username($user)
@@ -228,8 +203,7 @@
 			if (!file_exists($file)) {
 				return false;
 			}
-			$contents = explode(':', file_get_contents($file));
-			return isset($contents[4]) ? $contents[4] : false;
+			return \Opcenter\Database\PostgreSQL::getUserConfiguration($path)['password'];
 		}
 
 		public function get_elevated_password_backend()

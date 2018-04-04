@@ -858,6 +858,7 @@
 			}
 			ftruncate($fp, 0);
 			fwrite($fp, $contents . "\n");
+			flock($fp, LOCK_UN);
 			fclose($fp);
 			chmod($tmpFile, 0644);
 			$sudo = new Util_Process_Sudo();

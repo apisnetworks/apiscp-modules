@@ -181,66 +181,15 @@
 		 */
 		public function set_option($option, $value = null, $group = 'client')
 		{
+			if (!IS_CLI) {
+				return $this->query('mysql_set_option', $option, $value, $group);
+			}
 			$home = $this->user_get_user_home();
-			if (!$this->file_file_exists($home . '/.my.cnf')) {
-				$this->file_create_file($home . '/.my.cnf', 0600);
+			$path = $this->domain_fs_path() . "${home}/.my.cnf";
+			if (!file_exists($path)) {
+				\Opcenter\Filesystem::touch($path, $this->user_id, $this->group_id, 0600);
 			}
-			$lines = explode("\n", $this->file_get_file_contents($home . '/.my.cnf'));
-			$group_set = $group && false;
-			$config = array();
-			$found = false;
-			$cgroup = '';
-			if ($value && !ctype_alnum($value)) {
-				$value = '"' . str_replace('"', '\"', $value) . '"';
-			}
-
-			// I should rewrite this on more than 0 hours of sleep
-			for ($i = 0, $n = sizeof($lines); $i < $n; $i++) {
-				$line = trim($lines[$i]);
-				if (!$line) {
-					continue;
-				}
-				if ($line[0] == '[' && substr($line, -1) == ']') {
-					$cgroup = substr($line, 1, -1);
-					if (!isset($config[$cgroup])) {
-						$config[$cgroup] = array();
-					}
-					if ($cgroup == $group) {
-						$group_set = true;
-					} else {
-						if ($group) {
-							$group_set = false;
-						}
-					}
-					continue;
-				}
-
-				if ($group_set) {
-					if (0 === strpos($line, $option)) {
-						$found = true;
-						if ($value === false) {
-							continue;
-						}
-						$line = $option . ($value ? '=' . $value : '');
-					}
-				}
-				$config[$cgroup][] = $line;
-			}
-
-			if (!$found) {
-				if ($group && !isset($config[$cgroup])) {
-					$config[$group] = array();
-				}
-				$config[$group][] = $option . ($value ? '=' . $value : '');
-			}
-
-			$formatted = '';
-			foreach ($config as $group => $opts) {
-				$formatted .= '[' . $group . ']' . "\n";
-				$formatted .= join("\n", $opts) . "\n\n";
-			}
-			$this->file_put_file_contents($home . '/.my.cnf', $formatted, true);
-			return true;
+			return \Opcenter\Database\MySQL::setUserConfigurationField($path, $option, $value, $group);
 		}
 
 		/**
@@ -258,36 +207,24 @@
 		 *
 		 * @param  string $option option name
 		 * @param  string $group  option group
-		 * @return mixed option value, false on failure, null on empty value
+		 * @return mixed option value, false on failure, null on non-existent value
 		 */
 		public function get_option($option, $group = 'client')
 		{
+			if (!IS_CLI) {
+				return $this->query('mysql_get_option', $option, $group);
+			}
 			$home = $this->user_get_user_home();
-			$regex = Regex::compile(Regex::MISC_INI_DIRECTIVE_C, $option);
-			$optval = array();
-			$confs = array();
-			if ($this->file_file_exists($home . '/.my.cnf')) {
-				$confs[] = $this->file_get_file_contents($home . '/.my.cnf');
-			}
-			$confs[] = file_get_contents('/etc/my.cnf');
-
-			foreach ($confs as $config) {
-				if ($group) {
-					$startpos = strpos($config, '[' . $group . ']');
-					if ($startpos !== false) {
-						$endpos = strpos($config, '[', $startpos + 1);
-						if (!$endpos) {
-							$endpos = strlen($config);
-						}
-						$config = substr($config, $startpos, $endpos - $startpos);
-					}
-				}
-				if (preg_match_all($regex, $config, $optval, PREG_SET_ORDER)) {
-					$optval = array_pop($optval);
-					return trim($optval[1], '"');
+			$paths = [
+				$this->domain_fs_path() . "${home}/.my.cnf",
+				'/etc/my.cnf'
+			];
+			foreach ($paths as $path) {
+				if (null !== ($val = array_get(\Opcenter\Database\MySQL::getUserConfiguration($path), "${group}.${option}", null))) {
+					return $val;
 				}
 			}
-			return false;
+			return null;
 		}
 
 		public function get_elevated_password_backend()

@@ -31,6 +31,7 @@
 		const LOGIN_KEY = 'sectoken';
 		// tunable minimum acceptable password length
 		const MIN_PW_LENGTH = AUTH_MIN_PW_LENGTH;
+		const ADMIN_AUTH = '/etc/opcenter/webhost/passwd';
 
 		private static $domain_db;
 
@@ -44,7 +45,7 @@
 				'*'                 => PRIVILEGE_ALL,
 				'verify_password'   => PRIVILEGE_SERVER_EXEC | PRIVILEGE_ALL,
 				'change_domain'     => PRIVILEGE_SITE,
-				'change_username'   => PRIVILEGE_SITE,
+				'change_username'   => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
 				'set_temp_password' => PRIVILEGE_ADMIN
 			);
 		}
@@ -138,30 +139,63 @@
 
 			if (!IS_CLI) {
 				$ret = $this->query('auth_change_cpassword', $cpassword, $user, $domain);
-				if (!$ret || $this->get_service_value($this->getAuthService(), self::PWOVERRIDE_KEY)) {
+				if (!$ret) {
 					return $ret;
 				}
 				if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
+					if ($this->get_service_value($this->getAuthService(), self::PWOVERRIDE_KEY)) {
+						return true;
+					}
 					// admin password changed
-					$prefs = \Preferences::factory($user);
-					parent::sendNotice(
-						'password',
-						[
-							'email' => array_get($prefs, 'email', $this->get_config('siteinfo', 'email')),
-							'ip' => Auth::client_ip(),
-							'username' => $user
-						]
-					);
+					$email = $this->common_get_email() ?? $this->get_config('siteinfo', 'email');
+				} else if ($this->permission_level & PRIVILEGE_ADMIN) {
+					$email = $this->common_get_email();
 				}
+				parent::sendNotice(
+					'password',
+					[
+						'email' => $email,
+						'ip' => \Auth::client_ip(),
+						'username' => $user
+					]
+				);
 				\apnscpSession::invalidate_by_user($this->site_id, $user, true);
 				return $ret;
 			}
 
-
+			if (!\Opcenter\Auth\Shadow::valid_crypted($cpassword)) {
+				return error("provided password for user `%s' is not crypted", $user);
+			}
 			if ($user !== $this->username && $this->permission_level & PRIVILEGE_USER) {
 				return error("insufficient privileges to specify user");
 			}
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				if (!($fp = fopen(self::ADMIN_AUTH, 'r+')) || !flock($fp, LOCK_EX | LOCK_NB)) {
+					fclose($fp);
+					return error("unable to gain exclusive lock on `%s'", self::ADMIN_AUTH);
+				}
+				$lines = [];
+				while (false !== ($line = fgets($fp))) {
+					$lines[] = explode(':', rtrim($line));
+				}
+				if (false === ($pos = array_search($user, array_column($lines, 0)))) {
+					flock($fp, LOCK_UN);
+					fclose($fp);
+					return error("user `%s' does not exist", $user);
+				}
+				$lines[$pos][1] = $cpassword;
+				if (!ftruncate($fp, 0)) {
+					flock($fp, LOCK_UN);
+					fclose($fp);
+					return error("failed to truncate `%s'", self::ADMIN_AUTH);
+				}
+				rewind($fp);
+				fwrite($fp, implode("\n", array_map(function ($a) {
+					return join(':', $a);
+				}, $lines)));
 
+				return flock($fp, LOCK_UN) && fclose($fp);
+			}
 			if ($this->permission_level & PRIVILEGE_SITE) {
 				$users = $this->user_get_users();
 				if (!isset($users[$user])) {
@@ -170,7 +204,6 @@
 			}
 
 			$ret = $this->_change_cpassword_raw($cpassword, $user, $domain);
-
 			return $ret;
 		}
 
@@ -317,26 +350,22 @@
 		 */
 		public function verify_password($password)
 		{
-			$data = array();
+			$file = self::ADMIN_AUTH;
 			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				if (!$this->site) {
 					return false;
 				}
-				$fp = fopen($this->domain_fs_path() . '/etc/shadow', 'r');
-				if (!$fp) {
-					return false;
-				}
-				while (false !== ($line = fgets($fp))) {
-					$data = explode(':', trim($line));
-					if ($data[0] === $this->username) {
-						break;
-					}
-				}
-			} else {
-				$fp = fopen('/etc/opcenter/webhost/passwd', 'r');
-				$data = explode(':', trim(fread($fp, 1024)));
-				if ($data[0] != $this->username) {
-					return false;
+				$file = $this->domain_fs_path() . '/etc/shadow';
+			}
+			$fp = fopen($file, 'r');
+			if (!$fp) {
+				return false;
+			}
+			$data = array();
+			while (false !== ($line = fgets($fp))) {
+				if (0 === strpos($line, $this->username . ':')) {
+					$data = explode(':', rtrim($line));
+					break;
 				}
 			}
 			fclose($fp);
@@ -345,7 +374,7 @@
 			}
 
 			if (!isset($data[1])) {
-				$str = $this->domain_fs_path() . '/etc/shadow' . "\r\n" .
+				$str = "Corrupted shadow: " . $file . "\r\n" .
 					$this->username . "\r\n";
 				Error_Reporter::report($str . "\r\n" . var_export($data, true));
 				return false;
@@ -399,7 +428,6 @@
 				);
 				return $logins;
 			}
-			$limitStr = '';
 			if (!is_null($limit) && $limit < 100) {
 				$limit = intval($limit);
 			} else {
@@ -531,12 +559,12 @@
 			if (!IS_CLI) {
 				$olduser = $this->username;
 				$ret = $this->query('auth_change_username', $user);
-				if ($ret && $this->permission_level & PRIVILEGE_SITE && $olduser == $this->username) {
+				if ($ret && ($email = $this->common_get_email())) {
 					// admin password changed
 					parent::sendNotice(
 						'username',
 						[
-							'email' => $this->get_config('siteinfo', 'email'),
+							'email' => $email,
 							'ip' => Auth::client_ip()
 						]
 					);
@@ -549,14 +577,47 @@
 				return error("username change disabled for demo");
 			}
 			$user = strtolower($user);
-
-			// make sure user list is not cached
-			$this->user_flush();
 			if (!preg_match(Regex::USERNAME, $user)) {
 				return error("invalid new username `%s'", $user);
-			} else if (!$this->_username_unique($user)) {
+			}
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				// @todo convert to Opcenter
+
+				if (!($fp = fopen(self::ADMIN_AUTH, 'r+')) || !flock($fp, LOCK_EX|LOCK_NB)) {
+					fclose($fp);
+					return error("unable to gain exclusive lock on `%s'", self::ADMIN_AUTH);
+				}
+				$lines = [];
+				while (false !== ($line = fgets($fp))) {
+					$lines[] = explode(':', rtrim($line));
+				}
+				if (false !== ($pos = array_search($user, array_column($lines, 0)))) {
+					flock($fp, LOCK_UN);
+					fclose($fp);
+					return error("user `%s' already exists", $user);
+				}
+				if (false === ($pos = array_search($this->username, array_column($lines, 0)))) {
+					flock($fp, LOCK_UN);
+					fclose($fp);
+
+					return error("original user `%s' does not exist", $this->username);
+				}
+				$lines[$pos][0] = $user;
+				if (!ftruncate($fp, 0)) {
+					flock($fp, LOCK_UN);
+					fclose($fp);
+					return error("failed to truncate `%s'", self::ADMIN_AUTH);
+				}
+				rewind($fp);
+				fwrite($fp, implode("\n", array_map(function ($a) { return join(':', $a); }, $lines)));
+				return flock($fp, LOCK_UN) && fclose($fp);
+			}
+			// make sure user list is not cached
+			$this->user_flush();
+			if (!$this->_username_unique($user)) {
 				return error("requested username `%s' in use on another account", $user);
-			} else if ($this->user_exists($user)) {
+			}
+			if ($this->user_exists($user)) {
 				return error("requested username `%s' already exists on this account", $user);
 			}
 			if (version_compare(platform_version(), '7.5', '<')) {
