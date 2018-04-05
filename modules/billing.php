@@ -20,11 +20,7 @@
 	class Billing_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		// @ignore
-		private static $BILLING_SERVER_HOST = BILLING_HOST_READ;
-		// @ignore
-		private static $BILLING_SERVER_HOST_WRITE = BILLING_HOST_WRITE;
-		// @ignore
-		private static $BILLING_SERVER_HOST_BACKUP = BILLING_HOST_BACKUP;
+		private static $BILLING_SERVER_HOST = BILLING_HOST;
 		private static $BILLING_SERVER_USER = BILLING_USER;
 		private static $BILLING_SERVER_PASSWORD = BILLING_PASSWORD;
 		private static $BILLING_SERVER_DATABASE = BILLING_DB;
@@ -485,7 +481,7 @@
 		 */
 		public function get_customer_since()
 		{
-			return -1;
+			return filectime($this->domain_fs_path());
 		}
 
 		/**
