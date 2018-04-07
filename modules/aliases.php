@@ -592,6 +592,10 @@
 
 			$aliases = (array)$this->get_service_value('aliases', 'aliases');
 			$aliases[] = $alias;
+			$limit = $this->get_service_value('aliases','maxaliases',null);
+			if (null !== $limit && count($aliases)+1 > $limit) {
+				return error("account has reached max amount of addon domains, `%d'", $limit);
+			}
 
 			return $this->set_config_journal('aliases', 'enabled', 1) &&
 				$this->set_config_journal('aliases', 'aliases', $aliases);
