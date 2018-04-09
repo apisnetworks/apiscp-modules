@@ -19,7 +19,7 @@
 	 */
 	class Admin_Module extends Module_Skeleton
 	{
-		const ADMIN_HOME = '/etc/appliance';
+		const ADMIN_HOME = '/etc/opcenter/webhost';
 		// @var string under ADMIN_HOME
 		const ADMIN_CONFIG = '.config/';
 		const ADMIN_CONFIG_LEGACY = '/etc/appliance/appliance.ini';
@@ -171,8 +171,9 @@
 			$data = '[DEFAULT]' . "\n" . implode("\n", array_key_map(function ($k, $v) {
 					return $k . ' = ' . $v;
 				}, $ini)) . "\n";
-			\Preferences::set('email', $email);
-			return (bool)file_put_contents(self::ADMIN_CONFIG_LEGACY, $data);
+			$prefs = \Preferences::factory($this->getAuthContext())->unlock($this->getApnscpFunctionInterceptor());
+			$prefs['email'] = $email;
+			return (bool)file_put_contents($this->getAdminConfigFile(), $data);
 		}
 
 		public function _housekeeping()
@@ -213,10 +214,19 @@
 
 		protected function _get_admin_config()
 		{
-			if (!file_exists(self::ADMIN_CONFIG_LEGACY)) {
+			$file = $this->getAdminConfigFile();
+			if (!file_exists($file)) {
 				return [];
 			}
-			return parse_ini_file(self::ADMIN_CONFIG_LEGACY);
+			return parse_ini_file($file);
+		}
+
+		private function getAdminConfigFile(): string {
+			if (version_compare(platform_version(), '7.5', '<')) {
+				return self::ADMIN_CONFIG_LEGACY;
+			}
+			return self::ADMIN_HOME . DIRECTORY_SEPARATOR . self::ADMIN_CONFIG .
+				DIRECTORY_SEPARATOR . basename(self::ADMIN_CONFIG_LEGACY);
 		}
 
 		/**

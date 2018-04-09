@@ -23,9 +23,6 @@
 		const RUBY_VERSION_FULL = '1.9.1';
 		const RUBY_VERSION = '1.9';
 
-		// @ignore
-		const RUBYGEMS_API_KEY = RUBY_RUBYGEMS_API_KEY;
-
 		public $exportedFunctions = array('*' => PRIVILEGE_SITE);
 
 		/**
