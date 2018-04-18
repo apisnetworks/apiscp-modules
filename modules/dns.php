@@ -587,7 +587,7 @@
 		 * @param string $host hostname
 		 * @return array|null authoritative nameservers or resolver chain incomplete
 		 */
-		public function get_authns_from_host($host)
+		public function get_authns_from_host($host): ?array
 		{
 			$nameservers = [static::RECURSIVE_NAMESERVER];
 			$authns = silence(function () use ($host, $nameservers) {
@@ -706,7 +706,7 @@
 		}
 
 		/**
-		 * Update hostname with caller's IP address
+		 * Update hostname with caller's IP4 address
 		 *
 		 * @param string $hostname fqdn
 		 * @param string $ip       optional ip address to skip detection
@@ -1138,7 +1138,7 @@
 				$ip = array_pop($ip);
 			}
 
-			if (ip2long($ip) === false) {
+			if (inet_pton($ip) === false) {
 				return error("`%s': invalid address", $ip);
 			}
 
