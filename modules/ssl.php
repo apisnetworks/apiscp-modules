@@ -377,13 +377,6 @@
 				}
 				$crt = openssl_x509_read($crt);
 				if (!$crt) {
-					if (!openssl_error_string() && version_compare(platform_version(), '4.5', '<=')) {
-						// older versions of openssl don't support sha256 certs
-						// openssl won't raise an error trying to decode, but its library
-						// still can't load the resource
-						return error("unable to parse certificate, likely a " .
-							"sha256 certificate - contact support!");
-					}
 					return error("unable to parse certificate: %s", $this->_getError());
 				}
 			}
@@ -399,7 +392,7 @@
 
 		private function _isDer($cert)
 		{
-			return strncmp($cert, "-----", 5);
+			return 0 === strpos($cert, '-----');
 		}
 
 		private function _convertDer2Pem($data)
@@ -594,7 +587,7 @@
 			// if CA:TRUE, subjectKeyIdentifier == crt authorityKeyIdentifier
 
 			$icert = $this->parse_certificate($cert1);
-			$ichain = $this->ssl_parse_certificate($cert2);
+			$ichain = $this->parse_certificate($cert2);
 			if (!isset($ichain['extensions'])) {
 				return null;
 			}

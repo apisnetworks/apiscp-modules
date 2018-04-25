@@ -149,6 +149,9 @@ class Rampart_Module extends Module_Skeleton {
 		if (!$ip) {
 			$ip = \Auth::client_ip();
 		}
+		if (!$ip) {
+			report("Odd?" . var_export($_ENV, true));
+		}
 		if (false === inet_pton($ip)) {
 			return error("invalid IP address `%s'", $ip);
 		}
