@@ -553,7 +553,7 @@
 				return error('failed to determine Drupal');
 			}
 			$code = 'include("./sites/default/settings.php"); $conf = $databases["default"]["default"]; print serialize(array("user" => $conf["username"], "password" => $conf["password"], "db" => $conf["database"], "prefix" => $conf["prefix"], "host" => $conf["host"]));';
-			$cmd = 'php -r %(code)s';
+			$cmd = 'cd %(path)s && php -r %(code)s';
 			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
 
 			if (!$ret['success']) {

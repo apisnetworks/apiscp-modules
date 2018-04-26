@@ -392,7 +392,7 @@
 
 		private function _isDer($cert)
 		{
-			return 0 === strpos($cert, '-----');
+			return 0 !== strpos($cert, '-----');
 		}
 
 		private function _convertDer2Pem($data)
