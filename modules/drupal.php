@@ -779,7 +779,7 @@
 				 * Use an older version of Drush to bring the version up
 				 * to use the latest drush
 				 */
-				return error("plugin update failed: `%s'", $ret['stderr']);
+				return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 			}
 			return $ret['success'];
 		}
