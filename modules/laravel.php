@@ -70,7 +70,7 @@
 				return error('composer missing! contact sysadmin');
 			}
 
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 
 			if (!parent::checkDocroot($docroot)) {
 				return false;
@@ -261,7 +261,7 @@
 		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
 		{
 
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine Laravel');
 			}
@@ -313,7 +313,7 @@
 			if ($hostname[0] == '/') {
 				$approot = dirname($hostname);
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -332,7 +332,7 @@
 		 */
 		public function db_config(string $hostname, string $path = ''): array
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				error('failed to determine Laravel');
 				return null;
@@ -370,7 +370,7 @@
 		 */
 		public function get_name($hostname, $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$path = $this->getAppRoot($docroot);
 			$prefix = $this->domain_fs_path();
 			$info = $prefix . '/' . $path . '/composer.json';
@@ -395,7 +395,7 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$path = $this->getAppRoot($docroot);
 			$ret = $this->_exec($path, 'artisan -V');
 			if (!$ret['success']) {
@@ -416,7 +416,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -439,7 +439,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -488,7 +488,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}

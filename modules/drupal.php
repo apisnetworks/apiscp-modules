@@ -54,7 +54,7 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Drupal');
 			}
@@ -317,7 +317,7 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			return $this->_getVersion($docroot);
 		}
 
@@ -333,7 +333,7 @@
 			if ($hostname[0] === '/') {
 				$docroot = $hostname;
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -354,7 +354,7 @@
 		 */
 		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -381,7 +381,7 @@
 
 		public function enable_plugin($hostname, $path = '', $plugin)
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -403,7 +403,7 @@
 		 */
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -430,7 +430,7 @@
 
 		public function plugin_active($hostname, $path = '', $plugin)
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -440,7 +440,7 @@
 
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null): ?array
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -464,7 +464,7 @@
 
 		public function disable_plugin($hostname, $path = '', $plugin)
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -485,7 +485,7 @@
 		 */
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine path');
 			}
@@ -510,7 +510,7 @@
 
 		public function list_all_plugins($hostname, $path = '', $status = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Drupal location');
 			}
@@ -548,7 +548,7 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine Drupal');
 			}
@@ -603,7 +603,7 @@
 		 */
 		public function change_admin(string $hostname, string $path = '', array $fields): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return warn('failed to change administrator information');
 			}
@@ -636,7 +636,7 @@
 		 */
 		public function get_admin(string $hostname, string $path = ''): ?string
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$ret = $this->_exec($docroot, 'user-information 1 --format=json');
 			if (!$ret['success']) {
 				warn('failed to enumerate Drupal administrative users');
@@ -663,7 +663,7 @@
 			$ret = ($this->update($hostname, $path, $version) && $this->update_plugins($hostname, $path))
 				|| error('failed to update all components');
 
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+			parent::setInfo($this->getAppRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret
 			]);
@@ -680,7 +680,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -748,7 +748,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}

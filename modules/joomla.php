@@ -111,7 +111,7 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Joomla');
 			}
@@ -385,7 +385,7 @@
 		 */
 		public function change_admin(string $hostname, string $path = '', array $fields): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return warn('failed to change administrator information');
 			}
@@ -466,7 +466,7 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine Joomla');
 			}
@@ -550,7 +550,7 @@
 		 */
 		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Joomla location');
 			}
@@ -576,7 +576,7 @@
 		 */
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Joomla location');
 			}
@@ -610,7 +610,7 @@
 		 */
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine path');
 			}
@@ -660,7 +660,7 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$fsroot = $this->domain_fs_path();
 			$path = $fsroot . $docroot;
 			$versigs = array(
@@ -721,7 +721,7 @@
 			if ($hostname[0] === '/') {
 				$docroot = $hostname;
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -743,7 +743,7 @@
 			$ret = ($this->update($hostname, $path, $version)/* && $this->update_plugins($hostname, $path)*/)
 				|| error("failed to update all components");
 
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+			parent::setInfo($this->getAppRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret
 			]);
@@ -766,7 +766,7 @@
 				return $this->query('joomla_update', $hostname, $path, $version);
 			}
 
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -897,7 +897,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}

@@ -436,7 +436,7 @@
 			}
 
 			if (!$email) {
-				$email = \Crm_Module::FROM_ADDRESS;
+				$email = $this->admin_get_email() ?? \Crm_Module::FROM_ADDRESS;
 			}
 
 			$ret = $this->_exec('setup',

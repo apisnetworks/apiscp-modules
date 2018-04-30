@@ -146,7 +146,7 @@
 		 *
 		 * @return string|null
 		 */
-		public function get_email()
+		public function get_email(): ?string
 		{
 			$ini = $this->_get_admin_config();
 			return $ini['adminemail'] ?? null;

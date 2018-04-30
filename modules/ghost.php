@@ -74,7 +74,7 @@
 				);
 			}
 			var_dump($ret);
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("failed to normalize path for `%s'", $hostname);
 			}
@@ -242,9 +242,9 @@
 		 *
 		 * @param string $hostname
 		 * @param string $path
-		 * @return string
+		 * @return ?string
 		 */
-		protected function getDocumentRoot($hostname, $path = '')
+		protected function getAppRoot(string $hostname, string $path = ''): ?string
 		{
 			// Laravel app root resides 1 level down
 			$path = $this->web_normalize_path($hostname, $path);
@@ -366,7 +366,7 @@
 		 */
 		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = 'stable'): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("invalid WP location");
 			}
@@ -406,7 +406,7 @@
 			if ($hostname[0] == '/') {
 				$docroot = $hostname;
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -424,7 +424,7 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("failed to determine WP");
 			}
@@ -465,7 +465,7 @@
 		 */
 		public function change_admin(string $hostname, string $path = '', array $fields): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return warn("failed to change administrator information");
 			}
@@ -513,7 +513,7 @@
 		 */
 		public function get_admin(string $hostname, string $path = ''): ?string
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$ret = $this->_exec($docroot, 'user list --role=administrator --field=user_login');
 			if (!$ret['success']) {
 				warn("failed to enumerate WP administrative users");
@@ -535,7 +535,7 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$ret = $this->_exec($docroot, 'core version');
 			if (!$ret['success']) {
 				return null;
@@ -568,7 +568,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
 			}
@@ -597,7 +597,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
 			}
@@ -645,7 +645,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("update failed");
 			}

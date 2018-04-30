@@ -839,7 +839,7 @@
 		 * @return string document root path
 		 */
 
-		public function normalize_path($hostname, $path = '')
+		public function normalize_path(string $hostname, string $path = ''): ?string
 		{
 			static $pathHash;
 			if (isset($pathHash[$hostname]) && isset($pathHash[$hostname][$path])) {
@@ -864,7 +864,8 @@
 			if (!file_exists($checkpath)) {
 				$subpath = dirname($checkpath);
 				if (!file_exists($subpath)) {
-					return error("invalid domain `%s', docroot `%s' does not exist", $hostname, $docroot);
+					error("invalid domain `%s', docroot `%s' does not exist", $hostname, $docroot);
+					return null;
 				}
 			}
 			if (!isset($pathHash[$hostname])) {

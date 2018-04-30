@@ -60,7 +60,7 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Magento');
 			}
@@ -371,7 +371,7 @@
 			if ($hostname[0] == '/') {
 				$docroot = $hostname;
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -390,7 +390,7 @@
 		 */
 		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = 'stable'): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -409,7 +409,7 @@
 		 */
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid Magento location');
 			}
@@ -426,7 +426,7 @@
 		 */
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine path');
 			}
@@ -459,7 +459,7 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine Magento');
 			}
@@ -616,7 +616,7 @@
 			$ret = ($this->update($hostname, $path, $version) && $this->update_plugins($hostname, $path) &&
 					$this->update_themes($hostname, $path)) || error('failed to update all components');
 
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+			parent::setInfo($this->getAppRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret
 			]);
@@ -634,7 +634,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -652,7 +652,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -670,7 +670,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}

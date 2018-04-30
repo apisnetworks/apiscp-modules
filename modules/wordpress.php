@@ -66,7 +66,7 @@
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
 
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("failed to detect document root for `%s'", $hostname);
 			}
@@ -238,7 +238,7 @@
 		 */
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -312,7 +312,7 @@
 			string $plugin,
 			string $version = 'stable'
 		): bool {
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -345,7 +345,7 @@
 		 */
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -378,7 +378,7 @@
 		 */
 		public function uninstall_theme(string $hostname, string $path = '', string $theme, bool $force = false): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -410,7 +410,7 @@
 		 */
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine path');
 			}
@@ -445,7 +445,7 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to determine WP');
 			}
@@ -493,7 +493,7 @@
 		 */
 		public function change_admin(string $hostname, string $path = '', array $fields): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return warn('failed to change administrator information');
 			}
@@ -541,7 +541,7 @@
 		 */
 		public function get_admin(string $hostname, string $path = ''): ?string
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$ret = $this->_exec($docroot, 'user list --role=administrator --field=user_login');
 			if (!$ret['success']) {
 				warn('failed to enumerate WP administrative users');
@@ -564,7 +564,7 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			$ret = $this->_exec($docroot, 'core version');
 			if (!$ret['success']) {
 				return null;
@@ -586,7 +586,7 @@
 			if ($hostname[0] === '/') {
 				$docroot = $hostname;
 			} else {
-				$docroot = $this->getDocumentRoot($hostname, $path);
+				$docroot = $this->getAppRoot($hostname, $path);
 				if (!$docroot) {
 					return false;
 				}
@@ -607,7 +607,7 @@
 		{
 			$ret = ($this->update_themes($hostname, $path) && $this->update_plugins($hostname, $path) &&
 					$this->update($hostname, $path, $version)) || error('failed to update all components');
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+			parent::setInfo($this->getAppRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret
 			]);
@@ -625,7 +625,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -683,7 +683,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -725,7 +725,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
@@ -780,7 +780,7 @@
 		 */
 		public function theme_status(string $hostname, string $path = '', string $theme = null)
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -848,7 +848,7 @@
 
 		public function install_theme(string $hostname, string $path = '', string $theme, string $version = null): bool
 		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
 			}
@@ -894,7 +894,7 @@
 			if (!parent::fortify($hostname, $path, $mode)) {
 				return false;
 			}
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			$docroot = $this->getAppRoot($hostname, $path);
 			if ($mode === 'min') {
 				// allow direct access on min to squelch FTP dialog
 				$this->shareOwnershipSystemCheck($docroot);
