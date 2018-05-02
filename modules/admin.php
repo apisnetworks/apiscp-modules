@@ -183,33 +183,40 @@
 				mkdir($configHome) && chmod($configHome, 0700);
 			}
 			$defplan = \Opcenter\SiteConfiguration::planPath(\Opcenter\SiteConfiguration::DEFAULT_SVC_NAME);
-			if (is_dir($defplan)) {
+			if (!is_dir($defplan)) {
+				$base = \Opcenter\SiteConfiguration::planPath('');
+				// plan name change
+				$dh = opendir($base);
+				if (!$dh) {
+					return error("Plan path `%s' missing, account creation will fail until fixed",
+						$base
+					);
+				}
+				while (false !== ($f = readdir($dh))) {
+					if ($f === '..' || $f === '.') {
+						continue;
+					}
+					$path = $base . DIRECTORY_SEPARATOR . $f;
+					if (is_link($path)) {
+						unlink($path);
+						break;
+					}
+				}
+				if ($f !== false) {
+					info("old default plan `%s' renamed to `%s'",
+						$f, \Opcenter\SiteConfiguration::DEFAULT_SVC_NAME
+					);
+				}
+				symlink(dirname($defplan) . '/.skeleton', $defplan);
+			}
+
+
+			$themepath = public_path('images/themes/current');
+			if (is_link($themepath) && basename(readlink($themepath)) === STYLE_THEME) {
 				return;
 			}
-			$base = \Opcenter\SiteConfiguration::planPath('');
-			// plan name change
-			$dh = opendir($base);
-			if (!$dh) {
-				return error("Plan path `%s' missing, account creation will fail until fixed",
-					$base
-				);
-			}
-			while (false !== ($f = readdir($dh))) {
-				if ($f === '..' || $f === '.') {
-					continue;
-				}
-				$path = $base . DIRECTORY_SEPARATOR . $f;
-				if (is_link($path)) {
-					unlink($path);
-					break;
-				}
-			}
-			if ($f !== false) {
-				info("old default plan `%s' renamed to `%s'",
-					$f, \Opcenter\SiteConfiguration::DEFAULT_SVC_NAME
-				);
-			}
-			symlink(dirname($defplan) . '/.skeleton', $defplan);
+			is_link($themepath) && unlink($themepath);
+			symlink(STYLE_THEME, dirname($themepath) . '/current');
 		}
 
 		protected function _get_admin_config()

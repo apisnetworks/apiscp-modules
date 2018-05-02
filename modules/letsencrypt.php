@@ -411,7 +411,7 @@
 			if (!$this->supported()) {
 				return;
 			}
-			if (!$this->_registered() && !$this->_register(\Crm_Module::FROM_ADDRESS)) {
+			if (!$this->_registered() && !$this->_register()) {
 				return error("failed to register with Let's Encrypt");
 			}
 			if (!$this->certificateIssued(self::SYSCERT_NAME)) {
