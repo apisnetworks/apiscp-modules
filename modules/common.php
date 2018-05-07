@@ -103,13 +103,13 @@
 		 * @privilege PRIVILEGE_ALL
 		 * @return string|null
 		 */
-		public function get_email()
+		public function get_email(): ?string
 		{
 			if ($this->permission_level & PRIVILEGE_SITE) {
 				return $this->get_admin_email();
 			}
 			if ($this->permission_level & PRIVILEGE_USER) {
-				$prefs = $this->get_user_preferences();
+				$prefs = $this->get_user_preferences($this->username);
 				return $prefs['email'] ?? null;
 			}
 			if ($this->permission_level & PRIVILEGE_ADMIN) {

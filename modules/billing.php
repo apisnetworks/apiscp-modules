@@ -91,6 +91,7 @@
 			if ($this->get_config('billing', 'parent_invoice')) {
 				return $this->get_config('billing', 'parent_invoice');
 			}
+			return null;
 		}
 
 		/**

@@ -3393,7 +3393,7 @@
 			if ($this->permission_level & !(PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				return true;
 			}
-			$proc = Util_Process::exec('/etc/init.d/fsmount reload_site %s', $this->site);
+			$proc = Util_Process::exec(\Opcenter\Service\ServiceLayer::MOUNT_CMD . ' reload_site %s', $this->site);
 			return $proc['success'];
 		}
 

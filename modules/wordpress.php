@@ -245,7 +245,7 @@
 
 			$ret = $this->_exec($docroot, 'plugin status');
 			if (!$ret['success']) {
-				return error('failed to get plugin status');
+				return error('failed to get plugin status: %s', coalesce($ret['stderr'], $ret['stdout']));
 			}
 
 			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches, PREG_SET_ORDER)) {
@@ -293,6 +293,9 @@
 			}
 			$url = str_replace('%plugin%', $plugin, static::PLUGIN_VERSION_CHECK_URL);
 			$info = (array)json_decode(file_get_contents($url), true);
+			if (isset($info['versions'])) {
+				uksort($info['versions'], 'version_compare');
+			}
 			$cache->set($key, $info, 86400);
 			return $info;
 		}
@@ -808,7 +811,7 @@
 				];
 				// dev version may be present
 				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max", '99999999.999'), (string)$version, '<=') ?:
-					(bool)\Opcenter\Versioning::current($versions, $version);
+					(bool)\Opcenter\Versioning::current($versions, $version) >= 0;
 			}
 
 			return $theme ? $themes[$theme] ?? error("unknown theme `%s'", $theme) : $themes;
@@ -842,6 +845,9 @@
 			}
 			$url = str_replace('%theme%', $theme, static::THEME_VERSION_CHECK_URL);
 			$info = (array)json_decode(file_get_contents($url), true);
+			if (isset($info['versions'])) {
+				uksort($info['versions'], 'version_compare');
+			}
 			$cache->set($key, $info, 86400);
 			return $info;
 		}

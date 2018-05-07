@@ -465,7 +465,7 @@
 			}
 			if ($this->guessMajor($docroot) === 1) {
 				$file = $this->domain_fs_path() . $docroot . '/app/etc/local.xml';
-				$code = simplexml_load_string(file_get_contents($file, false, LIBXML_NOCDATA));
+				$code = simplexml_load_string(file_get_contents($file, false), 'SimpleXMLElement', LIBXML_NOCDATA);
 				$conn = $code->xpath('//connection');
 				if (!$conn) {
 					return error("failed to obtain Magento configuration for `%s'", $docroot);
