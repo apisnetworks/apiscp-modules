@@ -438,9 +438,9 @@
 		 * @param string $domain
 		 * @return string
 		 */
-		public function challenge_token()
+		public function challenge_token(): string
 		{
-			$str = (string)fileinode($this->domain_info_path());
+			$str = (string)fileinode($this->domain_info_path('users'));
 			return sha1($str);
 		}
 
@@ -846,11 +846,15 @@
 		 */
 		private function _generate_map()
 		{
-
 			$map_file = $this->_map_path();
 			$output_file = self::CONFIG_DB_DIR . '/' . $this->site;
 			file_exists($output_file) && unlink($output_file);
-			$proc = Util_Process::exec('httxt2dbm -f DB -i %s -o %s',
+			$format = 'default';
+			if (version_compare(platform_version(), '7.5', '<')) {
+				$format = 'DB';
+			}
+			$proc = Util_Process::exec('httxt2dbm -f %s -i %s -o %s',
+				$format,
 				$map_file,
 				$output_file
 			);

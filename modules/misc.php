@@ -242,8 +242,7 @@
 				$adapter = new HTTP_Request2_Adapter_Socket();
 			}
 			dlog("Purging CP pagespeed cache");
-			$url = 'http://' . Auth_Redirect::makeCPFromServer(SERVER_NAME_SHORT) .
-				':' . Auth_Redirect::CP_PORT . '/*';
+			$url = 'http://localhost:' . Auth_Redirect::CP_PORT . '/*';
 
 			$http = new HTTP_Request2(
 				$url,

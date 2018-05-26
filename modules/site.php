@@ -109,6 +109,9 @@
 			if (!$site_id) {
 				Error_Reporter::report(var_export($this, true));
 			}
+			if (!$this->bandwidth_enabled()) {
+				return ['used' => 0, 'total' => -1];
+			}
 			$pgdb = \PostgreSQL::initialize();
 			switch ($type) {
 				case null:
@@ -129,11 +132,10 @@
 					}
 					$bw_rs = $bw_rs->fetch_object();
 					// @BUG account has no bandwidth enddate
-					if (!$bw_rs || !$bw_rs->begindate) {
+					if ((!$bw_rs || !$bw_rs->begindate) && $this->get_service_value('bandwidth', 'enabled')) {
 						$ret = $this->_autofix_bandwidth($site_id, $this->get_service_value('bandwidth', 'rollover'));
 						if (!$ret) {
-							warn("failed to autofix bandwidth for site `%d'", $this->site_id);
-							return false;
+							return error("failed to autofix bandwidth for site `%d'", $this->site_id);
 						}
 						return $this->get_bandwidth_usage($type);
 					}
@@ -162,8 +164,8 @@
 		private function _autofix_bandwidth($site, $rollover)
 		{
 			$db = \PostgreSQL::initialize();
-			$site = intval($site);
-			$ts = mktime(0, 0, 0, date("m"), $rollover);
+			$site = (int)$site;
+			$ts = mktime(0, 0, 0, (int)date("m"), (int)$rollover);
 			$ts2 = strtotime('last month', $ts);
 			if ($ts > time()) {
 				$ts = $ts2;
@@ -181,7 +183,7 @@
 		 */
 		public function get_bandwidth_rollover()
 		{
-			$rollover = $this->get_service_value('bandwidth', 'rollover');
+			$rollover = (int)$this->get_service_value('bandwidth', 'rollover');
 			$localtime = localtime(time(), true);
 			$today = date('j');
 			$month = ($rollover < $today ? ($localtime['tm_mon'] + 1) : $localtime['tm_mon']);
@@ -301,7 +303,16 @@
 			$quota_rep = Util_Process::exec('quota -w -g ' . $this->group_id,
 				array('mute_stderr' => true)
 			);
-			if (!preg_match(Regex::QUOTA_USRGRP, $quota_rep['output'], $quota)) {
+			if (false !== strpos($quota_rep['output'], ': none')) {
+				$quota = [
+					'qused' => 0,
+					'qsoft' => 0,
+					'qhard' => 0,
+					'fileused' => 0,
+					'filesoft' => 0,
+					'filehard' => 0
+				];
+			} else if (!preg_match(Regex::QUOTA_USRGRP, $quota_rep['output'], $quota)) {
 				warn("quota output error");
 				return array();
 			}
@@ -364,15 +375,11 @@
 			$editor = new Util_Account_Editor($this->getAuthContext()->getAccount());
 			// assemble domain creation cmd from current config
 			$editor->importConfig();
-			$afi = $this->apnscpFunctionInterceptor ?? apnscpFunctionInterceptor::init();
+			$afi = $this->getApnscpFunctionInterceptor();
 			$modules = $afi->list_all_modules();
-			$auth = $this->getAuthContext();
 			foreach ($modules as $m) {
 				$c = $afi->get_class_from_module($m);
-				$class = new $c;
-				// CLI doesn't populate session id, user params automatically
-				$class->set_session_id($this->session_id);
-				$class->set_user_parameters($auth);
+				$class = $c::instantiateContexted($this->getAuthContext());
 				$class->_reset($editor);
 			}
 			$addcmd = $editor->setMode('add')->getCommand();
@@ -380,11 +387,9 @@
 			// never comes back from the dead
 			Mail::send(Crm_Module::COPY_ADMIN, "Account Wipe", $addcmd);
 			$delproc = new Util_Account_Editor($this->getAuthContext()->getAccount());
-			$site_id = $this->site_id;
 			if (!$delproc->delete()) {
 				return false;
 			}
-			apnscpSession::invalidate_by_site_id($site_id);
 			$proc = new Util_Process_Schedule('now');
 			$ret = $proc->run($addcmd);
 			return $ret['success'];

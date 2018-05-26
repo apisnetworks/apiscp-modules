@@ -2015,6 +2015,7 @@
 
 			$fp = fopen($path, 'w' . ($binary ? '' : 'b'));
 			ftruncate($fp, 0);
+			rewind($fp);
 			fwrite($fp, !$binary ? $mData : base64_decode($mData));
 			fclose($fp);
 			$this->_purgeCache((array)$mFile);

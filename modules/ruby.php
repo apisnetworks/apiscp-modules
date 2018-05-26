@@ -505,7 +505,7 @@
 			}
 			$proc = new Util_Process_Sudo();
 			$proc->setOption('user', $user);
-			$ret = $proc->run("rvm user gemsets");
+			$ret = $proc->run("/bin/bash -i rvm user gemsets");
 			if (!$ret['success']) {
 				return error("error intiailizing gemset: `%s'", $ret['stderr']);
 			}

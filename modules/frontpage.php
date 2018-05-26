@@ -144,6 +144,9 @@
 
 		public function _reset(Util_Account_Editor &$editor = null)
 		{
+			if (version_compare(platform_version(), '7', '>=')) {
+				return [];
+			}
 			$module = 'frontpage';
 			$params = array(
 				'paths'   => array(),

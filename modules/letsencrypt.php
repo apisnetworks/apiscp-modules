@@ -385,11 +385,6 @@
 		 */
 		private function _verifyIP($hostname, $myip)
 		{
-			if (is_debug()) {
-				debug("overriding IP check for $hostname to $myip");
-
-				return true;
-			}
 			$ip = $this->dns_gethostbyname_t($hostname, 1500);
 
 			return $ip && $ip == $myip;

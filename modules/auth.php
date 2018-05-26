@@ -296,7 +296,7 @@
 			}
 			$stmt->bind_param("ssds", $key, $this->username, $site_id, $invoice);
 			if (!$stmt->execute()) {
-				return error("unable to add key");
+				return error("unable to add key - %s", $stmt->error);
 			}
 			if ($comment) {
 				$this->set_api_key_comment($key, $comment, $user);
@@ -841,7 +841,7 @@
 
 		public function _reset(\Util_Account_Editor &$editor = null)
 		{
-			$module = 'siteinfo';
+			$module = $this->getAuthService();
 			$crypted = $this->_get_site_admin_shadow($this->site_id);
 			if (!$crypted) {
 				fatal("call _reset() in auth from backend");

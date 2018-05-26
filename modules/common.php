@@ -866,6 +866,7 @@
 				usleep(100);
 			}
 			ftruncate($fp, 0);
+			rewind($fp);
 			fwrite($fp, serialize($prefs));
 			flock($fp, LOCK_UN);
 			fclose($fp);

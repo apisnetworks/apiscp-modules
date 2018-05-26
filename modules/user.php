@@ -24,7 +24,7 @@
 			// user subdomains must be removed first
 			'apache'
 		];
-		const MIN_UID = 500;
+		const MIN_UID = USER_MIN_UID;
 
 		// minimum non-system user id
 		const  DUMMY_USER_CNT = 3;
@@ -195,10 +195,9 @@
 			}
 			if (!$user) {
 				return error("no username specified)");
-			} else {
-				if (!preg_match(Regex::USERNAME, $user)) {
-					return error("invalid user `%s'", $user);
-				}
+			}
+			if (!preg_match(Regex::USERNAME, $user)) {
+				return error("invalid user `%s'", $user);
 			}
 
 			if (!$this->auth_password_permitted($password, $user)) {
@@ -224,8 +223,8 @@
 			$smtp_enable = $this->email_enabled('smtp') && isset($options['smtp']) && $options['smtp'] != 0;
 			$imap_enable = $this->email_enabled('imap') && isset($options['imap']) && $options['imap'] != 0;
 			$ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
-			$cp_enable = isset($options['cp']) || $options['cp'] != 0;
-			$dav_enable = isset($options['dav']) || $options['dav'] != 0;
+			$cp_enable = isset($options['cp']) && $options['cp'] != 0;
+			$dav_enable = isset($options['dav']) && $options['dav'] != 0;
 			$ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
 
 			if ($this->auth_is_demo()) {
@@ -454,18 +453,21 @@
 
 			}
 
-
 			Util_Account_Hooks::run('delete_user', $user);
-			$ret = \Opcenter\Role\User::bindTo($this->domain_fs_path())->delete($user);
+			$instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
+			$ret = $instance->delete($user, true);
 			if (!$ret) {
 				return false;
 			}
 			$this->flush();
-
+			\apnscpSession::invalidate_by_user($this->site_id, $user);
+			$instance->releaseUid($uid);
 			$key = $this->site . '.' . $user;
+
 			if (array_has(self::$uid_mappings, $key)) {
 				array_forget(self::$uid_mappings, $key);
 			}
+
 			return $ret;
 
 		}
@@ -895,6 +897,7 @@
 				$lines[] = $line;
 			}
 			ftruncate($fp, 0);
+			rewind($fp);
 			$lines = join("", $lines);
 			fwrite($fp, $lines);
 			flock($fp, LOCK_UN);
@@ -984,7 +987,12 @@
 		public function _delete()
 		{
 			foreach ($this->get_users() as $user => $pwd) {
-				$this->erase_quota_history($user);
+				$this->_delete_user($user);
+				if ($user === $this->username) {
+					// admin user
+					continue;
+				}
+				$this->delete_user($user);
 			}
 		}
 

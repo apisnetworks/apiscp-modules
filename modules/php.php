@@ -18,7 +18,7 @@
 	 *
 	 * @package core
 	 */
-	class Php_Module extends Module_Support_Php
+	class Php_Module extends Module_Support_Php implements \Opcenter\Contracts\Hookable
 	{
 		const COMPOSER_LOCATION = '/usr/bin/composer.phar';
 
@@ -408,15 +408,6 @@
 			return file_exists(self::COMPOSER_LOCATION);
 		}
 
-		public function _delete()
-		{
-			foreach ($this->get_fallbacks() as $fallback) {
-				if ($this->fallback_enabled($fallback)) {
-					$this->disable_fallback($fallback);
-				}
-			}
-		}
-
 		public function get_fallbacks()
 		{
 			return $this->getPersonalities();
@@ -467,6 +458,47 @@
 			// defer reloading to a later date
 			return true;
 		}
-	}
 
-?>
+		public function _delete()
+		{
+			foreach ($this->get_fallbacks() as $fallback) {
+				if ($this->fallback_enabled($fallback)) {
+					$this->disable_fallback($fallback);
+				}
+			}
+		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			// TODO: Implement _verify_conf() method.
+		}
+
+		public function _create()
+		{
+			// TODO: Implement _create() method.
+		}
+
+		public function _edit()
+		{
+			foreach ($this->get_fallbacks() as $fallback) {
+				if ($this->fallback_enabled($fallback)) {
+					$this->disable_fallback($fallback) && $this->enable_fallback($fallback);
+				}
+			}
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			// TODO: Implement _edit_user() method.
+		}
+	}

@@ -22,7 +22,7 @@
 		const DEPENDENCY_MAP = [
 			'siteinfo', 'ipinfo', 'ipinfo6', 'users'
 		];
-		const MAILDIR_HOME = 'Mail';
+		const MAILDIR_HOME = \Opcenter\Mail\Storage::MAILDIR_HOME;
 		const MAILBOX_SPECIAL = 's';
 		const MAILBOX_FORWARD = 'a';
 		const MAILBOX_USER = 'v';
@@ -634,14 +634,18 @@
 		 * @return bool
 		 */
 		public function set_vacation_options(array $options): bool {
-			$driver = \Opcenter\Mail\Vacation::get();
+			$driver = \Opcenter\Mail\Vacation::get($this->getAuthContext());
 			foreach ($driver->getDefaults() as $k => $v) {
 				if (isset($options[$k]) && !$driver->setOption($k, $options[$k])) {
 					unset($options[$k]);
 				}
 			}
-			\Preferences::set(self::VACATION_PREFKEY, $options);
-			\Preferences::write();
+			$pref = \Preferences::factory($this->getAuthContext());
+			$pref->unlock(\apnscpFunctionInterceptor::factory($this->getAuthContext()));
+			$pref->offsetSet(self::VACATION_PREFKEY, $options);
+			if (!$this->inContext()) {
+				\Preferences::reload();
+			}
 			return true;
 		}
 
@@ -650,8 +654,8 @@
 		 * @return array
 		 */
 		public function get_vacation_options(): array {
-			$prefs = \Preferences::get(self::VACATION_PREFKEY, []);
-			$mb = \Opcenter\Mail\Vacation::get();
+			$prefs = array_get(\Preferences::factory($this->getAuthContext()), self::VACATION_PREFKEY, []);
+			$mb = \Opcenter\Mail\Vacation::get($this->getAuthContext());
 			$defaults = $mb->getDefaults();
 			return array_merge($defaults, array_intersect_key($prefs, $defaults));
 		}
@@ -707,11 +711,13 @@
 			}
 
 			if (null === $user) {
-				$user = $this->username;
+				$user = $this->getAuthContext();
 			} else if (!$this->user_exists($user)) {
 				return error("user `%s' does not exist", $user);
 			} else if ($user && $flags) {
 				return error("changing flags of secondary users not implemented");
+			} else {
+				$user = \Auth::context($user, $this->site);
 			}
 
 			$driver = \Opcenter\Mail\Vacation::get($user);
@@ -730,12 +736,15 @@
 			if (null !== $user && (($this->permission_level & PRIVILEGE_SITE) !== PRIVILEGE_SITE)) {
 				return error("Unable to check vacation for non-admin account");
 			} else if (null === $user) {
-				$user = $this->username;
+				$user = $this->getAuthContext();
+			} else {
+				$user = \Auth::context($user, $this->site);
 			}
 
-			if (!$this->user_exists($user)) {
-				return error("Invalid user `%s'", $user);
+			if (!$this->user_exists($user->username)) {
+				return error("Invalid user `%s'", $user->username);
 			}
+
 			return \Opcenter\Mail\Vacation::get($user)->enabled();
 		}
 
@@ -767,7 +776,9 @@
 				return error("Unable to check vacation for non-admin account");
 			}
 			if (!$user) {
-				$user = $this->username;
+				$user = $this->getAuthContext();
+			} else {
+				$user = \Auth::context($user, $this->site);
 			}
 
 			if (!$this->user_exists($user)) {
@@ -1208,49 +1219,23 @@
 
 		public function create_maildir_backend($user, $mailbox)
 		{
-			$mailbox = trim($mailbox);
-			// Maildir folders are prefixed with a period
-			if ($mailbox[0] != ".") {
-				$mailbox = '.' . $mailbox;
-			}
 			if (!preg_match(Regex::EMAIL_MAILDIR_FOLDER, $mailbox)) {
 				return error("invalid maildir folder name `%s'", $mailbox);
 			}
-			if (!$this->user_exists($user)) {
-				return error("invalid user specified `%s'", $user);
-			}
+
 			$pwd = $this->user_getpwnam($user);
 			if (!$pwd) {
-				return error("getpwnam() failed for user `%s'", $user);
+				return error("failed to create Maildir storage, user `%s' does not exist", $user);
 			}
-			$home = $pwd['home'];
-			$folders = array('', 'new', 'cur', 'tmp');
-			$mailhome = $this->domain_fs_path() . $home . DIRECTORY_SEPARATOR . self::MAILDIR_HOME;
-			if (!file_exists($mailhome)) {
-				return error("Mail home `%s' does not exist",
-					join(DIRECTORY_SEPARATOR, array($home, self::MAILDIR_HOME))
-				);
+
+			$path = $pwd['home'] . DIRECTORY_SEPARATOR .
+				static::MAILDIR_HOME . DIRECTORY_SEPARATOR . \Opcenter\Mail\Storage::mailbox2Maildir($mailbox);
+			$chkvpath = dirname($path);
+			$chkrpath = $this->domain_fs_path($chkvpath);
+			if (!is_dir($chkrpath)) {
+				return error("mail home `%s' does not exist", $chkvpath);
 			}
-			foreach ($folders as $f) {
-				$f = join(DIRECTORY_SEPARATOR, array($mailhome, $mailbox, $f));
-				if (file_exists($f)) {
-					continue;
-				}
-				\Opcenter\Filesystem::mkdir($f, $pwd['uid'], $pwd['gid'], 0700);
-			}
-			$subscriptions = join(DIRECTORY_SEPARATOR, array($mailhome, 'subscriptions'));
-			$sname = trim($mailbox, '.');
-			if (!file_exists($subscriptions)) {
-				$contents = array();
-			} else {
-				$contents = file($subscriptions, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-			}
-			if (false !== array_search($sname, $contents)) {
-				return info("mailbox `%s' already subscribed", $sname);
-			}
-			$contents[] = $sname;
-			file_put_contents($subscriptions, join("\n", $contents) . "\n");
-			return \Opcenter\Filesystem::chogp($subscriptions, $pwd['uid'], $pwd['gid'], 0600);
+			return \Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($path, $pwd['uid'], $pwd['gid']);
 		}
 
 		public function _delete()
@@ -1387,14 +1372,15 @@
 			if ($svc && $svc != 'imap' && $svc != 'smtp' && $svc != 'smtp_relay') {
 				return error("service " . $svc . " is unknown (imap, smtp)");
 			}
+			if (!$this->enabled($svc)) {
+				return false;
+			}
 			$enabled = 1;
 			if (!$svc) {
-				$enabled = (new Util_Pam($this->getAuthContext()))->check($user, $svc);
+				$enabled = (new Util_Pam($this->getAuthContext()))->check($user, 'imap');
 				$svc = 'smtp_relay';
-			} else {
-				if ($svc == 'smtp') {
-					$svc = 'smtp_relay';
-				}
+			} else if ($svc == 'smtp') {
+				$svc = 'smtp_relay';
 			}
 
 			return $enabled && (new Util_Pam($this->getAuthContext()))->check($user, $svc);

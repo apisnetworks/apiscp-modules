@@ -78,7 +78,7 @@
 			}
 			$query = \PostgreSQL::initialize()->query($q);
 			$bandwidth = array();
-			while (($bw = $query->fetch_object()) != false) {
+			while (($bw = $query->fetch_object()) !== false) {
 				$bandwidth[] = array(
 					'begin'     => (int)$bw->begin,
 					'end'       => (int)$bw->end,
@@ -187,6 +187,10 @@
 			}
 			$cache->set($cachekey, $services, 43200);
 			return $services;
+		}
+
+		public function enabled(): bool {
+			return (bool)$this->get_service_value('bandwidth', 'enabled');
 		}
 
 		public function _delete()

@@ -1267,11 +1267,14 @@
 			$map = Map::open(self::PROTOCOL_MAP, Map::MODE_WRITE);
 			$map->removeValues($this->site_id);
 			$map->sync();
-			// @todo remove virtual/.site if suspended
+			if (version_compare(platform_version(), '7.5', '<')) {
+				// part of DeleteDomain on Delta platform
+				\Opcenter\Provisioning\Apache::removeConfiguration($this->site);
+			}
 			\Opcenter\Http\Apache::reload();
 
 		}
-
+		
 		public function http_config_dir()
 		{
 			deprecated_func('use site_config_dir');
