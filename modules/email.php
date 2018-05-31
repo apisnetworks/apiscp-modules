@@ -17,10 +17,10 @@
 	 *
 	 * @package core
 	 */
-	class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
+	class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable, \Module\Skeleton\Contracts\Proxied
 	{
 		const DEPENDENCY_MAP = [
-			'siteinfo', 'ipinfo', 'ipinfo6', 'users'
+			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'aliases'
 		];
 		const MAILDIR_HOME = \Opcenter\Mail\Storage::MAILDIR_HOME;
 		const MAILBOX_SPECIAL = 's';
@@ -77,9 +77,30 @@
 				'webmail_apps'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'create_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'remove_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'*'                               => PRIVILEGE_SITE
+				'*'                               => PRIVILEGE_SITE,
+				'get_provider'                    => PRIVILEGE_ALL
 			);
 		}
+
+		public function _proxy(): \Module_Skeleton
+		{
+			$provider = $this->get_provider();
+			if ($provider === 'builtin') {
+				return $this;
+			}
+
+		}
+
+		/**
+		 * Get DNS provider
+		 *
+		 * @return string
+		 */
+		public function get_provider(): string
+		{
+			return $this->get_service_value('mail', 'provider', 'builtin');
+		}
+
 
 		public function list_aliases()
 		{
@@ -205,6 +226,10 @@
 			}
 			if ($which && $which !== 'sendmail' && $which !== 'imap') {
 				return error("unknown service `%s'", $which);
+			}
+			// Delta merges sendmail/imap/pop3 into 1 service
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				$which = 'mail';
 			}
 			if ($which) {
 				return (bool)$this->get_service_value($which, 'enabled');
@@ -781,7 +806,7 @@
 				$user = \Auth::context($user, $this->site);
 			}
 
-			if (!$this->user_exists($user)) {
+			if (!$this->user_exists($user->username)) {
 				return error($user . ": invalid user");
 			}
 
@@ -859,7 +884,12 @@
 			}
 			$pgdb->query("DELETE FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "' AND site_id = " . (int)$this->site_id . ";");
 			$ok = $pgdb->affected_rows() > 0;
-			if (is_null($keepdns)) {
+
+			if (!$this->dns_configured()) {
+				return warn("DNS is not configured for `%s' - unable to remove MX records automatically", $domain);
+			}
+
+			if (null === $keepdns) {
 				// do an intelligent lookup to see if MX is default
 				$split = $this->web_split_host($domain);
 				$myip = $this->site_ip_address();
@@ -954,6 +984,9 @@
 			 * forcefully set the record just in case, if external DNS is used
 			 * if MX destination record is already present, elicit a warning and continue;
 			 */
+			if (!$this->dns_configured()) {
+				return warn("DNS is not configured for `%s' - unable to provision DNS automatically", $domain);
+			}
 			if ($this->dns_record_exists($domain, $mymailrec, 'A')) {
 				$srvrec = $this->dns_get_records($mymailrec, 'A', $domain);
 				if (count($srvrec) === 0) {
@@ -1152,7 +1185,7 @@
 		public function _create()
 		{
 			// populate spam folders
-			$conf = Auth::profile()->conf->cur;
+			$conf = $this->getAuthContext()->getAccount()->cur;
 			$user = $conf['siteinfo']['admin_user'];
 			// stupid thor...
 			$svcs = array('smtp_relay', 'imap');
@@ -1162,7 +1195,14 @@
 					$pam->remove($user, $svc);
 				}
 			}
-			return $this->_create_user($user);
+			if (version_compare(platform_version(), '7.5', '<')) {
+				return true;
+			}
+			if (!$this->_create_user($user)) {
+				return false;
+			}
+			$this->add_mailbox('postmaster', $this->domain, $this->user_id);
+			return true;
 		}
 
 		public function _create_user(string $user)
@@ -1170,12 +1210,26 @@
 			// flush Dovecot auth cache to acknowledge pwdb changes
 			$this->_reload('adduser');
 
-			$home = $this->user_get_home($user);
-			if (!$home) {
+			if (!$pwd = $this->user_getpwnam($user)) {
 				return false;
 			}
+			if (!Opcenter\Provisioning\Mail::createUser($this->site_id, $pwd['uid'], $user)) {
+				return error("failed to create mail lookup for `%s' on `site%d'", $user, $this->site_id);
+			}
+			if (!$pwd['home']) {
+				return false;
+			}
+			// use imap as a marker for email creation
+			$svc = 'imap';
+			if ((new Util_Pam($this->getAuthContext()))->check($user, $svc)) {
+				if ($this->address_exists($user, $this->domain)) {
+					info("mailbox %s@%s already exists", $user, $this->domain);
+				} else if (!$this->add_mailbox($user, $this->domain, $pwd['uid'])) {
+					return error("failed to create email address %s@%s", $user, $this->domain);
+				}
+			}
 
-			$path = $this->domain_fs_path() . DIRECTORY_SEPARATOR . $home .
+			$path = $this->domain_fs_path() . DIRECTORY_SEPARATOR . $pwd['home'] .
 				DIRECTORY_SEPARATOR . self::MAILDIR_HOME;
 			if (!file_exists($path)) {
 				// no maildir, maybe intentional?
@@ -1240,7 +1294,7 @@
 
 		public function _delete()
 		{
-			$conf = Auth::profile()->conf->cur;
+			$conf = $this->getAuthContext()->getAccount()->cur;
 			$ips = $conf['ipinfo']['ipaddrs'];
 			if (!$ips) {
 				return true;
@@ -1253,8 +1307,8 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_cur = Auth::profile()->conf->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->cur;
 			$user = array(
 				'old' => $conf_cur['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
@@ -1364,7 +1418,7 @@
 
 		public function _delete_user(string $user)
 		{
-			// TODO: Implement _delete_user() method.
+			$user = $this->user_getpwnam($user);
 		}
 
 		public function user_enabled($user, $svc = null)
@@ -1390,9 +1444,8 @@
 		{
 			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
 				return error("service " . $svc . " is unknown (imap, smtp)");
-			} else if (is_debug()) {
-				return info("email service may not be permitted to users in demo mode");
 			}
+
 			$pam = new Util_Pam($this->getAuthContext());
 			if (!$svc) {
 				$pam->add($user, 'imap');

@@ -98,7 +98,7 @@
 		public function _create()
 		{
 			// stupid thor...
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			$admin = $conf['siteinfo']['admin_user'];
 			$pam = new Util_Pam($this->getAuthContext());
 			if ($this->auth_is_demo() && $pam->check($admin, self::PAM_SVC_NAME)) {

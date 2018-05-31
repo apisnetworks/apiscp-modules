@@ -50,16 +50,6 @@
 			);
 		}
 
-		/**
-		 * Remap siteinfo to auth on 7.5+ platforms
-		 *
-		 * @return string
-		 */
-		private function getAuthService(): string {
-			return version_compare(PLATFORM_VERSION, '7.5', '>=') ?
-				'auth' : 'siteinfo';
-		}
-
 		private static function _connect_db()
 		{
 			if (!is_null(self::$domain_db) && self::$domain_db->ping()) {
@@ -143,7 +133,7 @@
 					return $ret;
 				}
 				if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-					if ($this->get_service_value($this->getAuthService(), self::PWOVERRIDE_KEY)) {
+					if ($this->get_service_value(self::getAuthService(), self::PWOVERRIDE_KEY)) {
 						return true;
 					}
 					// admin password changed
@@ -686,15 +676,15 @@
 			);
 			$accountMeta = \Auth_Info_User::initializeUser($user, \Auth::get_domain_from_site_id($site_id))->getAccount();
 			$editor = new Util_Account_Editor($accountMeta);
-			$ret = $editor->setMode('edit')->setConfig($this->getAuthService(), self::PWOVERRIDE_KEY, true)
-				->setConfig($this->getAuthService(), 'cpasswd', $crypted)->edit();
+			$ret = $editor->setMode('edit')->setConfig(self::getAuthService(), self::PWOVERRIDE_KEY, true)
+				->setConfig(self::getAuthService(), 'cpasswd', $crypted)->edit();
 			//if (!$ret) {
 			// once Image/Augend go, we can use the above
 			//$editor = Util_Process_Safe::exec('chroot %(path)s usermod -p %(passwd)s %(user)s', $args);
 			if (!$ret) {
 				return error("failed to set temp password: `%s'", Error_Reporter::get_last_msg());
 			}
-			$siteconf = str_replace("/fst", "/info/current/siteinfo", $args['path']);
+			$siteconf = str_replace("/fst", "/info/current/" . self::getAuthService(), $args['path']);
 			$fp = fopen($siteconf, "a");
 			if (!$fp || !flock($fp, LOCK_EX | LOCK_NB)) {
 				if (is_resource($fp)) {
@@ -715,8 +705,8 @@
 			if (!$proc->idPending($key)) {
 				$proc->setID($key);
 				$editor = new Util_Account_Editor($accountMeta);
-				$editor->setMode('edit')->setConfig($this->getAuthService(), 'cpasswd', $oldcrypted)->
-				setConfig($this->getAuthService(), self::PWOVERRIDE_KEY, false);
+				$editor->setMode('edit')->setConfig(self::getAuthService(), 'cpasswd', $oldcrypted)->
+				setConfig(self::getAuthService(), self::PWOVERRIDE_KEY, false);
 				// runs as root, which leaves $site null, populate
 				$cmd = $editor->getCommand();
 				$status = $proc->run($cmd);
@@ -803,14 +793,14 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_cur = Auth::profile()->conf->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->cur;
 			$user = array(
 				'old' => $conf_cur['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
 			);
 			$this->rebuildMap();
-			if ($user['old'] == $user['new']) {
+			if ($user['old'] === $user['new']) {
 				return;
 			}
 			return $this->_edit_wrapper($user['old'], $user['new']);
@@ -841,7 +831,7 @@
 
 		public function _reset(\Util_Account_Editor &$editor = null)
 		{
-			$module = $this->getAuthService();
+			$module = self::getAuthService();
 			$crypted = $this->_get_site_admin_shadow($this->site_id);
 			if (!$crypted) {
 				fatal("call _reset() in auth from backend");

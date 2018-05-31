@@ -64,9 +64,8 @@
 				$chroot_users[] = $user;
 			}
 
-			$this->file_put_file_contents(self::VSFTPD_CHROOT_FILE,
-				join("\n", $chroot_users) . "\n",
-				true);
+			file_put_contents($this->domain_fs_path(self::VSFTPD_CHROOT_FILE),
+				join("\n", $chroot_users) . "\n");
 			if ($dir) {
 				if (!$this->file_file_exists($dir)) {
 					$this->file_create_directory($dir, 0755, true);
@@ -320,7 +319,7 @@
 		public function _create()
 		{
 			// stupid thor...
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			$admin = $conf['siteinfo']['admin_user'];
 			$pam = new Util_Pam($this->getAuthContext());
 			if ($this->auth_is_demo() && $pam->check($admin, $this->getPamServiceName())) {

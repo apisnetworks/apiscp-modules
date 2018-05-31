@@ -969,7 +969,7 @@
 
 		public function _edit()
 		{
-			$conf = Auth::profile()->conf;
+			$conf = $this->getAuthContext()->getAccount();
 
 			$conf_cur = $conf->cur['mysql'];
 			$conf_new = $conf->new['mysql'];
@@ -1013,6 +1013,4 @@
 		public function _delete_user(string $user)
 		{
 		}
-
-
 	}

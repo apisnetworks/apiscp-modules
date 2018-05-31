@@ -26,9 +26,6 @@
 		];
 		const MIN_UID = USER_MIN_UID;
 
-		// minimum non-system user id
-		const  DUMMY_USER_CNT = 3;
-
 		/*
 		 * number of dummy users present within /etc/passwd
 		 * that possess the same uid/gid as the main user
@@ -190,7 +187,7 @@
 
 			$userorig = $user;
 			$user = strtolower($user);
-			if ($user != $userorig) {
+			if ($user !== $userorig) {
 				warn("user `$user' converted to lowercase");
 			}
 			if (!$user) {
@@ -274,11 +271,11 @@
 				$this->ftp_permit_user($user);
 			}
 
-			if ($imap_enable) {
+			if ($imap_enable && version_compare(platform_version(), '7.5', '<')) {
 				$this->email_permit_user($user, 'imap');
 			}
 
-			if ($smtp_enable) {
+			if ($smtp_enable && version_compare(platform_version(), '7.5', '<')) {
 				$this->email_permit_user($user, 'smtp');
 			}
 
@@ -382,13 +379,13 @@
 					continue;
 				}
 				$line = explode(":", $line);
-				if ($line[1] !== "!!" && $line[1] !== "") {
+				if ((int)$line[2] >= static::MIN_UID && $line[1] !== "!!" && $line[1] !== "") {
 					$users++;
 				}
 			}
 			fclose($fp);
 			return array(
-				'users' => $users - self::DUMMY_USER_CNT,
+				'users' => $users,
 				'max'   => $this->get_service_value("users", "maxusers")
 			);
 		}

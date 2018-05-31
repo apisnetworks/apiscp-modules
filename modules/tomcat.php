@@ -138,8 +138,8 @@
 		{
 			$key = $this->_getKey();
 
-			$conf_cur = Auth::profile()->conf->cur[$key];
-			$conf_new = Auth::profile()->conf->new[$key];
+			$conf_cur = $this->getAuthContext()->conf($key, 'cur');
+			$conf_new = $this->getAuthContext()->conf($key, 'new');
 
 			if ($conf_new === $conf_cur) {
 				return;

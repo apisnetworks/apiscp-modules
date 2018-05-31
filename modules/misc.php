@@ -207,8 +207,8 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur;
-			$conf_new = Auth::profile()->conf->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
 			if ($conf_new == $conf_cur) {
 				return;
 			}

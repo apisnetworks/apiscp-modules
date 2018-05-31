@@ -464,7 +464,7 @@
 
 		public function _create()
 		{
-			$conf = Auth::conf('siteinfo');
+			$conf = $this->get_service_value('siteinfo');
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
 			if (!$db->exists($conf['domain'])) {
 				// @TODO remove once Opcenter is done
@@ -476,14 +476,14 @@
 		public function _delete()
 		{
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
-			$domain = array_get(\Auth::conf('siteinfo'), 'domain', []);
+			$domain = array_get($this->getAuthContext()->conf('siteinfo'), 'domain', []);
 			$db->delete($domain);
 			$db->close();
 		}
 
 		public function _edit() {
-			$new = Auth::conf('siteinfo', 'new');
-			$cur = Auth::conf('siteinfo', 'cur');
+			$new = $this->getAuthContext()->conf('siteinfo', 'new');
+			$cur = $this->getAuthContext()->conf('siteinfo', 'cur');
 			if ($new['domain'] === $cur['domain']) {
 				return;
 			}

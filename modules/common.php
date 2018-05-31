@@ -910,8 +910,8 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur['siteinfo'];
-			$conf_new = Auth::profile()->conf->new['siteinfo'];
+			$conf_cur = $this->getAuthContext()->conf('siteinfo');
+			$conf_new = $this->getAuthContext()->conf('siteinfo', 'new');
 			if ($conf_cur === $conf_new) {
 				return;
 			}

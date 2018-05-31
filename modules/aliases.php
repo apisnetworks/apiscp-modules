@@ -358,7 +358,7 @@
 			}
 
 			unset($aliases[$key]);
-			if (!$aliases) {
+			if (!$aliases && version_compare(platform_version(), '7.5', '<')) {
 				$this->set_config_journal('aliases', 'enabled', 0);
 			}
 
@@ -474,7 +474,9 @@
 			$cache = Cache_Account::spawn($this->getAuthContext());
 			$time = $cache->get('aliases.sync');
 			$aliases = array_keys($this->list_shared_domains());
-			$this->set_config_journal('aliases', 'enabled', intval(count($aliases) > 0));
+			if (version_compare(platform_version(), '7.5', '<')) {
+				$this->set_config_journal('aliases', 'enabled', intval(count($aliases) > 0));
+			}
 			$this->set_config_journal('aliases', 'aliases', $aliases);
 			return $this->_synchronize_changes() && ($cache->set('aliases.sync', $time) || true);
 		}
@@ -493,7 +495,7 @@
 		public function _reset(Util_Account_Editor &$editor = null)
 		{
 			$module = 'aliases';
-			$params = array('aliases' => array(), 'enabled' => 0);
+			$params = array('aliases' => array());
 			if ($editor) {
 				foreach ($params as $k => $v) {
 					$editor->setConfig($module, $k, $v);
@@ -504,20 +506,17 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur['siteinfo'];
-			$conf_new = Auth::profile()->conf->new['siteinfo'];
+			$conf_cur = $this->getAuthContext()->conf('siteinfo', 'cur');
+			$conf_new = $this->getAuthContext()->conf('siteinfo', 'new');
 			$domainold = $conf_cur['domain'];
 			$domainnew = $conf_new['domain'];
 
 			// domain name change via auth_change_domain()
-			if ($domainold !== $domainnew) {
-				// domain changed via Account > Settings
-				if ($this->_is_bypass($domainnew)) {
-					$this->_remove_bypass($domainnew);
-				}
+			if ($domainold !== $domainnew && $this->_is_bypass($domainnew)) {
+				$this->_remove_bypass($domainnew);
 			}
-			$aliasesnew = array_get(Auth::conf('aliases', 'new'), 'aliases', []);
-			$aliasescur = array_get(Auth::conf('aliases', 'cur'), 'aliases', []);
+			$aliasesnew = array_get($this->getAuthContext()->conf('aliases', 'new'), 'aliases', []);
+			$aliasescur = array_get($this->getAuthContext()->conf('aliases', 'cur'), 'aliases', []);
 			$add = array_diff($aliasesnew, $aliasescur);
 			$rem = array_diff($aliasescur, $aliasesnew);
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
@@ -533,7 +532,7 @@
 
 		public function _create() {
 			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
-			$conf = array_get(Auth::conf('aliases'), 'aliases', []);
+			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
 			foreach ($conf as $domain) {
 				$db->insert($domain, $this->site);
 			}
@@ -542,7 +541,7 @@
 
 		public function _delete() {
 			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
-			$conf = array_get(Auth::conf('aliases'), 'aliases', []);
+			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
 			foreach ($conf as $domain) {
 				$db->delete($domain);
 			}
@@ -592,7 +591,7 @@
 
 			$aliases = (array)$this->get_service_value('aliases', 'aliases');
 			$aliases[] = $alias;
-			$limit = $this->get_service_value('aliases','maxaliases',null);
+			$limit = $this->get_service_value('aliases','max', null);
 			if (null !== $limit && count($aliases)+1 > $limit) {
 				return error("account has reached max amount of addon domains, `%d'", $limit);
 			}
@@ -986,7 +985,7 @@
 				return error("failed to activate domain changes");
 			}
 			info("Hang tight! Domain changes will be active within a few minutes, but may take up to 24 hours to work properly.");
-			$this->getAuthContext()->importAccount()->reset();
+			$this->getAuthContext()->getAccount()->reset($this->getAuthContext());
 			return true;
 		}
 

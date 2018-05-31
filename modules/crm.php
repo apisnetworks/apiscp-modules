@@ -72,7 +72,13 @@
 			return false;
 		}
 
+		/**
+		 * CRM enabled for user
+		 *
+		 * @return bool
+		 */
 		public function enabled() {
-			return true;
+			return $this->configured() &&
+				($this->permission_level&PRIVILEGE_ADMIN || !$this->get_service_value('billing', 'parent_invoice'));
 		}
 	}

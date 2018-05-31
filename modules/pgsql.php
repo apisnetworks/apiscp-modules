@@ -1034,7 +1034,7 @@
 			if (version_compare(platform_version(), '7.5', '>=')) {
 				return true;
 			}
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			if ($this->enabled() && !parent::uninstallDatabaseService('pgsql')) {
 				warn("failed to delete pgsql service from `%s'", $conf['siteinfo']['domain']);
 			}
@@ -1045,7 +1045,7 @@
 			if (version_compare(platform_version(), '7.5', '>=')) {
 				return true;
 			}
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 
 			if (!$conf['pgsql']['enabled']) {
 				return;
@@ -1065,7 +1065,7 @@
 			if (version_compare(platform_version(), '7.5', '>=')) {
 				return true;
 			}
-			$conf = Auth::profile()->conf;
+			$conf = $this->getAuthContext()->getAccount();
 
 			if ($conf->new['pgsql']['enabled'] && !$conf->cur['pgsql']['enabled']) {
 				parent::installDatabaseService('pgsql');

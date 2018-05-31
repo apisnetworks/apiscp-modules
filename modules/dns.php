@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Dns_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
+	class Dns_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable, \Module\Skeleton\Contracts\Proxied
 	{
 		/** primary nameserver */
 		const MASTER_NAMESERVER = DNS_INTERNAL_MASTER;
@@ -97,6 +97,7 @@
 
 			$this->exportedFunctions = array(
 				'*'                      => PRIVILEGE_SITE,
+				'configured'             => PRIVILEGE_ALL,
 				'get_whois_record'       => PRIVILEGE_ALL,
 				'get_records_by_rr'      => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'get_records'            => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
@@ -112,7 +113,27 @@
 				'add_zone_backend'       => PRIVILEGE_ADMIN|PRIVILEGE_SITE|PRIVILEGE_SERVER_EXEC,
 				'gethostbyaddr_t'        => PRIVILEGE_ALL,
 				'gethostbyname_t'        => PRIVILEGE_ALL,
+				'get_provider'           => PRIVILEGE_ALL
 			);
+		}
+
+		public function _proxy(): \Module_Skeleton
+		{
+			$provider = $this->get_provider();
+			if ($provider === 'builtin') {
+				return $this;
+			}
+			return \Module\Provider::get('dns', $provider, $this->getAuthContext());
+		}
+
+		/**
+		 * Get DNS provider
+		 *
+		 * @return string
+		 */
+		public function get_provider(): string
+		{
+			return $this->get_service_value('dns', 'provider', 'builtin');
 		}
 
 		/**
@@ -284,7 +305,10 @@
 		 */
 		protected function _get_zone_information_raw($domain): ?array
 		{
-			$data = $this->_get_zone_information_raw_raw($domain);
+			if (null === ($data = $this->_get_zone_information_raw_raw($domain))) {
+				return [];
+			}
+
 			$zoneData = array();
 			$offset = strlen($domain) + 1; // domain.com.
 			foreach (explode("\n", $data) as $line) {
@@ -321,15 +345,16 @@
 			return $zoneData;
 		}
 
-		protected function _get_zone_information_raw_raw($domain)
+		protected function _get_zone_information_raw_raw($domain): ?string
 		{
 			if (!static::MASTER_NAMESERVER) {
-				return error("Cannot fetch zone information for `%s': no master nameserver configured in config.ini",
+				error("Cannot fetch zone information for `%s': no master nameserver configured in config.ini",
 					$domain);
+				return null;
 			}
 			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
 				self::$dns_key, static::MASTER_NAMESERVER, $domain);
-			return $data['success'] ? $data['output'] : false;
+			return $data['success'] ? $data['output'] : null;
 		}
 
 		/**
@@ -562,8 +587,8 @@
 		 */
 		public function get_hosting_nameservers()
 		{
-			if (!isset(static::$nameservers)) {
-				static::$nameservers = preg_split('/[,\s]+/', DNS_HOSTING_NS);
+			if (null === static::$nameservers) {
+				static::$nameservers = preg_split('/[,\s]+/', DNS_HOSTING_NS, -1, PREG_SPLIT_NO_EMPTY);
 			}
 			return static::$nameservers;
 		}
@@ -1046,7 +1071,6 @@
 
 		public function _delete()
 		{
-			$conf = Auth::profile()->conf->cur;
 			if (!$this->get_service_value('ipinfo', 'namebased')) {
 				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
 				// pass the domain to verify the PTR isn't detached incorrectly
@@ -1082,8 +1106,8 @@
 
 		public function _create()
 		{
-			$ipinfo = Auth::profile()->conf->cur['ipinfo'];
-			$siteinfo = Auth::profile()->conf->cur['siteinfo'];
+			$ipinfo = $this->getAuthContext()->conf('ipinfo');
+			$siteinfo = $this->getAuthContext()->conf('siteinfo');
 			$domain = $siteinfo['domain'];
 			$ip = $ipinfo['namebased'] ? $ipinfo['nbaddrs'] : $ipinfo['ipaddrs'];
 			$this->add_zone($domain, $ip[0]);
@@ -1099,6 +1123,9 @@
 		 */
 		public function add_zone($domain, $ip)
 		{
+			if (!$this->configured()) {
+				return warn("cannot create DNS zone for `%s' - DNS is not configured for account", $domain);
+			}
 			return $this->query('dns_add_zone_backend', $domain, $ip);
 		}
 
@@ -1164,10 +1191,10 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur['ipinfo'];
-			$conf_new = Auth::profile()->conf->new['ipinfo'];
-			$domainold = Auth::profile()->conf->cur['siteinfo']['domain'];
-			$domainnew = Auth::profile()->conf->new['siteinfo']['domain'];
+			$conf_cur = $this->getAuthContext()->conf('ipinfo', 'cur');
+			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
+			$domainold = \array_get($this->getAuthContext()->conf('siteinfo'), 'domain');
+			$domainnew = \array_get($this->getAuthContext()->conf('siteinfo', 'new'), 'domain');
 
 			// domain name change via auth_change_domain()
 			if ($domainold !== $domainnew) {
@@ -1539,6 +1566,10 @@
 			return join('.', array_reverse($ip));
 		}
 
+		public function configured(): bool
+		{
+			return \get_class($this) !== self::class;
+		}
 		/**
 		 * Get interface names to use with hosting
 		 *

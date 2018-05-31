@@ -78,7 +78,7 @@
 			}
 			$query = \PostgreSQL::initialize()->query($q);
 			$bandwidth = array();
-			while (($bw = $query->fetch_object()) !== false) {
+			while (($bw = $query->fetch_object()) !== null) {
 				$bandwidth[] = array(
 					'begin'     => (int)$bw->begin,
 					'end'       => (int)$bw->end,
@@ -203,8 +203,8 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_cur = Auth::profile()->conf->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->cur;
 			$user = array(
 				'old' => $conf_cur['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']

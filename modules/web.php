@@ -1198,12 +1198,13 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_old = Auth::profile()->conf->old;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			// change to web config or ipconfig
+			$ssl = \Opcenter\SiteConfiguration::getModuleRemap('openssl');
 			if ($conf_new['apache'] != $conf_old['apache'] ||
 				$conf_new['ipinfo'] != $conf_old['ipinfo'] ||
-				$conf_new['openssl'] != $conf_old['openssl'] ||
+				$conf_new[$ssl] != $conf_old[$ssl] ||
 				$conf_new['aliases'] != $conf_old['aliases']
 			) {
 				\Opcenter\Http\Apache::reload();

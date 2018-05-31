@@ -1094,8 +1094,8 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_cur = Auth::profile()->conf->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->cur;
 			$domainprefix = $this->domain_fs_path();
 			$renameWrapper = function ($mode) use ($domainprefix) {
 				$certdir = $domainprefix . self::CRT_PATH;
@@ -1127,18 +1127,18 @@
 				}
 			};
 
+			$ssl = \Opcenter\SiteConfiguration::getModuleRemap('openssl');
 			if (version_compare(platform_version(), '6', '>=')) {
 				// Luna and on do things differently
-				if (!$conf_new['openssl']['enabled']) {
+				if (!$conf_new[$ssl]['enabled']) {
 					$renameWrapper('disable');
-				} else if ($conf_new['openssl']['enabled'] && !$conf_cur['openssl']['enabled']) {
+				} else if ($conf_new[$ssl]['enabled'] && !$conf_cur[$ssl]['enabled']) {
 					$renameWrapper('enable');
 				}
 				return;
 			}
-
 			if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
-				!$conf_new['openssl']['enabled'] && $conf_cur['openssl']['enabled']
+				!$conf_new[$ssl]['enabled'] && $conf_cur[$ssl]['enabled']
 			) {
 				$renameWrapper('disable');
 			} else {

@@ -79,7 +79,7 @@
 
 		public function _delete()
 		{
-			$conf = Auth::profile()->conf->cur;
+			$conf = $this->getAuthContext()->getAccount()->cur;
 			if (!$this->get_service_value('ipinfo', 'namebased')) {
 				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
 				// pass the domain to verify the PTR isn't detached incorrectly
@@ -93,8 +93,8 @@
 
 		public function _create()
 		{
-			$ipinfo = Auth::profile()->conf->cur['ipinfo'];
-			$siteinfo = Auth::profile()->conf->cur['siteinfo'];
+			$ipinfo = $this->getAuthContext()->conf('ipinfo', 'cur');
+			$siteinfo = $this->getAuthContext()->conf('siteinfo', 'cur');
 			$domain = $siteinfo['domain'];
 			$ip = $ipinfo['namebased'] ? $ipinfo['nbaddrs'] : $ipinfo['ipaddrs'];
 			//$this->add_zone($domain, $ip[0]);
@@ -132,10 +132,10 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur['ipinfo'];
-			$conf_new = Auth::profile()->conf->new['ipinfo'];
-			$domainold = Auth::profile()->conf->cur['siteinfo']['domain'];
-			$domainnew = Auth::profile()->conf->new['siteinfo']['domain'];
+			$conf_cur = $this->getAuthContext()->conf('ipinfo');
+			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
+			$domainold = array_get($this->getAuthContext()->getAccount()->cur, 'siteinfo.domain');
+			$domainnew = array_get($this->getAuthContext()->getAccount()->new, 'siteinfo.domain');
 
 			// changing to IP address, no IP address specified in commandline
 			// this can't happen yet, because configuration requires an IP before

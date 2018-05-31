@@ -17,7 +17,7 @@
 	 *
 	 * @package core
 	 */
-	class Crontab_Module extends Module_Skeleton
+	class Crontab_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
@@ -70,22 +70,16 @@
 
 			if (!$this->get_service_value("ssh", "enabled")) {
 				return error("cronjob requires ssh");
-			} else {
-				if (!$this->enabled()) {
-					return error("cron daemon is not running");
-				}
+			} else if (!$this->enabled()) {
+				return error("cron daemon is not running");
 			}
 
 			if ($this->permission_level & PRIVILEGE_USER) {
 				$user = $this->username;
-			} else {
-				if (!$user) {
-					$user = $this->username;
-				} else {
-					if (!$this->_valid_user($user)) {
-						return error("`%s': unknown or system user", $user);
-					}
-				}
+			} else if (!$user) {
+				$user = $this->username;
+			} else if (!$this->_valid_user($user)) {
+				return error("`%s': unknown or system user", $user);
 			}
 
 			if (!$this->user_permitted($user)) {
@@ -155,6 +149,9 @@
 
 		public function user_permitted($user = null)
 		{
+			if (!IS_CLI) {
+				return $this->query('crontab_user_permitted', $user);
+			}
 			if (!$user || ($this->permission_level & PRIVILEGE_USER)) {
 				$user = $this->username;
 			}
@@ -315,8 +312,8 @@
 			$month,
 			$dow,
 			$cmd,
-			$user = null
-		) {
+			string $user = null
+		): bool {
 			if (!IS_CLI) {
 				if ($this->auth_is_demo()) {
 					return error("cronjob forbidden in demo");
@@ -367,7 +364,9 @@
 			}
 
 			// Make sure this isn't a duplicate
-			$jobs = $this->list_jobs($user);
+			if (false === ($jobs = $this->list_jobs($user))) {
+				return false;
+			}
 			foreach ($jobs as $j) {
 				if ($j['minute'] == $min &&
 					$j['hour'] == $hour &&
@@ -557,7 +556,7 @@
 
 		public function _create()
 		{
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			if ($conf['ssh']['enabled']) {
 				$this->_edit();
 			}
@@ -565,8 +564,8 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_old = Auth::profile()->conf->cur;
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_old = $this->getAuthContext()->getAccount()->cur;
 			$userold = $conf_old['siteinfo']['admin_user'];
 			$usernew = $conf_new['siteinfo']['admin_user'];
 			if (version_compare(platform_version(), '6.5', '>=')) {
@@ -740,17 +739,18 @@
 			if (!file_exists($file)) {
 				touch($file);
 			}
-			$fp = fopen($file, 'a+');
+			$fp = fopen($file, 'w+');
 			$users = array();
 			while (false !== ($line = fgets($fp))) {
 				$line = trim($line);
-				if ($line == $user) {
+				if ($line === $user) {
 					continue;
 				}
 				$users[] = $line;
 			}
 			$users[] = $user;
 			ftruncate($fp, 0);
+			rewind($fp);
 			fwrite($fp, join($users, "\n"));
 			fclose($fp);
 			return true;
@@ -762,7 +762,7 @@
 			if (!file_exists($file)) {
 				return true;
 			}
-			$fp = fopen($file, 'a+');
+			$fp = fopen($file, 'w+');
 			$users = array();
 			while (false !== ($line = fgets($fp))) {
 				$line = trim($line);
@@ -772,6 +772,7 @@
 				$users[] = $line;
 			}
 			ftruncate($fp, 0);
+			rewind($fp);
 			fwrite($fp, join($users, "\n"));
 			fclose($fp);
 			return true;
@@ -869,4 +870,21 @@
 			return $retData['success'] ? true :
 				error("failed to set cron contents for `%s': %s", $user, $retData['error']);
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return true;
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			return true;
+		}
+
+
 	}

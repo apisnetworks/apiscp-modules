@@ -475,8 +475,8 @@
 
 		public function _edit()
 		{
-			$conf_cur = Auth::profile()->conf->cur['ssh'];
-			$conf_new = Auth::profile()->conf->new['ssh'];
+			$conf_cur = $this->getAuthContext()->conf('ssh', 'cur');
+			$conf_new = $this->getAuthContext()->conf('ssh', 'new');
 			if (!version_compare(platform_version(), "6", ">=")) {
 				return;
 			}
@@ -489,6 +489,10 @@
 		{
 			if (!IS_CLI) {
 				return $this->query('ruby_initialize_gemset', $user);
+			}
+			if (!is_dir(FILESYSTEM_SHARED . '/ruby')) {
+				// Ruby not configured on platform
+				return info("skipping rvm initialization - ruby not configured on platform");
 			}
 			if (!version_compare(platform_version(), "6", ">=")) {
 				return info("gemset unsupported on platform v%d", platform_version());
@@ -507,14 +511,14 @@
 			$proc->setOption('user', $user);
 			$ret = $proc->run("/bin/bash -i rvm user gemsets");
 			if (!$ret['success']) {
-				return error("error intiailizing gemset: `%s'", $ret['stderr']);
+				return error("error initializing gemset: `%s'", $ret['stderr']);
 			}
 			return $ret['success'];
 		}
 
 		public function _create()
 		{
-			$conf_new = Auth::profile()->conf->new['ssh'];
+			$conf_new = $this->getAuthContext()->conf('ssh', 'new');
 			if (!$conf_new['enabled']) {
 				return true;
 			}

@@ -12,7 +12,7 @@
 	 * Written by Matt Saladna <matt@apisnetworks.com>, May 2017
 	 */
 
-	class Dav_Module extends Module_Skeleton {
+	class Dav_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable {
 		const PAM_FILE = 'dav.pamlist';
 
 		public function _create() {
@@ -23,4 +23,36 @@
 			}
 			file_put_contents($path, $this->username ."\n");
 		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return true;
+		}
+
+		public function _delete()
+		{
+			// TODO: Implement _delete() method.
+		}
+
+		public function _edit()
+		{
+			// TODO: Implement _edit() method.
+		}
+
+		public function _create_user(string $user)
+		{
+			// TODO: Implement _create_user() method.
+		}
+
+		public function _delete_user(string $user)
+		{
+			// TODO: Implement _delete_user() method.
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			// TODO: Implement _edit_user() method.
+		}
+
+
 	}

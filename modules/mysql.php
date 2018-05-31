@@ -1886,7 +1886,7 @@
 			if (!$this->enabled()) {
 				return;
 			}
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			if (!parent::uninstallDatabaseService('mysql')) {
 				warn("failed to delete mysql service from `%s'", $conf['siteinfo']['domain']);
 			}
@@ -1897,7 +1897,7 @@
 			if (version_compare(platform_version(), '7.5', '>=')) {
 				return true;
 			}
-			$conf = Auth::profile()->conf->new;
+			$conf = $this->getAuthContext()->getAccount()->new;
 			if ($conf['mysql']['enabled']) {
 				parent::installDatabaseService('mysql');
 			}
@@ -1908,7 +1908,7 @@
 			if (version_compare(platform_version(), '7.5', '>=')) {
 				return true;
 			}
-			$conf = Auth::profile()->conf;
+			$conf = $this->getAuthContext()->getAccount();
 			if ($conf->new['mysql']['enabled'] && !$conf->cur['mysql']['enabled']) {
 				$this->installDatabaseService('mysql');
 			}

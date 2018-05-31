@@ -19,6 +19,9 @@
 	 */
 	class Letsencrypt_Module extends Module_Support_Letsencrypt
 	{
+		const DEPENDENCY_MAP = [
+			'ssl'
+		];
 		// production
 		const LETSENCRYPT_SERVER = 'acme-v01.api.letsencrypt.org/directory';
 		// staging
@@ -453,9 +456,10 @@
 
 		public function _edit()
 		{
-			$conf_new = Auth::profile()->conf->new;
-			$conf_cur = Auth::profile()->conf->cur;
-			if (!$conf_new['openssl']['enabled']) {
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_cur = $this->getAuthContext()->getAccount()->old;
+			$ssl = \Opcenter\SiteConfiguration::getModuleRemap('openssl');
+			if (!$conf_new[$ssl]['enabled']) {
 				$this->_delete();
 			}
 		}

@@ -472,6 +472,9 @@
 			} else {
 				$pathbase = dirname($path);
 			}
+			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER) && 0 === strpos($prefix, $pathbase)) {
+				$pathbase = $prefix;
+			}
 
 			// virtual path
 			$file = rtrim($file, "/");
@@ -494,7 +497,6 @@
 
 			$prefixlen = strlen($prefix);
 			$siteid = $this->site_id;
-
 			$dh = opendir($pathbase);
 			if (!$dh) {
 				return error("cannot open `%s'", dirname($file));
@@ -566,8 +568,8 @@
 				}
 				$vstat = array(
 					'filename'    => $dirent,
-					'owner'       => $owner ? $owner : $stat_details['uid'],
-					'group'       => $group ? $group : $stat_details['gid'],
+					'owner'       => $owner ?: $stat_details['uid'],
+					'group'       => $group ?: $stat_details['gid'],
 					'uid'         => $stat_details['uid'],
 					'gid'         => $stat_details['gid'],
 					'size'        => $stat_details['size'],
@@ -577,8 +579,8 @@
 					'link'        => !$islink ? 0 : $link_type,
 					'nlinks'      => $stat_details['nlink'],
 					'permissions' => $islink ? 41471 : $stat_details['mode'],
-					'site_quota'  => ($stat_details['gid'] == $this->group_id),
-					'user_quota'  => ($stat_details['uid'] == $this->user_id),
+					'site_quota'  => $stat_details['gid'] == $this->group_id,
+					'user_quota'  => $stat_details['uid'] == $this->user_id,
 					'ctime'       => $stat_details['ctime'],
 					'mtime'       => $stat_details['mtime'],
 					'atime'       => $stat_details['atime'],
@@ -2067,10 +2069,7 @@
 		 */
 		public function get_directory_contents($mPath, $sort = true)
 		{
-			if (!IS_CLI) {
-				$shadow = version_compare(platform_version(), '4.5', '>=');
-				return $this->query('file_get_directory_contents_backend', rtrim($mPath, '/'), $sort, $shadow);
-			}
+			return $this->query('file_get_directory_contents_backend', rtrim($mPath, '/'), $sort, true);
 		}
 
 		public function get_directory_contents_backend($mPath, $sort = true, $shadow = false)
@@ -2085,9 +2084,11 @@
 			// trust transformed path, e.g. get_directory_contents("~/")
 			$mPath = rtrim($shadow ? $this->unmake_shadow_path($path) : $this->unmake_path($path), '/');
 			$stat = $this->stat_backend($this->unmake_shadow_path($path));
+
 			if ($stat instanceof Exception) {
 				throw $stat;
 			}
+
 			if (!$stat['can_execute'] || !$stat['can_read']) {
 				return error("cannot access directory `%s' permission denied",
 					$mPath);

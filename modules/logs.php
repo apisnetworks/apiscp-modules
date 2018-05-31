@@ -400,5 +400,3 @@
 			return $txt . "ErrorLog " . $this->domain_fs_path() . '/var/log/httpd/error_log' . "\n</IfDefine>";
 		}
 	}
-
-?>
