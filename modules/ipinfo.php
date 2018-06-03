@@ -132,15 +132,15 @@
 
 		public function _edit()
 		{
-			$conf_cur = $this->getAuthContext()->conf('ipinfo');
+			$conf_old = $this->getAuthContext()->conf('ipinfo', 'old');
 			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
-			$domainold = array_get($this->getAuthContext()->getAccount()->cur, 'siteinfo.domain');
+			$domainold = array_get($this->getAuthContext()->getAccount()->old, 'siteinfo.domain');
 			$domainnew = array_get($this->getAuthContext()->getAccount()->new, 'siteinfo.domain');
 
 			// changing to IP address, no IP address specified in commandline
 			// this can't happen yet, because configuration requires an IP before
 			// it can be committed (and therefore invoke editVirtDomain.sh)
-			if ($conf_cur['namebased'] && !$conf_new['namebased'] && !$conf_new['ipaddrs']) {
+			if ($conf_old['namebased'] && !$conf_new['namebased'] && !$conf_new['ipaddrs']) {
 				$ip = \Opcenter\Net\Ip4::allocate();
 				$conf_new['ipaddrs'] = array($ip);
 				info("allocated ip `%s'", $ip);
@@ -157,22 +157,22 @@
 				}
 			}
 
-			if ($conf_new === $conf_cur) {
+			if ($conf_new === $conf_old) {
 				return;
 			}
 			$ipadd = $ipdel = array();
 
-			if ($conf_cur['namebased'] && !$conf_new['namebased']) {
+			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// enable ip hosting
 				$ipadd = $conf_new['ipaddrs'];
 			} else {
-				if (!$conf_cur['namebased'] && $conf_new['namebased']) {
+				if (!$conf_old['namebased'] && $conf_new['namebased']) {
 					// disable ip hosting
-					$ipdel = $conf_cur['ipaddrs'];
+					$ipdel = $conf_old['ipaddrs'];
 				} else {
 					// add/remove ip hosting
-					$ipdel = array_diff((array)$conf_cur['ipaddrs'], (array)$conf_new['ipaddrs']);
-					$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_cur['ipaddrs']);
+					$ipdel = array_diff((array)$conf_old['ipaddrs'], (array)$conf_new['ipaddrs']);
+					$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_old['ipaddrs']);
 				}
 			}
 
@@ -186,11 +186,11 @@
 			}
 
 			$domains = array_keys($this->web_list_domains());
-			if ($conf_cur['namebased'] && !$conf_new['namebased']) {
+			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// added ip-based hosting
-				$ipdel = $conf_cur['nbaddrs'];
+				$ipdel = $conf_old['nbaddrs'];
 			} else {
-				if (!$conf_cur['namebased'] && $conf_new['namebased']) {
+				if (!$conf_old['namebased'] && $conf_new['namebased']) {
 					// removed ip-based hosting
 					$ipadd = $conf_new['nbaddrs'];
 				}

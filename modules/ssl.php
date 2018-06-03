@@ -1095,7 +1095,7 @@
 		public function _edit()
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$domainprefix = $this->domain_fs_path();
 			$renameWrapper = function ($mode) use ($domainprefix) {
 				$certdir = $domainprefix . self::CRT_PATH;
@@ -1132,13 +1132,13 @@
 				// Luna and on do things differently
 				if (!$conf_new[$ssl]['enabled']) {
 					$renameWrapper('disable');
-				} else if ($conf_new[$ssl]['enabled'] && !$conf_cur[$ssl]['enabled']) {
+				} else if ($conf_new[$ssl]['enabled'] && !$conf_old[$ssl]['enabled']) {
 					$renameWrapper('enable');
 				}
 				return;
 			}
-			if (!$conf_cur['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
-				!$conf_new[$ssl]['enabled'] && $conf_cur[$ssl]['enabled']
+			if (!$conf_old['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
+				!$conf_new[$ssl]['enabled'] && $conf_old[$ssl]['enabled']
 			) {
 				$renameWrapper('disable');
 			} else {

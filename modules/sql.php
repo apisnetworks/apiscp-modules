@@ -971,13 +971,13 @@
 		{
 			$conf = $this->getAuthContext()->getAccount();
 
-			$conf_cur = $conf->cur['mysql'];
+			$conf_old = $conf->old['mysql'];
 			$conf_new = $conf->new['mysql'];
-			if ($conf_new == $conf_cur) {
+			if ($conf_new === $conf_old) {
 				return;
 			}
 
-			$prefixold = $conf_cur['dbaseprefix'];
+			$prefixold = $conf_old['dbaseprefix'];
 			$prefixnew = $conf_new['dbaseprefix'];
 			$db = MySQL::initialize();
 			if (!preg_match(Regex::SQL_PREFIX, $prefixnew)) {

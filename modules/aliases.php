@@ -496,6 +496,9 @@
 		{
 			$module = 'aliases';
 			$params = array('aliases' => array());
+			if (version_compare(platform_version(), '7.5', '<')) {
+				$params['enabled'] = 0;
+			}
 			if ($editor) {
 				foreach ($params as $k => $v) {
 					$editor->setConfig($module, $k, $v);
@@ -506,9 +509,9 @@
 
 		public function _edit()
 		{
-			$conf_cur = $this->getAuthContext()->conf('siteinfo', 'cur');
+			$conf_old = $this->getAuthContext()->conf('siteinfo', 'old');
 			$conf_new = $this->getAuthContext()->conf('siteinfo', 'new');
-			$domainold = $conf_cur['domain'];
+			$domainold = $conf_old['domain'];
 			$domainnew = $conf_new['domain'];
 
 			// domain name change via auth_change_domain()
@@ -516,9 +519,9 @@
 				$this->_remove_bypass($domainnew);
 			}
 			$aliasesnew = array_get($this->getAuthContext()->conf('aliases', 'new'), 'aliases', []);
-			$aliasescur = array_get($this->getAuthContext()->conf('aliases', 'cur'), 'aliases', []);
-			$add = array_diff($aliasesnew, $aliasescur);
-			$rem = array_diff($aliasescur, $aliasesnew);
+			$aliasesold = array_get($this->getAuthContext()->conf('aliases', 'old'), 'aliases', []);
+			$add = array_diff($aliasesnew, $aliasesold);
+			$rem = array_diff($aliasesold, $aliasesnew);
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
 			foreach ($add as $a) {
 				$db->insert($a, $this->site);

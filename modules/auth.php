@@ -794,9 +794,9 @@
 		public function _edit()
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$user = array(
-				'old' => $conf_cur['siteinfo']['admin_user'],
+				'old' => $conf_old['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
 			);
 			$this->rebuildMap();

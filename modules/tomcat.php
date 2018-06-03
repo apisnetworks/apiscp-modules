@@ -138,10 +138,10 @@
 		{
 			$key = $this->_getKey();
 
-			$conf_cur = $this->getAuthContext()->conf($key, 'cur');
+			$conf_old = $this->getAuthContext()->conf($key, 'old');
 			$conf_new = $this->getAuthContext()->conf($key, 'new');
 
-			if ($conf_new === $conf_cur) {
+			if ($conf_new === $conf_old) {
 				return;
 			}
 			$log = '/var/log/catalina.out';

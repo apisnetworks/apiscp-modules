@@ -937,8 +937,7 @@
 		public function domain_exists($domain)
 		{
 			return $domain == $this->get_config('siteinfo', 'domain') ||
-				in_array($domain,
-					$this->aliases_list_aliases());
+				array_key_exists($domain, $this->aliases_list_shared_domains());
 
 		}
 

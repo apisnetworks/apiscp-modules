@@ -59,7 +59,8 @@
 				'dashboard_memory_usage' => PRIVILEGE_ALL,
 				'lservice_memory_usage'  => PRIVILEGE_ALL,
 				'changelog'              => PRIVILEGE_ALL,
-				'run'                    => PRIVILEGE_SITE
+				'run'                    => PRIVILEGE_SITE,
+				'notify_installed'       => PRIVILEGE_ADMIN
 			);
 		}
 
@@ -207,9 +208,9 @@
 
 		public function _edit()
 		{
-			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			if ($conf_new == $conf_cur) {
+			if ($conf_new == $conf_old) {
 				return;
 			}
 			if (!$conf_new['ssh']['enabled']) {
@@ -285,8 +286,26 @@
 			}
 			file_put_contents($sysconf, join("\n", $sites));
 			return 1;
+		}
 
+		/**
+		 * Notify admin panel has been installed
+		 *
+		 * @param string $password
+		 * @return bool
+		 */
+		public function notify_installed(string $password): bool
+		{
+			$mail = Illuminate\Support\Facades\Mail::to($this->admin_get_email());
+			$args = [
+				'hostname'       => SERVER_NAME,
+				'admin_user'     => $this->username,
+				'admin_password' => $password,
+				'apnscp_root'    => INCLUDE_PATH,
+				'ip'             => \Opcenter\Net\Ip4::my_ip()
+			];
+			$mail->send(new \Lararia\Mail\PanelInstalled($args));
+
+			return true;
 		}
 	}
-
-?>

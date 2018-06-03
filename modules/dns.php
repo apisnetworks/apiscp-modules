@@ -1191,9 +1191,9 @@
 
 		public function _edit()
 		{
-			$conf_cur = $this->getAuthContext()->conf('ipinfo', 'cur');
+			$conf_old = $this->getAuthContext()->conf('ipinfo', 'old');
 			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
-			$domainold = \array_get($this->getAuthContext()->conf('siteinfo'), 'domain');
+			$domainold = \array_get($this->getAuthContext()->conf('siteinfo', 'old'), 'domain');
 			$domainnew = \array_get($this->getAuthContext()->conf('siteinfo', 'new'), 'domain');
 
 			// domain name change via auth_change_domain()
@@ -1208,23 +1208,21 @@
 				}
 			}
 
-			if ($conf_new === $conf_cur) {
+			if ($conf_new === $conf_old) {
 				return;
 			}
 			$ipadd = $ipdel = array();
 
-			if ($conf_cur['namebased'] && !$conf_new['namebased']) {
+			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// enable ip hosting
 				$ipadd = $conf_new['ipaddrs'];
+			} else if (!$conf_old['namebased'] && $conf_new['namebased']) {
+				// disable ip hosting
+				$ipdel = $conf_old['ipaddrs'];
 			} else {
-				if (!$conf_cur['namebased'] && $conf_new['namebased']) {
-					// disable ip hosting
-					$ipdel = $conf_cur['ipaddrs'];
-				} else {
-					// add/remove ip hosting
-					$ipdel = array_diff((array)$conf_cur['ipaddrs'], (array)$conf_new['ipaddrs']);
-					$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_cur['ipaddrs']);
-				}
+				// add/remove ip hosting
+				$ipdel = array_diff((array)$conf_old['ipaddrs'], (array)$conf_new['ipaddrs']);
+				$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_old['ipaddrs']);
 			}
 
 			foreach ($ipdel as $ip) {
@@ -1237,11 +1235,11 @@
 			}
 
 			$domains = array_keys($this->web_list_domains());
-			if ($conf_cur['namebased'] && !$conf_new['namebased']) {
+			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// added ip-based hosting
-				$ipdel = $conf_cur['nbaddrs'];
+				$ipdel = $conf_old['nbaddrs'];
 			} else {
-				if (!$conf_cur['namebased'] && $conf_new['namebased']) {
+				if (!$conf_old['namebased'] && $conf_new['namebased']) {
 					// removed ip-based hosting
 					$ipadd = $conf_new['nbaddrs'];
 				}

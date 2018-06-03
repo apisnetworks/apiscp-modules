@@ -565,7 +565,7 @@
 		public function _edit()
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_old = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$userold = $conf_old['siteinfo']['admin_user'];
 			$usernew = $conf_new['siteinfo']['admin_user'];
 			if (version_compare(platform_version(), '6.5', '>=')) {

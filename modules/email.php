@@ -1188,7 +1188,7 @@
 			$conf = $this->getAuthContext()->getAccount()->cur;
 			$user = $conf['siteinfo']['admin_user'];
 			// stupid thor...
-			$svcs = array('smtp_relay', 'imap');
+			$svcs = array('smtp_relay', 'imap', 'pop3');
 			$pam = new Util_Pam($this->getAuthContext());
 			foreach ($svcs as $svc) {
 				if ($this->auth_is_demo() && $pam->check($user, $svc)) {
@@ -1308,9 +1308,9 @@
 		public function _edit()
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$user = array(
-				'old' => $conf_cur['siteinfo']['admin_user'],
+				'old' => $conf_old['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
 			);
 			/**
@@ -1318,7 +1318,7 @@
 			 *
 			 * @TODO phase out legacy backend
 			 */
-			if ($user['old'] != $user['new']) {
+			if ($user['old'] !== $user['new']) {
 				// @XXX bug: _edit is called after EVD completes
 				// old pwd is lost, but send anyway to placate _edit_user
 				$this->_edit_user(
@@ -1331,37 +1331,33 @@
 			/**
 			 * Update private smtp routing + whitelabel dovecot config
 			 */
-			$ipcur = $conf_cur['ipinfo'];
+			$ipcur = $conf_old['ipinfo'];
 			$ipnew = $conf_new['ipinfo'];
 
-			if ($ipnew != $ipcur) {
-				// ip either added or removed
-				if (!$ipcur['namebased'] && $ipnew['namebased']) {
-					foreach ($ipcur['ipaddrs'] as $ip) {
-						$this->_removeMTA($ip);
-						$this->_removeIMAP($this->site);
-					}
-				} else {
-					if ($ipcur['namebased'] && !$ipnew['namebased']) {
-						foreach ($ipnew['ipaddrs'] as $ip) {
-							$this->_addMTA($ip);
-						}
-					} else {
-						if ($ipcur['ipaddrs'] != $ipnew['ipaddrs']) {
-							$remove = array_diff($ipcur['ipaddrs'], $ipnew['ipaddrs']);
-							$add = array_diff($ipnew['ipaddrs'], $ipcur['ipaddrs']);
-							foreach ($remove as $ip) {
-								$this->_removeMTA($ip);
-							}
-							foreach ($add as $ip) {
-								$this->_addMTA($ip);
-							}
-							// @TODO update Dovecot config
-						}
-					}
-				}
+			if ($ipnew === $ipcur) {
+				return true;
 			}
-
+			// ip either added or removed
+			if (!$ipcur['namebased'] && $ipnew['namebased']) {
+				foreach ($ipcur['ipaddrs'] as $ip) {
+					$this->_removeMTA($ip);
+					$this->_removeIMAP($this->site);
+				}
+			} else if ($ipcur['namebased'] && !$ipnew['namebased']) {
+				foreach ($ipnew['ipaddrs'] as $ip) {
+					$this->_addMTA($ip);
+				}
+			} else if ($ipcur['ipaddrs'] != $ipnew['ipaddrs']) {
+				$remove = array_diff($ipcur['ipaddrs'], $ipnew['ipaddrs']);
+				$add = array_diff($ipnew['ipaddrs'], $ipcur['ipaddrs']);
+				foreach ($remove as $ip) {
+					$this->_removeMTA($ip);
+				}
+				foreach ($add as $ip) {
+					$this->_addMTA($ip);
+				}
+				// @TODO update Dovecot config
+			}
 		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
@@ -1653,6 +1649,16 @@
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
+			return true;
+		}
+
+		public function _housekeeping() {
+			$dummyfile = app_path('webmail/dummyset.php');
+			$dest = '/var/www/html/dummyset.php';
+			if (!file_exists($dest) || fileinode($dummyfile) !== fileinode($dest)) {
+				file_exists($dest) && unlink($dest);
+				link($dummyfile, $dest);
+			}
 			return true;
 		}
 	}

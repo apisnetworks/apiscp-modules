@@ -204,12 +204,12 @@
 		public function _edit()
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_cur = $this->getAuthContext()->getAccount()->cur;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
 			$user = array(
-				'old' => $conf_cur['siteinfo']['admin_user'],
+				'old' => $conf_old['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
 			);
-			if ($user['old'] != $user['new']) {
+			if ($user['old'] !== $user['new']) {
 				$this->_change_extendedinfo($user['old'], $user['new']);
 			}
 		}

@@ -483,13 +483,13 @@
 
 		public function _edit() {
 			$new = $this->getAuthContext()->conf('siteinfo', 'new');
-			$cur = $this->getAuthContext()->conf('siteinfo', 'cur');
-			if ($new['domain'] === $cur['domain']) {
+			$old = $this->getAuthContext()->conf('siteinfo', 'old');
+			if ($new['domain'] === $old['domain']) {
 				return;
 			}
 			// domain rename
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
-			$db->delete($cur['domain']);
+			$db->delete($old['domain']);
 			$db->insert($new['domain'], $this->site);
 			$db->close();
 		}

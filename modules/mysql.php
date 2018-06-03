@@ -1253,15 +1253,13 @@
 
 			if ($mergeopts['max_questions'] < 0 || $mergeopts['max_updates'] < 0) {
 				return error("Max queries and updates must be greater than 0");
-			} else {
-				if (isset($opts['max_user_connections']) && $opts['max_user_connections'] > \Sql_Module::PER_DATABASE_CONNECTION_LIMIT) {
-					return error("Max connection limit %d. Must file a ticket justifying need. " .
-						"Check index placements first.", \Sql_Module::PER_DATABASE_CONNECTION_LIMIT);
-				} else {
-					if (!is_null($mergeopts['password']) && strlen($mergeopts['password']) < self::MIN_PASSWORD_LENGTH) {
-						return error("password must be at least %d characters long", self::MIN_PASSWORD_LENGTH);
-					}
-				}
+			}
+			if (isset($opts['max_user_connections']) && $opts['max_user_connections'] > \Sql_Module::PER_DATABASE_CONNECTION_LIMIT) {
+				return error("Max connection limit %d. Must file a ticket justifying need. " .
+					"Check index placements first.", \Sql_Module::PER_DATABASE_CONNECTION_LIMIT);
+			}
+			if (!is_null($mergeopts['password']) && strlen($mergeopts['password']) < self::MIN_PASSWORD_LENGTH) {
+				return error("password must be at least %d characters long", self::MIN_PASSWORD_LENGTH);
 			}
 			$conn = $this->_connect_root();
 
@@ -1909,17 +1907,17 @@
 				return true;
 			}
 			$conf = $this->getAuthContext()->getAccount();
-			if ($conf->new['mysql']['enabled'] && !$conf->cur['mysql']['enabled']) {
+			if ($conf->new['mysql']['enabled'] && !$conf->old['mysql']['enabled']) {
 				$this->installDatabaseService('mysql');
 			}
 
-			$conf_cur = $conf->cur['mysql'];
+			$conf_old = $conf->old['mysql'];
 			$conf_new = $conf->new['mysql'];
-			if ($conf_new == $conf_cur) {
+			if ($conf_new === $conf_old) {
 				return;
 			}
 
-			$prefixold = $conf_cur['dbaseprefix'];
+			$prefixold = $conf_old['dbaseprefix'];
 			$prefixnew = $conf_new['dbaseprefix'];
 			$db = MySQL::initialize();
 			if (!preg_match(Regex::SQL_PREFIX, $prefixnew)) {
