@@ -251,7 +251,7 @@
 				'cpasswd' => $password,
 				'gid'     => $this->group_id,
 				'gecos'   => $gecos,
-				'uid'     => $uid
+				'uid'     => $uid,
 			]);
 			if (!$ret) {
 				$instance->releaseUid($uid);
@@ -271,11 +271,11 @@
 				$this->ftp_permit_user($user);
 			}
 
-			if ($imap_enable && version_compare(platform_version(), '7.5', '<')) {
+			if ($imap_enable) {
 				$this->email_permit_user($user, 'imap');
 			}
 
-			if ($smtp_enable && version_compare(platform_version(), '7.5', '<')) {
+			if ($smtp_enable) {
 				$this->email_permit_user($user, 'smtp');
 			}
 
@@ -888,7 +888,7 @@
 			while (false !== ($line = fgets($fp))) {
 				list($group_name, $password, $gid, $user_list) =
 					explode(':', $line);
-				if ($group_name == $group) {
+				if ($group_name === $group) {
 					continue;
 				}
 				$lines[] = $line;
@@ -947,6 +947,20 @@
 			]);
 		}
 
+		/**
+		 * Get list of services for which user is enabled
+		 *
+		 * @param string $user
+		 * @return array|false
+		 */
+		public function enrollment(string $user)
+		{
+			if (!$this->exists($user) || $this->get_uid_from_username($user) < self::MIN_UID) {
+				return error("unknown or system user `%s'", $user);
+			}
+			$pam = new Util_Pam($this->getAuthContext());
+			return $pam->enrolled($user);
+		}
 
 		/**
 		 * Remove historical quota data
@@ -995,6 +1009,12 @@
 
 		public function _edit()
 		{
+			$new = $this->getAuthContext()->conf('siteinfo', 'new');
+			$old = $this->getAuthContext()->conf('siteinfo', 'old');
+			if ($new['admin_user'] === $old['admin_user']) {
+				return true;
+			}
+			return $this->_edit_user($old['admin_user'], $new['admin_user'], []);
 		}
 
 		public function _create_user(string $user)
@@ -1003,11 +1023,17 @@
 
 		public function _edit_user(string $user, string $usernew, array $oldpwd)
 		{
+			$pam = new Util_Pam($this->getAuthContext());
+			$pam->renameUser($user, $usernew);
 			$this->flush();
 		}
 
 		public function _delete_user(string $user)
 		{
+			$pam = new Util_Pam($this->getAuthContext());
+			foreach ($this->enrollment($user) as $svc) {
+				$pam->remove($user, $svc);
+			}
 			$this->erase_quota_history($user);
 		}
 	}

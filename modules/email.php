@@ -221,20 +221,14 @@
 		 */
 		public function enabled(string $which = null): bool {
 			// @TODO rename sendmail to smtp service
-			if ($which === 'smtp') {
-				$which = 'sendmail';
-			}
-			if ($which && $which !== 'sendmail' && $which !== 'imap') {
+			if ($which && $which !== 'smtp' && $which !== 'imap' && $which !== 'pop3') {
 				return error("unknown service `%s'", $which);
 			}
-			// Delta merges sendmail/imap/pop3 into 1 service
-			if (version_compare(platform_version(), '7.5', '>=')) {
-				$which = 'mail';
-			}
 			if ($which) {
+				$which = platform_is('7.5') ? 'mail' : 'sendmail';
 				return (bool)$this->get_service_value($which, 'enabled');
 			}
-			return $this->enabled('sendmail') && $this->enabled('imap');
+			return $this->enabled('smtp') && $this->enabled('imap');
 		}
 
 		/**
@@ -1195,7 +1189,7 @@
 					$pam->remove($user, $svc);
 				}
 			}
-			if (version_compare(platform_version(), '7.5', '<')) {
+			if (platform_is('7.5', '<')) {
 				return true;
 			}
 			if (!$this->_create_user($user)) {
@@ -1213,9 +1207,16 @@
 			if (!$pwd = $this->user_getpwnam($user)) {
 				return false;
 			}
+			if (!platform_is('7.5')) {
+				return true;
+			}
+
+			// older platforms do this implicitly
+			// @TODO when surrogate user drops hook, drop this
 			if (!Opcenter\Provisioning\Mail::createUser($this->site_id, $pwd['uid'], $user)) {
 				return error("failed to create mail lookup for `%s' on `site%d'", $user, $this->site_id);
 			}
+
 			if (!$pwd['home']) {
 				return false;
 			}
@@ -1251,10 +1252,9 @@
 				Util_Process::exec('/sbin/service postfix restart');
 			} else if ($why == "adduser") {
 				// just flush auth cache
-				$platformver = platform_version();
-				if (version_compare($platformver, '6', '>=')) {
+				if (platform_is('6')) {
 					$cmd = 'doveadm auth cache flush';
-				} else if (version_compare($platformver, '5', '>=')) {
+				} else if (platform_is('5')) {
 					$cmd = 'dovecot reload';
 				} else {
 					$cmd = '/sbin/service dovecot reload';
@@ -1419,8 +1419,8 @@
 
 		public function user_enabled($user, $svc = null)
 		{
-			if ($svc && $svc != 'imap' && $svc != 'smtp' && $svc != 'smtp_relay') {
-				return error("service " . $svc . " is unknown (imap, smtp)");
+			if ($svc && $svc != 'imap' && $svc != 'smtp' && $svc != 'smtp_relay' && $svc !== 'pop3') {
+				return error("unknown service `%s'", $svc);
 			}
 			if (!$this->enabled($svc)) {
 				return false;
@@ -1432,7 +1432,6 @@
 			} else if ($svc == 'smtp') {
 				$svc = 'smtp_relay';
 			}
-
 			return $enabled && (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
 
@@ -1442,35 +1441,42 @@
 				return error("service " . $svc . " is unknown (imap, smtp)");
 			}
 
+			if ($this->auth_is_demo()) {
+				return error("Email disabled for demo account");
+			}
+
 			$pam = new Util_Pam($this->getAuthContext());
 			if (!$svc) {
 				$pam->add($user, 'imap');
 				$svc = 'smtp_relay';
-			} else {
-				if ($svc == 'smtp') {
-					$svc = 'smtp_relay'; // Ensim bastardization
-				}
-			}
-			if ($this->auth_is_demo()) {
-				return error("Email disabled for demo account");
+			} else if ($svc == 'smtp') {
+				$svc = 'smtp_relay';
+			} else if (platform_is('7.5')) {
+				//
+				$mirror = $svc === 'imap' ? 'pop3' : 'imap';
+				$pam->add($user, $mirror);
 			}
 			return $pam->add($user, $svc);
 		}
 
 		public function deny_user($user, $svc = null)
 		{
-			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
-				return error("service " . $svc . " not in list (imap, smtp)");
+			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay' && $svc !== 'pop3') {
+				return error("service " . $svc . " not in list");
 			}
 			$pam = new Util_Pam($this->getAuthContext());
 			if (!$svc) {
-				$pam->remove($user, 'imap');
+				$pam->remove($user, 'smtp');
+				$svc = 'imap';
+			} else if ($svc == 'smtp') {
 				$svc = 'smtp_relay';
-			} else {
-				if ($svc == 'smtp') {
-					$svc = 'smtp_relay';
-				}
-			} // Ensim bastardization
+			}
+			// v7.5 doesn't differentiate between IMAP/POP3 yet
+			if ($svc === 'imap' && platform_is('7.5')) {
+				$pam->remove($user, 'pop3');
+			} else if ($svc === 'pop3' && platform_is('7.5')) {
+				$pam->remove($user, 'imap');
+			}
 			return $pam->remove($user, $svc);
 		}
 
@@ -1626,9 +1632,6 @@
 
 		private function _addMTA($ip)
 		{
-			if (version_compare(platform_version(), '4.5', '<')) {
-				return info("private smtp routing available on 4.5 and newer platforms");
-			}
 			$hosts = file(Dns_Module::HOSTS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
 			$regex = Regex::compile(
 				Regex::EMAIL_MTA_IP_RECORD,

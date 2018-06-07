@@ -237,9 +237,6 @@
 		 */
 		public function create_api_key($comment = '', $user = null)
 		{
-			for ($i = 0, $rand = ""; $i < 16; $i++) {
-				$rand .= mt_rand(0, 256);
-			}
 			if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
 				$user = $this->username;
 			} else if (!$this->user_exists($user)) {
@@ -249,7 +246,7 @@
 			if (strlen($comment) > 255) {
 				warn("api key comment truncated beyond 255 characters");
 			}
-			$key = hash("sha256", uniqid($rand, true));
+			$key = hash("sha256", uniqid((string)random_int(PHP_INT_MIN, PHP_INT_MAX), true));
 			$invoice = null;
 			if (!($this->permission_level & PRIVILEGE_ADMIN)) {
 				$invoice = $this->billing_get_invoice();
@@ -267,7 +264,7 @@
 				`username` = '" . $user . "'
 				AND " . $qfrag['where'] . " GROUP BY (api_key)");
 
-			if ($rs->num_rows > self::API_KEY_LIMIT) {
+			if ($rs->num_rows >= self::API_KEY_LIMIT) {
 				return error("%d key limit reached", self::API_KEY_LIMIT);
 			}
 			$q = "INSERT INTO `api_keys` " .
@@ -1056,8 +1053,8 @@
 			// @XXX centralize logins
 			$invoice = $this->billing_get_invoice();
 			if (!$db->query("UPDATE login_log SET `username` = '" . $db->escape_string($usernew) . "' " .
-				"WHERE `username` = '" . $db->escape_string($userold) . "' AND invoice = " . $db->escape_string($invoice))) {
-				warn("failed to rename loing history for user `%s' to `%s'", $userold, $usernew);
+				"WHERE `username` = '" . $db->escape_string($userold) . "' AND invoice = '" . $db->escape_string($invoice)) . "'") {
+				warn("failed to rename login history for user `%s' to `%s'", $userold, $usernew);
 			}
 
 

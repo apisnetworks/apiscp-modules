@@ -203,7 +203,7 @@
 			if (!file_exists($file)) {
 				return false;
 			}
-			return \Opcenter\Database\PostgreSQL::getUserConfiguration($path)['password'];
+			return \Opcenter\Database\PostgreSQL::getUserConfiguration($file)['password'];
 		}
 
 		public function get_elevated_password_backend()
@@ -532,28 +532,36 @@
 			if ($password && strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("pgsql password must be at least %d characters long", 3);
 			}
-			$pgdb = \PostgreSQL::initialize();
-			$user = $pgdb->escape_string($user);
-			$password = $pgdb->escape_string($password);
+			$pgdb = \PostgreSQL::pdo();
+			$params = [
+				':name' => $user,
+				':password' => $password,
+				':connlimit' => $maxconn
+			];
 
 			if (!$password && is_int($maxconn)) {
-				$pgdb->query_params('UPDATE pg_authid SET rolconnlimit = $1 WHERE rolname = $2;',
-					array(intval($maxconn), $user)
+				$query = 'UPDATE pg_authid SET rolconnlimit = :connlimit WHERE rolname = :name';
+			} else if ($password && is_int($maxconn)) {
+				$query = 'UPDATE pg_authid SET rolpassword = :password, rolconnlimit = :connlimit WHERE rolname = :name';
+			} else if ($password && !is_int($maxconn)) {
+				$query = 'UPDATE pg_authid SET rolpassword = :password WHERE rolname = :name';
+				unset($params[':connlimit']);
+			}
+			// @TODO v7.5
+			if (version_compare(platform_version(), '7.5', '>=')) {
+				$pgdb->prepare('UPDATE pg_authid SET rolpassword = CONCAT(\'md5\', MD5(CONCAT(:password, :name))) WHERE rolname = :name;')->execute($params);
+				unset($params[':connlimit']);
+			}
+
+			$stmt = $pgdb->prepare($query);
+
+			if (!$stmt->execute($params)) {
+				return error("Failed to edit user `%s': %s",
+					$user,
+					array_get($stmt->errorInfo(), 2, 'UNKNOWN')
 				);
-			} else {
-				if ($password && is_int($maxconn)) {
-					$pgdb->query_params('UPDATE pg_authid SET rolpassword = $1, rolconnlimit = $2 WHERE rolname = $3;',
-						array($password, intval($maxconn), $user));
-				} else {
-					if ($password && !is_int($maxconn)) {
-						$pgdb->query_params('UPDATE pg_authid SET rolpassword = $1 WHERE rolname = $2;',
-							array($password, $user));
-					}
-				}
 			}
-			if ($pgdb->error) {
-				return new PostgreSQLError("Invalid query while editing user, " . $pgdb->error);
-			}
+
 			if ($user == $this->get_username()) {
 				$this->set_password($password);
 			}
@@ -1031,9 +1039,6 @@
 
 		public function _delete()
 		{
-			if (version_compare(platform_version(), '7.5', '>=')) {
-				return true;
-			}
 			$conf = $this->getAuthContext()->getAccount()->new;
 			if ($this->enabled() && !parent::uninstallDatabaseService('pgsql')) {
 				warn("failed to delete pgsql service from `%s'", $conf['siteinfo']['domain']);

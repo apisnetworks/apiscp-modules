@@ -1878,9 +1878,6 @@
 
 		public function _delete()
 		{
-			if (version_compare(platform_version(), '7.5', '>=')) {
-				return true;
-			}
 			if (!$this->enabled()) {
 				return;
 			}

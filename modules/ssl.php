@@ -26,6 +26,7 @@
 		const CRT_PATH = '/etc/httpd/conf/ssl.crt';
 		const KEY_PATH = '/etc/httpd/conf/ssl.key';
 		const CSR_PATH = '/etc/httpd/conf/ssl.csr';
+		const DEFAULT_CERTIFICATE_NAME = 'server';
 
 		const X509_DAYS = 1095; /* 3 years for self-signed */
 
@@ -36,6 +37,7 @@
 				'generate_csr'             => PRIVILEGE_ALL,
 				'generate_privatekey'      => PRIVILEGE_ALL,
 				'get_alternative_names'    => PRIVILEGE_ALL,
+				'has_certificate'          => PRIVILEGE_SITE,
 				'get_certificate'          => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'get_csr'                  => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'get_private_key'          => PRIVILEGE_SITE | PRIVILEGE_ADMIN,

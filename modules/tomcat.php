@@ -39,11 +39,14 @@
 
 		/**
 		 * Current user under which Tomcat operates
+		 *
+		 * @return null|string username or null if not present on system
 		 */
-		public function system_user()
+		public function system_user(): ?string
 		{
+			$user = $this->_getKey();
 			// same user as service name, Helios+ > tomcat
-			return $this->_getKey();
+			return posix_getpwnam($user)['name'] ?? null;
 		}
 
 		/**

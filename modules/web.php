@@ -31,6 +31,7 @@
 		// primary domain document root
 		const MAIN_DOC_ROOT = '/var/www/html';
 		const WEB_USERNAME = APACHE_USER;
+		const WEB_GROUPID = APACHE_GID;
 		const PROTOCOL_MAP = '/etc/httpd/conf/http10';
 
 		protected $service_cache;

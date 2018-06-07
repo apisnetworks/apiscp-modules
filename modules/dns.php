@@ -353,7 +353,7 @@
 				return null;
 			}
 			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
-				self::$dns_key, static::MASTER_NAMESERVER, $domain);
+				self::$dns_key, static::MASTER_NAMESERVER, $domain, [-1,0]);
 			return $data['success'] ? $data['output'] : null;
 		}
 
@@ -543,7 +543,6 @@
 		 */
 		public function domain_on_account($domain)
 		{
-
 			return true;
 		}
 

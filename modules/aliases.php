@@ -17,16 +17,15 @@
 	 *
 	 * @package core
 	 */
-	class Aliases_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
+	class Aliases_Module extends Module_Support_Aliases
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
 			'users', // addon domain ownership
 		];
-		const CONFIG_DB_DIR = '/etc/httpd/conf/domains/';
+
 		/** addon domain dns verification record */
 		const DNS_VERIFICATION_RECORD = 'newacct';
-		const BYPASS_FILE = '/etc/virtualhosting/dnsbypass';
 
 		/**
 		 * void __construct(void)
@@ -60,7 +59,7 @@
 					return error("failed to create parent directory");
 				}
 			}
-			if (!$this->_create_doc_root($path)) {
+			if (!$this->createDocumentRoot($path)) {
 				return error("failed to create document root `%s'", $path);
 			}
 			$stat = $this->file_stat($path);
@@ -100,7 +99,7 @@
 				return error("failed to map domain `%s' in http configuration", $domain);
 			}
 			$ip = $this->common_get_ip_address();
-			$this->_remove_bypass($domain);
+			$this->removeBypass($domain);
 			return $this->dns_add_zone_backend($domain, $ip);
 		}
 
@@ -180,7 +179,7 @@
 				return error($mode . ": invalid map operation");
 			}
 			if ($mode == 'del') {
-				return $this->_remove_apache_map($domain, $path) &&
+				return $this->removeMap($domain) &&
 					$this->file_delete('/home/*/all_domains/' . $domain);
 			} else {
 				if ($mode == 'add') {
@@ -246,9 +245,9 @@
 				}
 			}
 			if ($mode == 'add') {
-				return $this->_add_apache_map($domain, $path);
+				return $this->addMap($domain, $path);
 			}
-			return $this->_remove_apache_map($domain, $path);
+			return $this->removeMap($domain);
 		}
 
 		/**
@@ -259,7 +258,7 @@
 		 */
 		public function bypass_exists($domain)
 		{
-			return $this->_is_bypass($domain);
+			return $this->isBypass($domain);
 		}
 
 		/**
@@ -406,7 +405,7 @@
 			if (!IS_CLI) {
 				return $this->query('aliases_list_shared_domains');
 			}
-			$map = $this->_load_map();
+			$map = $this->transformMap();
 			if (isset($map[$this->domain])) {
 				unset($map[$this->domain]);
 			}
@@ -515,8 +514,8 @@
 			$domainnew = $conf_new['domain'];
 
 			// domain name change via auth_change_domain()
-			if ($domainold !== $domainnew && $this->_is_bypass($domainnew)) {
-				$this->_remove_bypass($domainnew);
+			if ($domainold !== $domainnew && $this->isBypass($domainnew)) {
+				$this->removeBypass($domainnew);
 			}
 			$aliasesnew = array_get($this->getAuthContext()->conf('aliases', 'new'), 'aliases', []);
 			$aliasesold = array_get($this->getAuthContext()->conf('aliases', 'old'), 'aliases', []);
@@ -661,7 +660,7 @@
 			 *
 			 * @XXX DNS checks can be bypassed via API: BAD
 			 */
-			if ($this->_is_bypass($domain)) {
+			if ($this->isBypass($domain)) {
 				return true;
 			}
 			// domain not hosted, 5 second timeout
@@ -671,7 +670,7 @@
 			if (!$ip) {
 				return true;
 			}
-			$myip = $this->common_get_ip_address();
+			$myip = $this->common_get_ip_adress();
 
 			if ($ip === $myip) {
 				// domain is on this server and would appear in db lookup check
@@ -718,26 +717,6 @@
 			return 0;
 		}
 
-		/**
-		 * Check to bypass addon domain DNS validation test
-		 *
-		 * @param string $domain
-		 * @return bool domain is bypassed
-		 */
-		protected function _is_bypass($domain)
-		{
-			if (defined('DOMAINS_DNS_CHECK') && !constant('DOMAINS_DNS_CHECK')) {
-				return true;
-			}
-			if (!file_exists(self::BYPASS_FILE)) {
-				return false;
-			}
-
-			$recs = file(self::BYPASS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-
-			return (false !== ($line = array_search($domain, $recs)));
-		}
-
 		protected function _verify_url($domain)
 		{
 			$hash = $this->challenge_token($domain);
@@ -780,150 +759,13 @@
 			return trim(strip_tags($content)) == $hash;
 		}
 
-		private function _create_doc_root($path)
-		{
-			// sync up file cache
-			$this->file_purge();
-			if (!file_exists($this->domain_fs_path() . '/' . $path)) {
-				$gid = $this->group_id;
-				if (preg_match('!^/home/([^/]+)/!', $path, $user)) {
-					$user = $user[1];
-					$users = $this->user_get_users();
-					$uid = $users[$user]['uid'];
-					if ($uid < 500) {
-						return error($user . ": user unknown in system");
-					}
-				} else {
-					$uid = $this->user_id;
-				}
-				$fullpath = $this->domain_fs_path() . '/' . $path;
-				if (!mkdir($fullpath)) {
-					return error("z'huh!? failed to create doc root?");
-				}
-				chown($fullpath, (int)$uid);
-				chgrp($fullpath, (int)$gid);
-				$index = $fullpath . '/index.html';
-				$template = '/etc/virtualhosting/templates/apache/var/www/html/index.html';
-				if (file_exists($template)) {
-					copy($template, $index);
-					chown($index, (int)$uid);
-					chgrp($index, (int)$gid);
-				}
-
-
-			}
-			return file_exists($this->domain_fs_path() . '/' . $path);
-		}
-
-		/**
-		 * Remove domain from apache map
-		 *
-		 * @param  string $domain
-		 * @param  string $path
-		 * @return bool
-		 */
-		private function _remove_apache_map($domain)
-		{
-			$domain = strtolower($domain);
-			$map_file = $this->_map_path();
-			if (file_exists($map_file)) {
-				$map = file_get_contents($map_file);
-			} else {
-				$map = '';
-			}
-
-			file_put_contents($map_file,
-				preg_replace('/^' . preg_quote($domain, '/') . '\b.+$[\r\n]*/m', '', $map)
-			);
-			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
-			$db->delete($domain);
-			$db->close();
-			return $this->_generate_map();
-		}
-
-		/**
-		 * Rebuild domain map
-		 *
-		 * @return bool
-		 */
-		private function _generate_map()
-		{
-			$map_file = $this->_map_path();
-			$output_file = self::CONFIG_DB_DIR . '/' . $this->site;
-			file_exists($output_file) && unlink($output_file);
-			$format = 'default';
-			if (version_compare(platform_version(), '7.5', '<')) {
-				$format = 'DB';
-			}
-			$proc = Util_Process::exec('httxt2dbm -f %s -i %s -o %s',
-				$format,
-				$map_file,
-				$output_file
-			);
-			return $proc['success'];
-		}
-
-		/**
-		 * Add domain to apache map
-		 *
-		 * @param  string $domain
-		 * @param  string $path
-		 * @return bool
-		 */
-		private function _add_apache_map($domain, $path)
-		{
-			$domain = strtolower($domain);
-			$map_file = $this->_map_path();
-			if (!file_exists($this->domain_fs_path() . $path)) {
-				warn($path . ': directory does not exist');
-			}
-			$map = '';
-			if (file_exists($map_file)) {
-				$map = file_get_contents($map_file);
-			}
-			$path = rtrim($path, '/');
-			if (!preg_match('/^' . preg_quote($domain) . '\b.+$[\r\n]*/m', $map)) {
-				$map .= $domain . ' ' . $this->domain_fs_path() . $path . "\n";
-			}
-			file_put_contents($map_file, $map);
-			return $this->_generate_map();
-		}
-
-		/**
-		 * Remove a domain from DNS bypass check
-		 *
-		 * @param  string $domain
-		 * @return bool
-		 */
-		private function _remove_bypass($domain)
-		{
-			if (!file_exists(self::BYPASS_FILE)) {
-				return true;
-			}
-
-			$recs = file(self::BYPASS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-
-			if (false === ($line = array_search($domain, $recs))) {
-				return -1;
-			}
-
-			unset($recs[$line]);
-			if (count($recs) < 1) {
-				// save a few cpu cycles
-				unlink(self::BYPASS_FILE);
-			} else {
-				file_put_contents(self::BYPASS_FILE, join($recs, "\n"));
-			}
-			return true;
-		}
-
 		private function _change_owner($domain, $user)
 		{
 			$users = $this->user_get_users();
 			if (!isset($users[$user])) {
 				return error("user `$user' not found");
 			}
-			$map = $this->_load_map();
+			$map = $this->transformMap();
 			if (!array_key_exists($domain, $map)) {
 				return error("domain `$domain' not found in domain map");
 			}
@@ -934,22 +776,22 @@
 
 		private function _change_path($domain, $newpath)
 		{
-			$map = $this->_load_map();
+			$map = $this->transformMap();
 			if (!array_key_exists($domain, $map)) {
 				return error("domain `$domain' not found in domain map");
 			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $newpath)) {
 				return error($newpath . ": invalid path");
 			}
 			$oldpath = $map[$domain];
-			if (!$this->_remove_apache_map($domain)) {
+			if (!$this->removeMap($domain)) {
 				return false;
 			}
 			if (!file_exists($this->domain_fs_path() . $newpath)) {
-				$this->_create_doc_root($newpath);
+				$this->createDocumentRoot($newpath);
 			}
-			if (!$this->_add_apache_map($domain, $newpath)) {
+			if (!$this->addMap($domain, $newpath)) {
 				// domain addition failed - revert
-				$this->_add_apache_map($domain, $oldpath);
+				$this->addMap($domain, $oldpath);
 				return error("domain `$domain' path change failure - reverting");
 			}
 			$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
@@ -960,11 +802,11 @@
 
 		private function _change_domain($domain, $newdomain)
 		{
-			$map = $this->_load_map();
+			$map = $this->transformMap();
 			if (!array_key_exists($domain, $map)) {
 				return error("domain `$domain' not found in domain map");
 			}
-			$map = $this->_load_map();
+			$map = $this->transformMap();
 			$path = $map[$domain];
 			$ret = $this->remove_shared_domain($domain)
 				&& $this->_synchronize_changes() &&
@@ -977,7 +819,7 @@
 
 		private function _synchronize_changes()
 		{
-			if (file_exists($this->domain_info_path() . '/suspended')) {
+			if ($this->auth_is_inactive()) {
 				return error('account is suspended, will not resync');
 			}
 			$cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
@@ -990,33 +832,6 @@
 			info("Hang tight! Domain changes will be active within a few minutes, but may take up to 24 hours to work properly.");
 			$this->getAuthContext()->getAccount()->reset($this->getAuthContext());
 			return true;
-		}
-
-		private function _load_map()
-		{
-			$domains = array();
-			$file = $this->_map_path();
-			if (!file_exists($file)) {
-				return $domains;
-			}
-			$map = file_get_contents($file);
-			$regex = '!(?<domain>' . Regex::recompose(Regex::DOMAIN, '!') . ')' .
-				'\b\s+(?::(?<type>.):(?<url>.+)|' . $this->domain_fs_path() . '(?<path>/.+))$!m';
-			if (!preg_match_all($regex, $map, $matches, PREG_SET_ORDER)) {
-				return $domains;
-			}
-
-			foreach ($matches as $match) {
-				$domain = $match['domain'];
-				$site = isset($match['path']) ? $match['path'] : $match['url'];
-				$domains[$domain] = rtrim($site, '/');
-			}
-			return $domains;
-		}
-
-		private function _map_path()
-		{
-			return $this->domain_info_path() . '/domain_map';
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

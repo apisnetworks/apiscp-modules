@@ -19,6 +19,9 @@
 	 */
 	class Logs_Module extends Module_Skeleton
 	{
+		const DEPENDENCY_MAP = [
+			'apache'
+		];
 		/**
 		 * {{{ void __construct(void)
 		 *

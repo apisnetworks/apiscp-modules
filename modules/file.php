@@ -380,24 +380,20 @@
 				if (file_exists($link) && (string)readlink($link)[0] == '/') {
 					$newpath = realpath($link);
 				} else {
-					$po = $newpath;
 					$tmp = (string)realpath($link);
-					$newpath = substr($tmp, strlen($root));
-					if (!$newpath) {
-						$newpath = $po;
+					if (0 === strpos($tmp, $root)) {
+						$newpath = substr($tmp, strlen($root));
 					}
 				}
 			}
-			//print $mPath." ; ".var_export(explode('/',$mPath));
 			for ($pathCom = explode('/', $newpath), $i = sizeof($pathCom); $i > 0; $i--) {
 				$pathTest = $root . join(array_slice($pathCom, 0, $i), '/');
 				if (file_exists($pathTest)) {
 					break;
 				}
 			}
-
 			if (isset($root[1]) &&
-				substr(realpath($pathTest), 0, strlen($root)) != $root
+				0 !== strpos(realpath($pathTest), $root)
 			) {
 				// let's assume they made a symlink to /var/www/html/ instead of ../../var/www/
 				//if (!file_exists($this->domain_fs_path().realpath($pathTest)))
@@ -1100,7 +1096,7 @@
 		private function can_descend($path, $rw = false, $direxists = true)
 		{
 			$fspfx = $this->domain_fs_path();
-			if (substr($path, 0, strlen($fspfx)) != $fspfx) {
+			if (0 !== strpos($path, $fspfx)) {
 				return error($path . ": not fully qualified path");
 			}
 			// directory components to examine, assume fs prefix is immutable
@@ -2289,7 +2285,7 @@
 			}
 
 			$link = '';
-			if (substr($mSrc, 0, 2) == '..') {
+			if (0 === strpos($mSrc, '..')) {
 				$mSrc = dirname($mDest) . '/' . $mSrc;
 			}
 			if ($mDest[strlen($mDest) - 1] == '/') {
