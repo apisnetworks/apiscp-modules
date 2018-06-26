@@ -215,7 +215,7 @@
 				return $this->query('auth_is_inactive');
 			}
 			if ($this->permission_level & (PRIVILEGE_USER | PRIVILEGE_SITE)) {
-				return file_exists($this->domain_info_path() . '/disabled');
+				return file_exists(\Opcenter\Account\State::disableMarker($this->site));
 			}
 			return false;
 		}

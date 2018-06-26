@@ -195,6 +195,9 @@
 					$ipadd = $conf_new['nbaddrs'];
 				}
 			}
+			if (!$this->dns_configured()) {
+				return;
+			}
 			// change DNS
 			// there will always be a 1:1 pairing for IP addresses
 			foreach ($ipadd as $newip) {
@@ -202,7 +205,7 @@
 				$class = apnscpFunctionInterceptor::get_autoload_class_from_module('dns');
 				$newparams = array('ttl' => $class::DNS_TTL, 'parameter' => $newip);
 				foreach ($domains as $domain) {
-					$records = $this->get_records_by_rr('A', $domain);
+					$records = $this->dns_get_records_by_rr('A', $domain);
 					foreach ($records as $r) {
 						if ($r['parameter'] !== $oldip) {
 							continue;

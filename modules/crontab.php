@@ -566,7 +566,7 @@
 		{
 			$conf_new = $this->getAuthContext()->getAccount()->new;
 			$conf_old = $this->getAuthContext()->getAccount()->old;
-			$userold = $conf_old['siteinfo']['admin_user'];
+			$userold = $conf_old['siteinfo']['admin_user'] ?? $conf_new['siteinfo']['admin_user'];
 			$usernew = $conf_new['siteinfo']['admin_user'];
 			if (version_compare(platform_version(), '6.5', '>=')) {
 				$spoolpath = $this->domain_shadow_path() . self::CRON_SPOOL;

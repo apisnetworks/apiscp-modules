@@ -206,6 +206,17 @@
 				'autoupdate' => (bool)$opts['autoupdate'],
 				'options'    => $opts
 			);
+			if (!file_exists($this->domain_fs_path() . "/${docroot}/.htaccess")) {
+				$template = '<IfModule mod_rewrite.c>' . "\n" .
+					'RewriteEngine On' . "\n" .
+					'RewriteBase /' . ltrim($path, '/') . "\n" .
+					'RewriteRule ^index\\.php$ - [L]' . "\n" .
+					'RewriteCond %{REQUEST_FILENAME} !-f' . "\n" .
+					'RewriteCond %{REQUEST_FILENAME} !-d' . "\n" .
+					'RewriteRule . /index.php [L]' . "\n" .
+					'</IfModule>' . "\n";
+				$this->file_put_file_contents("${docroot}/.htaccess", $template);
+			}
 			$this->_map('add', $docroot, $params);
 			$this->fortify($hostname, $path, 'max');
 

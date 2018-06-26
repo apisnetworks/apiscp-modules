@@ -39,6 +39,9 @@ declare(strict_types=1);
 
         public function get_usage($controller)
         {
+        	if (!IS_CLI) {
+        		return $this->query('cgroup_get_usage', $controller);
+	        }
             if (!in_array($controller, $this->get_controllers())) {
                 return error("unknown controller `%s'");
             }
@@ -52,15 +55,18 @@ declare(strict_types=1);
 
         public function _create()
         {
-            $path = $this->web_site_config_dir();
-            $file = $path . '/cgroup';
-            $config = '<IfModule cgroup_module>' .
+	        if (platform_is('7.5')) {
+		        return true;
+	        }
+	        $path = $this->web_site_config_dir();
+	        // has no effect on cgroupv1 + threaded MPM
+	        $file = $path . '/cgroup';
+	        $config = '<IfModule cgroup_module>' .
                 "\n\t" . "cgroup " . $this->site .
                 "\n" . '</IfModule>';
-            if (!file_exists($file)) {
-                file_put_contents($file, $config);
+	        if (!file_exists($file)) {
+	            file_put_contents($file, $config);
             }
-
             foreach ($this->get_controllers() as $controller) {
                 \Opcenter\System\Cgroup::create($controller, $this->site,
 					[
@@ -72,6 +78,9 @@ declare(strict_types=1);
 
         public function _delete()
         {
+	        if (platform_is('7.5')) {
+		        return true;
+	        }
             foreach ($this->get_controllers() as $controller) {
 	            if (!\Opcenter\System\Cgroup::delete($controller, $this->site)) {
 	            	warn("Failed to remove cgroup group `%s' from controller `%s'", $this->site, $controller);
@@ -156,5 +165,27 @@ declare(strict_types=1);
 		    // TODO: Implement _edit_user() method.
 	    }
 
+	    public function _housekeeping() {
+        	if (!$test = $this->get_controllers()[0] ?? null) {
+        		return;
+	        }
+        	if (!\Opcenter\Filesystem\Mount::mounted(FILESYSTEM_SHARED . "/cgroup/${test}") && !\Opcenter\System\Cgroup::mountAll()) {
+        		return false;
+	        }
+	        foreach (\Opcenter\Account\Enumerate::sites() as $site) {
+        		foreach (\Opcenter\System\Cgroup::getControllers() as $c) {
+        			$path = CGROUP_HOME . "/${c}/${site}";
+        			if (file_exists($path)) {
+        				continue;
+			        }
+			        \Opcenter\System\Cgroup::create($c, $site,
+				        [
+					        'tuid' => Web_Module::WEB_USERNAME,
+					        'tgid' => \Auth::get_group_from_site($site)
+				        ]);
+		        }
+	        }
+	        return true;
+	    }
 
     }

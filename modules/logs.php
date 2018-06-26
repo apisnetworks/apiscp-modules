@@ -37,13 +37,24 @@
 
 		/* }}} */
 
+		/**
+		 * Get webserver log usage
+		 *
+		 * @return int|bool size in KB
+		 */
 		public function get_webserver_log_usage()
 		{
+			// v7.5 platforms lock /var/log/httpd access from other
+			if (!IS_CLI) {
+				return $this->query('logs_get_webserver_log_usage');
+			}
 			if (!file_exists($this->domain_fs_path() . '/var/log/httpd/')) {
 				return 0;
 			}
 
-			$dh = opendir($this->domain_fs_path() . '/var/log/httpd/');
+			if (false === ($dh = opendir($this->domain_fs_path() . '/var/log/httpd/'))) {
+				return error("failed to open /var/log/httpd");
+			}
 			$size = 0;
 			while (($file = readdir($dh)) !== false) {
 				if ($file == '.' || $file == '..') {
@@ -52,7 +63,7 @@
 				$size += (filesize($this->domain_fs_path() . '/var/log/httpd/' . $file) / 1024);
 			}
 			closedir($dh);
-			return $size;
+			return (int)$size;
 		}
 
 		/**

@@ -1070,6 +1070,9 @@
 
 		public function _delete()
 		{
+			if (!$this->configured()) {
+				return warn("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
+			}
 			if (!$this->get_service_value('ipinfo', 'namebased')) {
 				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
 				// pass the domain to verify the PTR isn't detached incorrectly
@@ -1105,6 +1108,9 @@
 
 		public function _create()
 		{
+			if (!$this->configured()) {
+				return warn("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
+			}
 			$ipinfo = $this->getAuthContext()->conf('ipinfo');
 			$siteinfo = $this->getAuthContext()->conf('siteinfo');
 			$domain = $siteinfo['domain'];
@@ -1190,6 +1196,9 @@
 
 		public function _edit()
 		{
+			if (!$this->configured()) {
+				return warn("DNS not configured for `%s', skipping edit hook", $this->domain);
+			}
 			$conf_old = $this->getAuthContext()->conf('ipinfo', 'old');
 			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
 			$domainold = \array_get($this->getAuthContext()->conf('siteinfo', 'old'), 'domain');

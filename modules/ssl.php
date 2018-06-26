@@ -294,7 +294,7 @@
 				$cmd->edit();
 			}
 			$this->file_purge();
-			\Opcenter\Http\Apache::reload();
+			\Opcenter\Http\Apache::activate();
 			info("reloading web server in 2 minutes, stay tuned!");
 
 			return true;
@@ -663,8 +663,7 @@
 			if (!$status) {
 				return error("failed to deactivate openssl on account");
 			}
-			$proc = new Util_Process_Schedule('now');
-			return $proc->run('/sbin/service httpd reload');
+			return Opcenter\Http\Apache::activate();
 		}
 
 		/**
@@ -1134,7 +1133,7 @@
 				// Luna and on do things differently
 				if (!$conf_new[$ssl]['enabled']) {
 					$renameWrapper('disable');
-				} else if ($conf_new[$ssl]['enabled'] && !$conf_old[$ssl]['enabled']) {
+				} else if ($conf_new[$ssl]['enabled'] && !($conf_old[$ssl]['enabled'] ?? false)) {
 					$renameWrapper('enable');
 				}
 				return;

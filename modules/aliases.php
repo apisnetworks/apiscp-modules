@@ -670,7 +670,7 @@
 			if (!$ip) {
 				return true;
 			}
-			$myip = $this->common_get_ip_adress();
+			$myip = $this->common_get_ip_address();
 
 			if ($ip === $myip) {
 				// domain is on this server and would appear in db lookup check

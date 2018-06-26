@@ -89,6 +89,7 @@
 				return $this;
 			}
 
+			return \Module\Provider::get('mail', $provider, $this->getAuthContext());
 		}
 
 		/**
