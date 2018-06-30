@@ -260,7 +260,7 @@
 				'path'       => $path,
 				'autoupdate' => (bool)$opts['autoupdate'],
 			);
-			$this->_map('add', $docroot, $params);
+			$this->map('add', $docroot, $params);
 			parent::fortify($hostname, $path, 'max');
 			if ($this->guessMajor($docroot) === 1) {
 				$this->file_chmod($docroot . '/app/etc/local.xml', 644);

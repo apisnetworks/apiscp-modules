@@ -668,23 +668,7 @@
 					file_put_contents($this->domain_info_path() . '/current/' . $srvc_name, $conf);
 				}
 			}
-			return true;
-		}
-
-		public function save_service_information_old(array$services, bool $journal = false): bool
-		{
-			foreach ($services as $srvc_name => $info) {
-				$data = "[DEFAULT]" . "\n";
-				foreach ($info as $srvc_var => $srvc_val) {
-					$data .= $srvc_var . ' = ' . (!is_array($srvc_val) ? $srvc_val : (!$srvc_val ? '[]' : '[\'' . join(array_unique($srvc_val),
-								'\', \'') . '\']')) . "\n";
-				}
-				if ($journal) {
-					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . '.new', $data);
-				} else {
-					file_put_contents($this->domain_info_path() . '/current/' . $srvc_name, $data);
-				}
-			}
+			touch($this->domain_info_path());
 			return true;
 		}
 

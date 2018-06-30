@@ -117,6 +117,11 @@
 			);
 		}
 
+		/**
+		 * Provider loader
+		 *
+		 * @return Module_Skeleton
+		 */
 		public function _proxy(): \Module_Skeleton
 		{
 			$provider = $this->get_provider();
@@ -137,18 +142,29 @@
 		}
 
 		/**
+		 * DNS is configured for account
+		 *
+		 * @return bool
+		 */
+		public function configured(): bool
+		{
+			return \get_class($this) !== self::class;
+		}
+
+		/**
 		 * Query database for domain expiration
 		 *
 		 * On multi-server lookups that perform DNS lookups independent,
 		 * perform batch lookups and pull those records from the database
 		 *
+		 *
 		 * A return of 0 indicates failure
 		 * null indicates unknown expiration
 		 *
 		 * @param string $domain domain owned by the account
-		 * @return int expiration as unix timestamp
+		 * @return null|int expiration as unix timestamp
 		 */
-		public function domain_expiration($domain)
+		public function domain_expiration(string $domain): ?int
 		{
 			return null;
 		}
@@ -156,11 +172,13 @@
 		/**
 		 * Fetches all domains across all servers
 		 *
+		 * Used in multi-server layouts
+		 *
 		 * @return array
 		 */
-		public function get_all_domains()
+		public function get_all_domains(): array
 		{
-			return [];
+			return array_keys(\Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP)->fetchAll());
 		}
 
 		/**
@@ -170,7 +188,7 @@
 		 * @param bool   $all show all server matches, $all = true: array of all servers, else server
 		 * @return string|array
 		 */
-		public function get_server_from_domain($domain, $all = false)
+		public function get_server_from_domain(string $domain, bool $all = false)
 		{
 			return SERVER_NAME_SHORT;
 		}
@@ -183,41 +201,39 @@
 		 * that share the same site ID
 		 *
 		 * @param string $domain
-		 * @return string
+		 * @return bool|string primary domain or false on error
 		 */
-		public function get_parent_domain($domain)
+		public function get_parent_domain(string $domain)
 		{
-			return null;
+			if (false === ($id = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP)->fetch($domain))) {
+				return false;
+			}
+			return \Auth::get_domain_from_site_id((int)substr($id, 4));
 		}
 
 		/**
-		 * string get_whois_record (string)
-		 *
 		 * Query WHOIS server for record
 		 *
-		 * @privilege PRIVILEGE_ALL
-		 *
 		 * @param  string $domain domain name to look up the whois record for
-		 *
-		 * @return string whois data
+		 * @return string|bool whois data
 		 *
 		 */
-		public function get_whois_record($domain)
+		public function get_whois_record(string $domain)
 		{
 			Error_Reporter::suppress_php_error('require_once');
 			if (!preg_match(Regex::DOMAIN, $domain)) {
-				return error($domain . ": invalid domain");
+				return error('%s: invalid domain', $domain);
 			}
 			if (!class_exists('Net_Whois', false) &&
-				!include('Net/Whois.php')
+				!include 'Net/Whois.php'
 			) {
-				return error("Unable to include Whois module");
+				return error('Unable to include Whois module');
 			}
 
 			$whois = new Net_Whois();
 			$data = $whois->query($domain);
 			if (PEAR::isError($data)) {
-				return new SocketError($data->message);
+				return error("Failed to lookup whois data: `%s'", $data->message);
 			}
 			return $data;
 		}
@@ -226,56 +242,56 @@
 		 * Export zone configuration in BIND-friendly notation
 		 *
 		 * @param string|null $zone
-		 * @return bool|string|void
+		 * @return bool|string
 		 */
-		public function export($zone = null)
+		public function export(string $zone = null)
 		{
-			if (is_null($zone)) {
+			if (null === $zone) {
 				$zone = $this->domain;
 			}
 
-			if (!$this->permission_level & (PRIVILEGE_ADMIN) && !$this->owned_zone($zone)) {
+			if (!$this->permission_level & PRIVILEGE_ADMIN && !$this->owned_zone($zone)) {
 				return error("access denied - cannot view zone `%s'", $zone);
 			}
-			$recs = $this->_get_zone_information_raw($zone);
-			if (is_null($recs)) {
+			$recs = $this->get_zone_data($zone);
+			if (null === $recs) {
 				return error("failed to export zone `%s'", $zone);
 			}
 			$soa = $recs['SOA'][0];
 			$soadata = preg_split('/\s+/', $soa['parameter']);
-			$format = ";; " . "\n" .
+			$format = ';; ' . "\n" .
 				";; Domain:\t" . $zone . "\n" .
-				";; Exported:\t" . date("r") . "\n" .
-				";; " . "\n" .
+				";; Exported:\t" . date('r') . "\n" .
+				';; ' . "\n" .
 				'$ORIGIN . ' . "\n" .
-				"@\t" . $soa['ttl'] . "\tIN\tSOA\t$zone.\t" . $soadata[1] . " ( " . "\n" .
+				"@\t" . $soa['ttl'] . "\tIN\tSOA\t$zone.\t" . $soadata[1] . ' ( ' . "\n" .
 				"\t" . $soadata[2] . "\t; serial" . "\n" .
 				"\t" . $soadata[3] . "\t; refresh" . "\n" .
 				"\t" . $soadata[4] . "\t; retry" . "\n" .
 				"\t" . $soadata[5] . "\t; expire" . "\n" .
 				"\t" . $soadata[6] . ")\t; minimum" . "\n\n";
 			$buffer = array();
-			$buffer[] = ";; NS Records (YOU MUST CHANGE THIS)";
+			$buffer[] = ';; NS Records (YOU MUST CHANGE THIS)';
 			foreach ($recs['NS'] as $ns) {
 				$ns['parameter'] = 'YOU_MUST_CHANGE_THIS_VALUE';
 				$buffer[] = $ns['name'] . "\t" . $ns['ttl'] .
 					"\t" . "IN NS\t" . $ns['parameter'];
 			}
-			$buffer[] = "";
+			$buffer[] = '';
 			$ignore = array('SOA', 'NS', 'TSIG');
 			foreach (static::$permitted_records as $rr) {
 				$rr = strtoupper($rr);
-				if (in_array($rr, $ignore) || !isset($recs[$rr])) {
+				if (!isset($recs[$rr]) || in_array($rr, $ignore, true)) {
 					continue;
 				}
-				$buffer[] = ";; " . $rr . " Records";
+				$buffer[] = ';; ' . $rr . ' Records';
 				foreach ($recs[$rr] as $r) {
 					$buffer[] = $r['name'] . "\t" . $r['ttl'] .
-						"\t" . "IN " . $rr . "\t" . $r['parameter'];
+						"\t" . 'IN ' . $rr . "\t" . $r['parameter'];
 				}
 				$buffer[] = "\n";
 			}
-			$format .= join("\n", $buffer);
+			$format .= implode("\n", $buffer);
 			return $format;
 		}
 
@@ -294,67 +310,7 @@
 				return true;
 			}
 			$aliases = $this->aliases_list_aliases();
-			return ($zone === $this->domain) || in_array($zone, $aliases);
-		}
-
-		/**
-		 * Unauthenticated call for get_zone_information
-		 *
-		 * @param string $domain
-		 * @return array|null
-		 */
-		protected function _get_zone_information_raw($domain): ?array
-		{
-			if (null === ($data = $this->_get_zone_information_raw_raw($domain))) {
-				return [];
-			}
-
-			$zoneData = array();
-			$offset = strlen($domain) + 1; // domain.com.
-			foreach (explode("\n", $data) as $line) {
-				if (false !== strpos($line, 'Transfer failed.')) {
-					return null;
-				}
-				if (!preg_match(Regex::DNS_AXFR_REC, $line, $match)) {
-					continue;
-				}
-				list ($name, $ttl, $class, $rr, $parameter) = array_slice($match, 1);
-				$rr = strtoupper($rr);
-				// TXT records should always be balanced with quotes
-				// assume this to be the case if " present
-				// don't pretty-print if more than 1 quote pair present
-				if ($rr == 'TXT' && $parameter[0] == '"') {
-					if (strpos($parameter, '"', 1) === strlen($parameter) - 1) {
-						// parameter formatted as "foobar"
-						$parameter = substr($parameter, 1, -1);
-					} else if (preg_match(Regex::DNS_TXT_PRETTY_PRINT, $parameter)) {
-						// balanced quotes, no spaces within quotes, e.g.
-						// "v=spf1" "ip4:64.22.68.1/24" "mx" "-all"
-						$parameter = str_replace('"', '', $parameter);
-					}
-				}
-				$zoneData[$rr][] = array(
-					'name'      => $name,
-					'subdomain' => rtrim(substr($name, 0, strlen($name) - $offset), '.'),
-					'domain'    => $domain,
-					'class'     => $class,
-					'ttl'       => $ttl,
-					'parameter' => $parameter
-				);
-			}
-			return $zoneData;
-		}
-
-		protected function _get_zone_information_raw_raw($domain): ?string
-		{
-			if (!static::MASTER_NAMESERVER) {
-				error("Cannot fetch zone information for `%s': no master nameserver configured in config.ini",
-					$domain);
-				return null;
-			}
-			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
-				self::$dns_key, static::MASTER_NAMESERVER, $domain, [-1,0]);
-			return $data['success'] ? $data['output'] : null;
+			return ($zone === $this->domain) || in_array($zone, $aliases, true);
 		}
 
 		/**
@@ -366,9 +322,9 @@
 		 * @param  string $rr          optional RR type
 		 * @param  string $domain      optional domain
 		 * @param  array  $nameservers optional nameserver to query
-		 * @return array
+		 * @return array|bool false on error
 		 */
-		public function get_records_external($subdomain = '', $rr = 'any', $domain = null, array $nameservers = null)
+		public function get_records_external(string $subdomain = '', string $rr = 'any', string $domain = null, array $nameservers = null)
 		{
 			if (!$domain) {
 				$domain = $this->domain;
@@ -378,7 +334,7 @@
 				$host = $subdomain . '.' . $host;
 			}
 			$rr = strtoupper($rr);
-			$rrsym = $this->record2const($rr);
+			$rrsym = self::record2const($rr);
 			if ($rrsym < 1) {
 				return error("unknown rr record type `%s'", $rr);
 			}
@@ -395,7 +351,7 @@
 				usleep(500000);
 			}
 			if ($recraw === false) {
-				$host = ltrim(join(".", array($subdomain, $domain)), '.');
+				$host = ltrim(implode('.', array($subdomain, $domain)), '.');
 				warn("failed to get external raw records for `%s' on `%s'", $rr, $host);
 				return [];
 			}
@@ -454,7 +410,7 @@
 						$r['regex'] . ' ' . $r['replacement'];
 				}
 				$records[] = array(
-					"name"      => $host,
+					'name'      => $host,
 					'subdomain' => $subdomain,
 					'domain'    => $domain,
 					'class'     => 'IN',
@@ -474,10 +430,10 @@
 		 * @param string $rr
 		 * @return int
 		 */
-		public static function record2const($rr)
+		public static function record2const($rr): int
 		{
 			$rr = strtoupper($rr);
-			return isset(static::$rec_2_const[$rr]) ? static::$rec_2_const[$rr] : 0;
+			return static::$rec_2_const[$rr] ?? 0;
 		}
 
 		/**
@@ -487,7 +443,7 @@
 		 * @param int    $timeout
 		 * @return string
 		 */
-		public function gethostbyaddr_t($ip, $timeout = 1000)
+		public function gethostbyaddr_t(string $ip, int $timeout = 1000): string
 		{
 			return Net_Gethost::gethostbyaddr_t($ip, $timeout);
 		}
@@ -499,7 +455,7 @@
 		 * @param int    $timeout
 		 * @return bool|null|string
 		 */
-		public function gethostbyname_t($name, $timeout = 1000)
+		public function gethostbyname_t(string $name, int $timeout = 1000)
 		{
 			return Net_Gethost::gethostbyname_t($name, $timeout);
 		}
@@ -515,16 +471,16 @@
 		 * @param bool   $ignore_on_account domains hosted on account ignored
 		 * @return bool
 		 */
-		public function domain_hosted($domain, $ignore_on_account = false)
+		public function domain_hosted(string $domain, bool $ignore_on_account = false): bool
 		{
 			$domain = strtolower($domain);
-			if (substr($domain, 0, 4) == "www.") {
+			if (0 === strpos($domain, "www.")) {
 				$domain = substr($domain, 4);
 			}
 			$ignore_on_account = (bool)$ignore_on_account;
 			$site_id = \Auth::get_site_id_from_domain($domain);
 			if ($ignore_on_account) {
-				return $site_id && $site_id != $this->site_id;
+				return $site_id && $site_id !== $this->site_id;
 			}
 			return (bool)$site_id;
 		}
@@ -541,9 +497,9 @@
 		 * @param string $domain
 		 * @return bool
 		 */
-		public function domain_on_account($domain)
+		public function domain_on_account(string $domain): bool
 		{
-			return true;
+			return false;
 		}
 
 		/**
@@ -552,7 +508,7 @@
 		 * @param string $domain
 		 * @return bool
 		 */
-		public function domain_uses_nameservers($domain)
+		public function domain_uses_nameservers(string $domain): bool
 		{
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				return error("malformed domain `%s'", $domain);
@@ -570,7 +526,7 @@
 				return $found;
 			}
 			foreach ($dns as $ns) {
-				if (in_array($ns, $hostingns)) {
+				if (in_array($ns, $hostingns, true)) {
 					return true;
 				}
 			}
@@ -582,14 +538,14 @@
 		 *
 		 * Toggled via config.ini > [dns] > hosting_ns
 		 *
-		 * @return mixed
+		 * @return array
 		 */
-		public function get_hosting_nameservers()
+		public function get_hosting_nameservers(): array
 		{
 			if (null === static::$nameservers) {
 				static::$nameservers = preg_split('/[,\s]+/', DNS_HOSTING_NS, -1, PREG_SPLIT_NO_EMPTY);
 			}
-			return static::$nameservers;
+			return (array)static::$nameservers;
 		}
 
 		/**
@@ -655,9 +611,9 @@
 		 * @param string            $seen
 		 * @return array|null nameservers or null if resolve failed before reaching end
 		 */
-		protected function get_authns_from_host_recursive($host, Net_DNS2_Resolver $resolver, $seen = '')
+		protected function get_authns_from_host_recursive($host, Net_DNS2_Resolver $resolver, $seen = ''): ?array
 		{
-			$components = explode(".", $host);
+			$components = explode('.', $host);
 			$nameservers = null;
 			try {
 				$lookup = array_pop($components) . '.' . $seen;
@@ -681,7 +637,7 @@
 				}, $res->authority);
 			}
 			$resolver->recurse = 0;
-			return $this->get_authns_from_host_recursive(join(".", $components), $resolver, $lookup);
+			return $this->get_authns_from_host_recursive(implode('.', $components), $resolver, $lookup);
 
 		}
 
@@ -701,17 +657,31 @@
 		 *
 		 * @return array
 		 */
-		public function get_pending_expirations($days = 30, $showExpired = true)
+		public function get_pending_expirations(int $days = 30, bool $showExpired = true): array
 		{
 			return [];
 		}
 
-		public function check_zone($zone, array $recs = array())
+		/*
+		 * Check zone for errors
+		 *
+		 * Additional DNS records are formatted as arguments
+		 * to add_record()-
+		 * check_zone("debug.com",["mail","a",86400,"127.0.0.1"])
+		 *
+		 * Hostname, RR, TTL, and parameter are required
+		 *
+		 * @param $zone zone - usually a domain
+		 * @param $recs additional DNS records used in check
+		 *
+		 * @return bool
+		 */
+		public function check_zone(string $zone, array $recs = []): bool
 		{
 			$tmpfile = tempnam('/tmp', 'f');
-			Util_Process::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
+			Util_Process_Safe::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
 				'%s @%s %s > %s',
-				escapeshellarg(self::$dns_key),
+				self::$dns_key,
 				static::AUTHORITATIVE_NAMESERVER,
 				$zone,
 				$tmpfile,
@@ -720,11 +690,11 @@
 			if ($recs) {
 				$str = '';
 				foreach ($recs as $rec) {
-					$str .= $rec[0] . " " . $rec[1] . " " . $rec[2] . " " . $rec[3] . "\n";
+					$str .= $rec[0] . ' ' . $rec[1] . ' ' . $rec[2] . ' ' . $rec[3] . "\n";
 				}
 				file_put_contents($tmpfile, $str, FILE_APPEND);
 			}
-			$status = Util_Process::exec('/usr/sbin/named-checkzone ' . $zone . ' ' . $tmpfile);
+			$status = Util_Process_Safe::exec('/usr/sbin/named-checkzone ' . $zone . ' ' . $tmpfile);
 			unlink($tmpfile);
 			return $status['success'];
 		}
@@ -734,9 +704,9 @@
 		 *
 		 * @param string $hostname fqdn
 		 * @param string $ip       optional ip address to skip detection
-		 * @return string|bool ip address
+		 * @return string|bool ip address or false on failure
 		 */
-		public function update($hostname, $ip = null)
+		public function update(string $hostname, string $ip = null)
 		{
 			$chunk = $this->web_split_host($hostname);
 			$domain = $chunk['domain'];
@@ -748,7 +718,7 @@
 				$ip = Auth::client_ip();
 			}
 			if (false === ip2long($ip)) {
-				return error("cannot detect ip!");
+				return error('cannot detect ip!');
 			}
 			$record = $this->get_records($subdomain, 'A', $domain);
 			if (count($record) > 1) {
@@ -781,7 +751,7 @@
 		 * @param string $subdomain optional subdomain
 		 * @param string $rr        optional RR type
 		 * @param string $domain    optional domain
-		 * @return array
+		 * @return array|bool
 		 */
 		public function get_records($subdomain = '', $rr = 'any', $domain = null)
 		{
@@ -789,9 +759,9 @@
 				$domain = $this->domain;
 			}
 			if (!$this->owned_zone($domain)) {
-				return error("cannot view DNS information for unaffiliated domain `" . $domain . "'");
+				return error('cannot view DNS information for unaffiliated domain `' . $domain . "'");
 			}
-			$recs = $this->_get_records_raw($subdomain, $rr, $domain);
+			$recs = $this->get_records_raw($subdomain, $rr, $domain);
 			return (array)$recs;
 
 		}
@@ -802,22 +772,22 @@
 		 * @param string $subdomain optional subdomain
 		 * @param string $rr        optional RR type
 		 * @param string $domain    optional domain
-		 * @return array
+		 * @return array|bool records or false on failure
 		 */
-		protected function _get_records_raw($subdomain = '', $rr = 'any', $domain = null)
+		protected function get_records_raw(string $subdomain = '', string $rr = 'any', string $domain = null)
 		{
 			if ($subdomain == '@') {
 				$subdomain = '';
 				warn("record `@' alias for domain - record stripped");
 			}
 			$rr = strtolower($rr);
-			if ($rr !== "any" && !in_array($rr, static::$permitted_records)) {
+			if ($rr !== 'any' && !in_array($rr, static::$permitted_records, true)) {
 				return error("`$rr' invalid resource record type");
 			}
 			$rr = strtoupper($rr);
-			$recs = $this->_get_zone_information_raw($domain);
+			$recs = $this->get_zone_data($domain);
 			// zone error, Transfer failed, i.e. zone not provisioned
-			if (is_null($recs)) {
+			if (null === $recs) {
 				return array();
 			}
 			$domain .= '.';
@@ -828,18 +798,13 @@
 			$newrecs = array();
 			if ($rr == 'ANY') {
 				$keys = array_keys($recs);
-			} else {
-				if (!isset($recs[$rr])) {
-					return $newrecs;
-				} else {
-					$keys = array($rr);
-
-				}
+			} else if (!isset($recs[$rr])) {
+				return $newrecs;
 			}
 			foreach ($keys as $tmp) {
 				foreach ($recs[$tmp] as $rec) {
 					$rec['rr'] = $tmp;
-					if ($rec['name'] == $domain) {
+					if ($rec['name'] === $domain) {
 						$newrecs[] = $rec;
 					}
 				}
@@ -858,54 +823,68 @@
 		 *
 		 * @return bool
 		 */
-		public function add_record($zone, $subdomain, $rr, $param, $ttl = self::DNS_TTL)
+		public function add_record(string $zone, string $subdomain, string $rr, string $param, int $ttl = self::DNS_TTL): bool
 		{
 			if (!$this->owned_zone($zone)) {
-				return error($zone . " not owned by account");
+				return error('%s not owned by account', $zone);
 			}
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
+				return false;
+			}
+			/**
+			 * Implement your own!
+			 */
+			return true;
+		}
 
-			$rr = strtolower($rr);
+		/**
+		 * Fixup a DNS record before submitting
+		 *
+		 * @param string $zone
+		 * @param string $subdomain
+		 * @param string $rr
+		 * @param string $param
+		 * @param int    $ttl
+		 * @return bool
+		 */
+		protected function canonicalizeRecord(string &$zone, string &$subdomain, string &$rr, string &$param, int &$ttl): bool
+		{
 			if ($subdomain === '@') {
 				$subdomain = '';
 				warn("record `@' alias for domain - record stripped");
 			}
 
-			if ($rr == "cname" && !$subdomain) {
-				return error("CNAME record cannot coexist with zone root, see RFC 1034 section 3.6.2");
-			} else {
-				if ($rr == "ns" && !$subdomain) {
-					return error("Set nameserver records for zone root through domain registrar");
-				}
+			$rr = strtolower($rr);
+			if ($rr == 'cname' && !$subdomain) {
+				return error('CNAME record cannot coexist with zone root, see RFC 1034 section 3.6.2');
 			}
 
-			if (false !== ($pos = strpos($subdomain, " "))) {
-				return error("hostname must not contain any spaces");
+			if ($rr === 'ns' && !$subdomain) {
+				return error("Set nameserver records for zone root through domain registrar");
 			}
-			if (substr($subdomain, -strlen($zone)) == $zone) {
+
+			if (false !== strpos($subdomain, ' ')) {
+				return error("DNS record `%s' must not contain any spaces", $subdomain);
+			}
+			if (substr($subdomain, -strlen($zone)) === $zone) {
 				$subdomain = substr($subdomain, 0, -strlen($zone));
 			}
-			if (!in_array($rr, static::$permitted_records)) {
-				return error($rr . ": invalid resource record type");
+			if (!in_array($rr, static::$permitted_records, true)) {
+				return error($rr . ': invalid resource record type');
 			}
-			if ($subdomain !== $zone . ".") {
+			if ($subdomain !== $zone . '.') {
 				$subdomain = ltrim(preg_replace('/\.' . $zone . '$/', '', rtrim($subdomain, '.')) . '.' . $zone . '.',
 					'.');
 			}
-			if ($rr == "mx" && preg_match('/(\S+) ([0-9]+)$/', $param, $mx_flip)) {
+			if ($rr == 'mx' && preg_match('/(\S+) (\d+)$/', $param, $mx_flip)) {
 				// user entered MX record in reverse, e.g. mail.apisnetworks.com 10
-				$param = $mx_flip[2] . " " . $mx_flip[1];
+				$param = $mx_flip[2] . ' ' . $mx_flip[1];
 			}
-			if ($rr == "txt") {
-				$param = '"' . join('" "', str_split(trim($param, '"'), 253)) . '"';
+			if ($rr == 'txt') {
+				$param = '"' . implode('" "', str_split(trim($param, '"'), 253)) . '"';
 			}
-			// zones are defined by hostname
-			// each base host already has a NS and SOA record defined
 
-			/**
-			 * Implement your own!
-			 */
 			return true;
-
 		}
 
 		/**
@@ -918,17 +897,17 @@
 		 * @param array  $newdata new zone data (name, rr, ttl, parameter)
 		 * @return bool
 		 */
-		public function modify_record($zone, $subdomain, $rr, $parameter, array $newdata)
+		public function modify_record($zone, $subdomain, $rr, $parameter, array $newdata): bool
 		{
 			if (!$this->owned_zone($zone)) {
-				return error($zone . ": not owned by account");
+				return error($zone . ': not owned by account');
 			}
 
-			if ($subdomain == '@') {
-				$subdomain = '';
-				warn("record `@' alias for domain - record stripped");
+			$ttl = self::DNS_TTL;
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $parameter, $ttl)) {
+				return false;
 			}
-			$rr = strtolower($rr);
+
 			$newdata = array_merge(
 				array(
 					'name'      => $subdomain,
@@ -937,41 +916,9 @@
 					'parameter' => $parameter
 				),
 				$newdata);
-			$newdata['rr'] = strtolower($newdata['rr']);
-			if (!$newdata['name'] && $newdata['rr'] == 'cname') {
-				return error("CNAME record cannot coexist with zone root, see RFC 1034 section 3.6.2");
-			}
-			if (!in_array($rr, static::$permitted_records)) {
-				return error("`%s': invalid resource record type", $rr);
-			} else {
-				if (!in_array($newdata['rr'], static::$permitted_records)) {
-					return error("`%s': invalid resource record type", $newdata['rr']);
-				}
-			}
 
-			if (false !== (strpos($newdata['name'], " "))) {
-				return error("DNS record `%s' may not contain spaces", $newdata['name']);
-			}
-
-			if ($subdomain !== $zone . ".") {
-				$subdomain = ltrim(preg_replace('/\.' . $zone . '$/', '', rtrim($subdomain, '.')) . '.' . $zone . '.',
-					'.');
-			}
-
-			if ($newdata['name'] !== $zone . '.') {
-				$newdata['name'] = ltrim(preg_replace('/\.' . $zone . '$/', '',
-						rtrim($newdata['name'], '.')) . '.' . $zone . '.', '.');
-			}
-
-			if ($newdata['rr'] == "mx" && preg_match('/(\S+) ([0-9]+)$/', $newdata['parameter'], $mx_flip)) {
-				// user entered MX record in reverse, e.g. mail.apisnetworks.com 10
-				$newdata['parameter'] = $mx_flip[2] . " " . $mx_flip[1];
-			}
-			if ($newdata['rr'] == 'txt') {
-				$newdata['parameter'] = '"' . join('" "', str_split(trim($newdata['parameter'], '"'), 253)) . '"';
-			}
-			if ($rr == 'txt') {
-				$parameter = '"' . join('" "', str_split(trim($parameter, '"'), 253)) . '"';
+			if (!$this->canonicalizeRecord($zone, $newdata['name'], $newdata['parameter'], $newdata['ttl'])) {
+				return false;
 			}
 
 			$rectmp = preg_replace('/\.?' . $zone . '\.?$/', '', $newdata['name']);
@@ -979,28 +926,51 @@
 			if ($newdata['name'] !== $subdomain && $newdata['rr'] !== $rr &&
 				$this->record_exists($zone, $rectmp, $newdata['rr'], $parameter)
 			) {
-				return error("Target record `" . $newdata['name'] . "' exists");
+				return error('Target record `' . $newdata['name'] . "' exists");
 			}
-			$resp = true;
-			/**
-			 * Implement your own!
-			 */
-			if (!$resp) {
+
+			$old = [
+				'name' => $subdomain,
+				'rr' => $rr,
+				'parameter' => $parameter
+			];
+
+			if (false === ($ret = $this->atomicUpdate($zone, $old, $newdata))) {
 				// nsUpdate failed, rollback records
-				warn("record update failed");
-				return ($subdomain == $newdata['name'] && $rr == $newdata['rr'] ||
-						!$this->record_exists($zone, $subdomain, $rr, $parameter)) &&
+				warn('record update failed');
+				return ( ($subdomain === $newdata['name'] && $rr === $newdata['rr']) ||
+						!$this->record_exists($zone, $subdomain, $rr, $parameter) ) &&
 					$this->record_exists($zone, $newdata['name'], $newdata['rr'], $newdata['parameter']);
 			}
-			return true;
-
+			return (bool)$ret;
 		}
 
-		public function record_exists($zone, $subdomain, $rr = 'ANY', $parameter = null)
+		/**
+		 * Perform an atomic update of a record allowing reversion on failure
+		 *
+		 * @param string $zone
+		 * @param array $old
+		 * @param array $newdata
+		 * @return bool|null true if record succeeded false on failure null to halt reversion
+		 */
+		protected function atomicUpdate(string $zone, array $old, array $newdata): ?bool {
+			return false;
+		}
+
+		/**
+		 * DNS record exists
+		 *
+		 * @param string $zone
+		 * @param string $subdomain
+		 * @param string $rr
+		 * @param string $parameter
+		 * @return bool
+		 */
+		public function record_exists(string $zone, string $subdomain, string $rr = 'ANY', string $parameter = null): bool
 		{
 			if (!static::AUTHORITATIVE_NAMESERVER) {
 				warn("no authoritative nameserver configured - can't verify record `%s'",
-					ltrim($subdomain . '.' . $zone, ".")
+					ltrim($subdomain . '.' . $zone, '.')
 				);
 				return true;
 			}
@@ -1011,7 +981,7 @@
 
 			$record = trim($subdomain . '.' . $zone, '.');
 			$rr = strtoupper($rr);
-			if ($this->record2const($rr) < 1) {
+			if (static::record2const($rr) < 1) {
 				return error("unknown RR class `%s'", $rr);
 			}
 			$status = Util_Process::exec('dig +time=3 +tcp +short @%s %s %s',
@@ -1025,36 +995,425 @@
 			} else {
 				$parameter = str_replace("'", "\\'", preg_quote($parameter, '!'));
 			}
-			return preg_match("!" . $parameter . "!i", $status['output']);
+			return (bool)preg_match('!' . $parameter . '!i', $status['output']);
 		}
 
 		/**
-		 * Release IP into allocation pool
+		 * Remove a zone from DNS management
 		 *
-		 * @param $ip     IP address to release
-		 * @param $domain additional truthiness check before releasing IP
+		 * @param string $domain
 		 * @return bool
 		 */
-		public function release_ip($ip, $domain = null)
+		public function remove_zone(string $domain): bool
 		{
-			deprecated_func('use ipinfo_release_ip()');
-			return $this->ipinfo_release_ip($ip, $domain);
+			if (is_debug()) {
+				return info("not removing zone `%s' in debug", $domain);
+			}
+
+			return true;
 		}
 
-		/*
-		 * Check zone for errors
+
+
+		/**
+		 * Add zone to DNS server
 		 *
-		 * Additional DNS records are formatted as arguments
-		 * to add_record()-
-		 * check_zone("debug.com",["mail","a",86400,"127.0.0.1"])
+		 * @param string $domain
+		 * @param string $ip
+		 * @return bool|void
+		 */
+		public function add_zone(string $domain, string $ip): bool
+		{
+			if (!$this->configured()) {
+				return warn("cannot create DNS zone for `%s' - DNS is not configured for account", $domain);
+			}
+			return $this->query('dns_add_zone_backend', $domain, $ip);
+		}
+
+		/**
+		 * Create DNS zone privileged mode
 		 *
-		 * Hostname, RR, TTL, and parameter are required
-		 *
-		 * @param $zone zone - usually a domain
-		 * @param $recs additional DNS records used in check
-		 *
+		 * @param string $domain
+		 * @param string $ip
 		 * @return bool
 		 */
+		public function add_zone_backend(string $domain, string $ip): bool {
+			if (is_debug()) {
+				return info("not creating DNS zone for `%s' in development mode", $domain);
+			}
+
+			if (!static::MASTER_NAMESERVER) {
+				return error("rndc not configured in config.ini. Cannot add zone `%s'", $domain);
+			}
+			$buffer = Error_Reporter::flush_buffer();
+			$res = $this->get_zone_data($domain);
+
+			if (null !== $res) {
+				Error_Reporter::set_buffer($buffer);
+				warn("DNS for zone `%s' already exists, not overwriting", $domain);
+
+				return true;
+			}
+			// make sure DNS does not exist yet for the parent
+			[$a, $b] = explode('.', $domain, 2);
+			$res = $this->get_zone_data($b);
+			Error_Reporter::set_buffer($buffer);
+			if (null !== $res) {
+				warn("DNS for zone `%s' already exists, not overwriting", $b);
+
+				return true;
+			}
+
+			if (is_array($ip)) {
+				$ip = array_pop($ip);
+			}
+
+			if (inet_pton($ip) === false) {
+				return error("`%s': invalid address", $ip);
+			}
+
+			info("Added domain `%s'", $domain);
+			return true;
+		}
+
+		/**
+		 * Check whether IP is assigned
+		 *
+		 * Assigned IP addresses will have PTRs. Unassigned will be empty.
+		 *
+		 * @param $ip string ip address
+		 * @return bool
+		 */
+		public function ip_allocated($ip): bool
+		{
+			return \Opcenter\Net\IpCommon::ip_allocated($ip);
+		}
+
+
+		/**
+		 * Query hosting nameservers for DNS records of named category
+		 *
+		 * {@see get_zone_information()}
+		 *
+		 * example:
+		 * Account has two MX records assigned, first the
+		 * default MX on debug.com, and a second user-created MX on debug.debug.com.
+		 * debug.debug.com was designated an e-mail domain through Mail Routing
+		 * {@see Email_Module::add_virtual_transport()}
+		 *
+		 * apis> $c->dns_get_records_by_rr("MX");
+		 *
+		 * array(2)
+		 *    apis>
+		 *    array(2) {
+		 *      [0]=>
+		 *      array(4) {
+		 *        ["name"]=>
+		 *        string(10) "debug.com."
+		 *        ["class"]=>
+		 *        string(2) "IN"
+		 *        ["ttl"]=>
+		 *        string(5) "86400"
+		 *        ["parameter"]=>
+		 *        string(18) "10 mail.debug.com."
+		 *      }
+		 *      [1]=>
+		 *      array(4) {
+		 *        ["name"]=>
+		 *        string(16) "debug.debug.com."
+		 *        ["class"]=>
+		 *        string(2) "IN"
+		 *        ["ttl"]=>
+		 *        string(5) "86400"
+		 *        ["parameter"]=>
+		 *        string(24) "10 mail.debug.debug.com."
+		 *      }
+		 *    }
+		 *
+		 * @param  string $rr resource record [MX, A, AAAA, CNAME, DNAME, TXT, SRV]
+		 * @param  string $zone
+		 * @return array|null resource records
+		 *
+		 */
+		public function get_records_by_rr(string $rr, string $zone = null): ?array
+		{
+			if (null === $zone) {
+				$zone = $this->domain;
+			}
+
+			if (!$this->owned_zone($zone)) {
+				if (!$this->owned_zone($rr)) {
+					error('access denied - cannot view zone `' . $zone . "'");
+					return null;
+				}
+				// confusing half-assed backwards
+				// accept arguments in either form
+				$t = $rr;
+				$rr = $zone;
+				$zone = $t;
+			}
+
+			$rr = strtolower($rr);
+			if ($rr !== 'any' && !in_array($rr, static::$permitted_records, true)) {
+				error("`$rr' invalid resource record type");
+				return null;
+			}
+
+			$recs = $this->get_zone_information($zone);
+			if (!$recs) {
+				return array();
+			}
+			if ($rr == 'any') {
+				return $recs;
+			}
+			if (!isset($recs[strtoupper($rr)])) {
+				return array();
+			}
+
+			return $recs[strtoupper($rr)];
+		}
+
+		/**
+		 * array get_zone_information (string)
+		 *
+		 * Reads zone information for a given domain on the nameservers.
+		 *
+		 * @param string|null $domain domain or current domain to check
+		 * @return array
+		 */
+		public function get_zone_information(string $domain = null): ?array
+		{
+			$domain = $domain ?? $this->domain;
+
+			if (!$this->permission_level & PRIVILEGE_ADMIN && !$this->owned_zone($domain)) {
+				error('access denied - cannot view zone `' . $domain . "'");
+				return null;
+			}
+			$rec = $this->get_zone_data($domain);
+			if (null === $rec) {
+				error('Non-authorative for zone ' . $domain);
+				return null;
+			}
+			return $rec;
+
+		}
+
+		/**
+		 * Import zone data for domain, overwriting configuration on server
+		 *
+		 * @param string      $domain
+		 * @param string      $nameserver
+		 * @param string|null $key
+		 * @return bool
+		 */
+		public function import_zone(string $domain, string $nameserver, $key = null): bool
+		{
+			$myip = Util_Conf::server_ip();
+			$domain = strtolower($domain);
+			if (!preg_match(Regex::DOMAIN, $domain)) {
+				return error("invalid zone `%s' - not a domain name", $domain);
+			}
+
+			if (!preg_match(Regex::DOMAIN, $nameserver)) {
+				return error("invalid nameserver to query `%s'", $nameserver);
+			}
+
+			if ($key && false === strpos($key, ':')) {
+				return error("invalid dns key `%s', must be in format name:key", $key);
+			}
+			if ($key) {
+				$key = '-y' . $key;
+			}
+
+			$cmd = 'dig %(key)s -b%(ip)s @%(nameserver)s %(zone)s +norecurse +nocmd +nonssearch +noadditional +nocomments +nostats AXFR ';
+			$proc = Util_Process_Safe::exec($cmd, array(
+				'key'        => $key,
+				'ip'         => $myip,
+				'zone'       => $domain,
+				'nameserver' => $nameserver
+			));
+			$output = $proc['output'];
+			if (!$proc['success'] || false !== strpos($output, '; Transfer failed')) {
+				$output = $proc['stderr'] ?: $proc['output'];
+				return error('axfr failed: %s', $output);
+			}
+			// empty out old zone first
+			$nrecs = 0;
+			$zoneinfo = $this->get_zone_information($domain);
+			if (false === $zoneinfo) {
+				return error('unable to get old zone information - is this domain added to your account?');
+			}
+			foreach ($zoneinfo as $rr => $recs) {
+				foreach ($recs as $rec) {
+					$tmp = strtoupper($rr);
+					// skip SOA + apex record
+					if ($tmp === 'SOA' || ($tmp === 'NS' && !$rec['subdomain'])) {
+						continue;
+					}
+					if (!$this->remove_record($domain, $rec['subdomain'], $rr, $rec['parameter'])) {
+						warn('failed to purge record `%s` %s %s %s',
+							$rec['name'],
+							$rr,
+							$rec['ttl'],
+							$rec['parameter']
+						);
+						continue;
+					}
+					$nrecs++;
+				}
+			}
+			info('purged %d old records', $nrecs);
+			$nrecs = 0;
+			$regex = Regex::compile(Regex::DNS_AXFR_REC_DOMAIN, str_replace('.', "\\.", $domain));
+			foreach (explode("\n", $output) as $line) {
+
+				if ('' === $line || $line[0] == ';') {
+					continue;
+				}
+				if (!preg_match($regex, $line, $rec)) {
+					continue;
+				}
+				$tmp = strtoupper($rec['rr']);
+				// skip SOA + apex record
+				if ($tmp === 'SOA' || ($tmp === 'NS' && !$rec['subdomain']) || $rec['class'] !== 'IN') {
+					continue;
+				}
+				$subdomain = trim($rec['subdomain'], '.');
+				if (!$this->add_record($domain, $subdomain, $rec['rr'], $rec['parameter'], $rec['ttl'])) {
+					warn('failed to add record `%s` -> `%s` (RR: %s, TTL: %s)',
+						$subdomain,
+						$rec['parameter'],
+						$rec['rr'],
+						$rec['ttl']
+					);
+					continue;
+				}
+				$nrecs++;
+			}
+
+			info('imported %d records', $nrecs);
+			return true;
+		}
+
+		/**
+		 * bool remove_record (string, string)
+		 * Removes a record from a zone.
+		 *
+		 * @param  string $zone      base domain
+		 * @param  string $subdomain subdomain, leave blank for base domain
+		 * @param  string $rr        resource record type, possible values:
+		 *                           [MX, TXT, A, AAAA, NS, CNAME, DNAME, SRV]
+		 * @param  string $param     record context
+		 * @return bool operation completed successfully or not
+		 *
+		 */
+		public function remove_record($zone, $subdomain, $rr, $param = null): bool
+		{
+			$subdomain = rtrim($subdomain, '.');
+			if (!$zone) {
+				$zone = $this->domain;
+			}
+			if (!$this->owned_zone($zone)) {
+				return error($zone . ': not owned by account');
+			}
+			$ttl = self::DNS_TTL;
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
+				return false;
+			}
+			// only supply parameter if parameter is provided
+			if ($rr == 'txt' && $param) {
+				$param = '"' . implode('" "', str_split(trim($param, '"'), 253)) . '"';
+				if ($param[0] !== '"' && $param[strlen($param) - 1] !== '"') {
+					$param = '"' . str_replace('"', '\\"', $param) . '"';
+				}
+			}
+
+			/**
+			 * Now purge the record
+			 */
+
+			return true;
+		}
+
+		/**
+		 * Get all zone records parsed
+		 *
+		 * @param string $domain
+		 * @return array|null
+		 */
+		protected function get_zone_data(string $domain): ?array
+		{
+			if (null === ($data = $this->zone_axfr($domain))) {
+				return [];
+			}
+
+			$zoneData = array();
+			$offset = strlen($domain) + 1; // domain.com.
+			foreach (explode("\n", $data) as $line) {
+				if (false !== strpos($line, 'Transfer failed.')) {
+					return null;
+				}
+				if (!preg_match(Regex::DNS_AXFR_REC, $line, $match)) {
+					continue;
+				}
+				[$name, $ttl, $class, $rr, $parameter] = array_slice($match, 1);
+				$rr = strtoupper($rr);
+				// TXT records should always be balanced with quotes
+				// assume this to be the case if " present
+				// don't pretty-print if more than 1 quote pair present
+				if ($rr == 'TXT' && $parameter[0] == '"') {
+					if (strpos($parameter, '"', 1) === strlen($parameter) - 1) {
+						// parameter formatted as "foobar"
+						$parameter = substr($parameter, 1, -1);
+					} else if (preg_match(Regex::DNS_TXT_PRETTY_PRINT, $parameter)) {
+						// balanced quotes, no spaces within quotes, e.g.
+						// "v=spf1" "ip4:64.22.68.1/24" "mx" "-all"
+						$parameter = str_replace('"', '', $parameter);
+					}
+				}
+				$zoneData[$rr][] = array(
+					'name'      => $name,
+					'subdomain' => rtrim(substr($name, 0, strlen($name) - $offset), '.'),
+					'domain'    => $domain,
+					'class'     => $class,
+					'ttl'       => $ttl,
+					'parameter' => $parameter
+				);
+			}
+
+			return $zoneData;
+		}
+
+		/**
+		 * Perform a full zone transfer
+		 *
+		 * @param string $domain
+		 * @return null|string
+		 */
+		protected function zone_axfr($domain): ?string
+		{
+			if (!static::MASTER_NAMESERVER) {
+				error("Cannot fetch zone information for `%s': no master nameserver configured in config.ini",
+					$domain);
+
+				return null;
+			}
+			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
+				$this->getKey($domain), static::MASTER_NAMESERVER, $domain, [-1, 0]);
+
+			return $data['success'] ? $data['output'] : null;
+		}
+
+		/**
+		 * Get AXFR key for domain
+		 *
+		 * @param string $domain
+		 * @return null|string
+		 */
+		private function getKey(string $domain): ?string
+		{
+			return static::$dns_key;
+		}
 
 		/**
 		 * Release PTR assignment from an IP
@@ -1063,7 +1422,33 @@
 		 * @param string $domain confirm PTR rDNS matches domain
 		 * @return bool
 		 */
-		protected function __deleteIP($ip, $domain = null)
+		protected function __deleteIP(string $ip, string $domain = null): bool
+		{
+			// @todo move to ipinfo
+			return true;
+		}
+
+		/**
+		 * Add an IP address to hosting
+		 *
+		 * @param string $ip
+		 * @param string $hostname
+		 * @return bool
+		 */
+		protected function __addIP(string $ip, string $hostname = ''): bool
+		{
+			return true;
+		}
+
+		/**
+		 * Change PTR name
+		 *
+		 * @param string $ip       IP address to alter
+		 * @param string $hostname new PTR name
+		 * @param string $chk      optional check hostname to verify
+		 * @return bool
+		 */
+		protected function __changePTR(string $ip, string $hostname, string $chk = ''): bool
 		{
 			return true;
 		}
@@ -1092,19 +1477,6 @@
 			}
 		}
 
-		/**
-		 * Remove a zone from DNS management
-		 *
-		 * @param string $domain
-		 * @return bool
-		 */
-		public function remove_zone($domain)
-		{
-			if (is_debug()) {
-				return info("not removing zone `%s' in debug", $domain);
-			}
-			return true;
-		}
 
 		public function _create()
 		{
@@ -1119,79 +1491,6 @@
 			if (!$ipinfo['namebased']) {
 				$this->__addIP($ip[0], $siteinfo['domain']);
 			}
-		}
-
-		/**
-		 * @param string $domain
-		 * @param string $ip
-		 * @return bool|void
-		 */
-		public function add_zone($domain, $ip)
-		{
-			if (!$this->configured()) {
-				return warn("cannot create DNS zone for `%s' - DNS is not configured for account", $domain);
-			}
-			return $this->query('dns_add_zone_backend', $domain, $ip);
-		}
-
-		/**
-		 * Create DNS zone privileged mode
-		 *
-		 * @param string $domain
-		 * @param string $ip
-		 * @return bool
-		 */
-		public function add_zone_backend(string $domain, string $ip): bool {
-			if (is_debug()) {
-				return info("not creating DNS zone for `%s' in development mode", $domain);
-			} else if (!static::MASTER_NAMESERVER) {
-				return error("rndc not configured in config.ini. Cannot add zone `%s'", $domain);
-			}
-			$buffer = Error_Reporter::flush_buffer();
-			$res = $this->_get_zone_information_raw($domain);
-
-			if (!is_null($res)) {
-				Error_Reporter::set_buffer($buffer);
-				warn("DNS for zone `%s' already exists, not overwriting", $domain);
-
-				return true;
-			}
-			// make sure DNS does not exist yet for the parent
-			list($a, $b) = explode(".", $domain, 2);
-			$res = $this->_get_zone_information_raw($b);
-			Error_Reporter::set_buffer($buffer);
-			if (!is_null($res)) {
-				warn("DNS for zone `%s' already exists, not overwriting", $b);
-
-				return true;
-			}
-
-			if (is_array($ip)) {
-				$ip = array_pop($ip);
-			}
-
-			if (inet_pton($ip) === false) {
-				return error("`%s': invalid address", $ip);
-			}
-
-			info("Added domain `%s'", $domain);
-
-			/**
-			 * Now actually add the domain...
-			 */
-			return true;
-		}
-
-		/**
-		 * Add an IP address to hosting
-		 *
-		 * @param string $ip
-		 * @param string $hostname
-		 * @return bool
-		 */
-		protected function __addIP($ip, $hostname = '')
-		{
-			return true;
 		}
 
 		public function _edit()
@@ -1246,11 +1545,9 @@
 			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// added ip-based hosting
 				$ipdel = $conf_old['nbaddrs'];
-			} else {
-				if (!$conf_old['namebased'] && $conf_new['namebased']) {
-					// removed ip-based hosting
-					$ipadd = $conf_new['nbaddrs'];
-				}
+			} else if (!$conf_old['namebased'] && $conf_new['namebased']) {
+				// removed ip-based hosting
+				$ipadd = $conf_new['nbaddrs'];
 			}
 			// change DNS
 			// there will always be a 1:1 pairing for IP addresses
@@ -1265,10 +1562,10 @@
 						}
 						if (!$this->dns_modify_record($r['domain'], $r['subdomain'], 'A', $oldip, $newparams)) {
 							$frag = ltrim($r['subdomain'] . ' . ' . $r['domain'], '.');
-							error("failed to modify record for `" . $frag . "'");
+							error('failed to modify record for `' . $frag . "'");
 						} else {
 							$pieces = array($r['subdomain'], $r['domain']);
-							$host = trim(join(".", $pieces), ".");
+							$host = trim(implode('.', $pieces), '.');
 							info("modified `%s'", $host);
 						}
 					}
@@ -1276,314 +1573,6 @@
 			}
 
 			return;
-		}
-
-		/**
-		 * Check whether IP is assigned
-		 *
-		 * Assigned IP addresses will have PTRs. Unassigned will be empty.
-		 *
-		 * @param $ip string ip address
-		 * @return bool
-		 */
-		public function ip_allocated($ip)
-		{
-			return \Opcenter\Net\Common::ip_allocated($ip);
-		}
-
-		/**
-		 * Change PTR name
-		 *
-		 * @param        $ip       IP address to alter
-		 * @param        $hostname new PTR name
-		 * @param string $chk      optional check hostname to verify
-		 * @return bool
-		 */
-		protected function __changePTR($ip, $hostname, $chk = '')
-		{
-			return true;
-		}
-
-		/**
-		 * Query hosting nameservers for DNS records of named category
-		 *
-		 * {@see get_zone_information()}
-		 *
-		 * example:
-		 * Account has two MX records assigned, first the
-		 * default MX on debug.com, and a second user-created MX on debug.debug.com.
-		 * debug.debug.com was designated an e-mail domain through Mail Routing
-		 * {@see Email_Module::add_virtual_transport()}
-		 *
-		 * apis> $c->dns_get_records_by_rr("MX");
-		 *
-		 * array(2)
-		 *    apis>
-		 *    array(2) {
-		 *      [0]=>
-		 *      array(4) {
-		 *        ["name"]=>
-		 *        string(10) "debug.com."
-		 *        ["class"]=>
-		 *        string(2) "IN"
-		 *        ["ttl"]=>
-		 *        string(5) "86400"
-		 *        ["parameter"]=>
-		 *        string(18) "10 mail.debug.com."
-		 *      }
-		 *      [1]=>
-		 *      array(4) {
-		 *        ["name"]=>
-		 *        string(16) "debug.debug.com."
-		 *        ["class"]=>
-		 *        string(2) "IN"
-		 *        ["ttl"]=>
-		 *        string(5) "86400"
-		 *        ["parameter"]=>
-		 *        string(24) "10 mail.debug.debug.com."
-		 *      }
-		 *    }
-		 *
-		 * @param  string $rr resource record [MX, A, AAAA, CNAME, DNAME, TXT, SRV]
-		 * @param  string $zone
-		 * @return array|null resource records
-		 *
-		 */
-		public function get_records_by_rr(string $rr, string $zone = null): ?array
-		{
-			if (is_null($zone)) {
-				$zone = $this->domain;
-			}
-
-			if (!$this->owned_zone($zone)) {
-				if (!$this->owned_zone($rr)) {
-					error("access denied - cannot view zone `" . $zone . "'");
-					return null;
-				}
-				// confusing half-assed backwards
-				// accept arguments in either form
-				$t = $rr;
-				$rr = $zone;
-				$zone = $t;
-			}
-
-			$rr = strtolower($rr);
-			if ($rr !== 'any' && !in_array($rr, static::$permitted_records)) {
-				error("`$rr' invalid resource record type");
-				return null;
-			}
-
-			$recs = $this->get_zone_information($zone);
-			if (!$recs) {
-				return array();
-			}
-			if ($rr == 'any') {
-				return $recs;
-			}
-			if (!isset($recs[strtoupper($rr)])) {
-				return array();
-			}
-
-			return $recs[strtoupper($rr)];
-		}
-
-		/**
-		 * array get_zone_information (string)
-		 *
-		 * Reads zone information for a given domain on the nameservers.
-		 *
-		 * @param string|null $domain domain or current domain to check
-		 * @return array
-		 */
-		public function get_zone_information($domain = null): ?array
-		{
-			if (is_null($domain)) {
-				$domain = $this->domain;
-			}
-
-			if (!$this->permission_level & (PRIVILEGE_ADMIN) && !$this->owned_zone($domain)) {
-				error("access denied - cannot view zone `" . $domain . "'");
-				return null;
-			}
-			$rec = $this->_get_zone_information_raw($domain);
-			if (is_null($rec)) {
-				error("Non-authorative for zone " . $domain);
-				return null;
-			}
-			return $rec;
-
-		}
-
-		/**
-		 * Import zone data for domain, overwriting configuration on server
-		 *
-		 * @param string      $domain
-		 * @param string      $nameserver
-		 * @param string|null $key
-		 * @return bool
-		 */
-		public function import_zone($domain, $nameserver, $key = null)
-		{
-			$myip = Util_Conf::server_ip();
-			$domain = strtolower($domain);
-			if (!preg_match(Regex::DOMAIN, $domain)) {
-				return error("invalid zone `%s' - not a domain name", $domain);
-			} else {
-				if (!preg_match(Regex::DOMAIN, $nameserver)) {
-					return error("invalid nameserver to query `%s'", $nameserver);
-				} else {
-					if ($key && false === strpos($key, ':')) {
-						return error("invalid dns key `%s', must be in format name:key", $key);
-					}
-				}
-			}
-			if ($key) {
-				$key = '-y' . $key;
-			}
-
-			$cmd = 'dig %(key)s -b%(ip)s @%(nameserver)s %(zone)s +norecurse +nocmd +nonssearch +noadditional +nocomments +nostats AXFR ';
-			$proc = Util_Process_Safe::exec($cmd, array(
-				'key'        => $key,
-				'ip'         => $myip,
-				'zone'       => $domain,
-				'nameserver' => $nameserver
-			));
-			$output = $proc['output'];
-			if (!$proc['success'] || false !== strpos($output, "; Transfer failed")) {
-				$output = $proc['stderr'] ? $proc['stderr'] : $proc['output'];
-				return error("axfr failed: %s", $output);
-			}
-			// empty out old zone first
-			$nrecs = 0;
-			$zoneinfo = $this->get_zone_information($domain);
-			if (false === $zoneinfo) {
-				return error("unable to get old zone information - is this domain added to your account?");
-			}
-			foreach ($zoneinfo as $rr => $recs) {
-				foreach ($recs as $rec) {
-					$tmp = strtoupper($rr);
-					// skip SOA + apex record
-					if ($tmp === 'SOA' || $tmp === 'NS' && !$rec['subdomain']) {
-						continue;
-					}
-					if (!$this->remove_record($domain, $rec['subdomain'], $rr, $rec['parameter'])) {
-						warn("failed to purge record `%s` %s %s %s",
-							$rec['name'],
-							$rr,
-							$rec['ttl'],
-							$rec['parameter']
-						);
-						continue;
-					}
-					$nrecs++;
-				}
-			}
-			info("purged %d old records", $nrecs);
-			$nrecs = 0;
-			$regex = Regex::compile(Regex::DNS_AXFR_REC_DOMAIN, str_replace(".", "\\.", $domain));
-			foreach (explode("\n", $output) as $line) {
-
-				if ('' === $line || $line[0] == ';') {
-					continue;
-				}
-				if (!preg_match($regex, $line, $rec)) {
-					continue;
-				}
-				$tmp = strtoupper($rec['rr']);
-				// skip SOA + apex record
-				if ($tmp === 'SOA' || $tmp === 'NS' && !$rec['subdomain'] || $rec['class'] !== 'IN') {
-					continue;
-				}
-				$subdomain = trim($rec['subdomain'], '.');
-				if (!$this->add_record($domain, $subdomain, $rec['rr'], $rec['parameter'], $rec['ttl'])) {
-					warn("failed to add record `%s` -> `%s` (RR: %s, TTL: %s)",
-						$subdomain,
-						$rec['parameter'],
-						$rec['rr'],
-						$rec['ttl']
-					);
-					continue;
-				}
-				$nrecs++;
-			}
-
-			info("imported %d records", $nrecs);
-			return true;
-		}
-
-		/**
-		 * bool remove_record (string, string)
-		 * Removes a record from a zone.
-		 *
-		 * @param  string $zone      base domain
-		 * @param  string $subdomain subdomain, leave blank for base domain
-		 * @param  string $rr        resource record type, possible values:
-		 *                           [MX, TXT, A, AAAA, NS, CNAME, DNAME, SRV]
-		 * @param  string $param     record context
-		 * @return bool operation completed successfully or not
-		 *
-		 */
-		public function remove_record($zone, $subdomain, $rr, $param = null)
-		{
-			$subdomain = rtrim($subdomain, '.');
-			if (!$zone) {
-				$zone = $this->domain;
-			}
-			if (!$this->owned_zone($zone)) {
-				return error($zone . ": not owned by account");
-			}
-			$rr = strtolower($rr);
-			if ($subdomain == '@') {
-				$subdomain = '';
-				warn("record `@' alias for domain - record stripped");
-			}
-
-			if (substr($subdomain, -strlen($zone)) == $zone) {
-				$subdomain = substr($subdomain, 0, -strlen($zone));
-			}
-			if (!in_array($rr, static::$permitted_records)) {
-				return error("`$rr' invalid resource record type");
-			}
-			$record = rtrim($subdomain, ".");
-			if ($record !== $zone) {
-				$record = trim(preg_replace('/\.' . $zone . '$/', '', $record) . '.' . $zone, '.') . '.';
-			}
-			// only supply parameter if parameter is provided
-			if ($rr == 'txt' && $param) {
-				$param = '"' . join('" "', str_split(trim($param, '"'), 253)) . '"';
-				if ($param[0] !== '"' && $param[strlen($param) - 1] !== '"') {
-					$param = '"' . str_replace('"', '\\"', $param) . '"';
-				}
-			}
-
-			/**
-			 * Now purge the record
-			 */
-
-			return true;
-		}
-
-		/**
-		 * Reverse an IP address
-		 */
-		protected function __reverseIP($ip)
-		{
-			$ip = explode('.', $ip);
-			return join('.', array_reverse($ip));
-		}
-
-		public function configured(): bool
-		{
-			return \get_class($this) !== self::class;
-		}
-		/**
-		 * Get interface names to use with hosting
-		 *
-		 * @return bool|string
-		 */
-		protected function _getInterface()
-		{
-			return \Opcenter\Net\Iface::interfaces();
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

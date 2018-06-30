@@ -70,7 +70,6 @@
 			if (!$docroot) {
 				return error("failed to detect document root for `%s'", $hostname);
 			}
-
 			if (!parent::checkDocroot($docroot)) {
 				return false;
 			}
@@ -79,36 +78,23 @@
 				return false;
 			}
 
-			$version = null;
-			if (isset($opts['version'])) {
-				$version = $opts['version'];
-			}
-
 			if (!isset($opts['autoupdate'])) {
 				$opts['autoupdate'] = true;
 			}
 
-			$squash = array_get($opts, 'squash', false);
-			if ($squash && $this->permission_level & PRIVILEGE_USER) {
-				warn('must squash privileges as secondary user');
-				$squash = true;
-			}
-			$opts['squash'] = $squash;
+			parent::prepareSquash($opts);
 
-			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
-				return error("invalid email address `%s' specified", $opts['email']);
+			if (!parent::checkEmail($opts)) {
+				return false;
 			}
-			$opts['email'] = $this->get_config('siteinfo', 'email');
 
-			$args = array('mode' => 'download');
-			if (null !== $version) {
-				if (strcspn($version, '.0123456789')) {
-					return error('invalid version number, %s', $version);
-				}
-				$args['version'] = '--version=' . $version;
-			} else {
-				$args['version'] = null;
+			if (!parent::checkVersion($opts)) {
+				return false;
 			}
+			$args = [
+				'mode' => 'download',
+				'version' => $opts['version']
+			];
 
 			if (!empty($opts['user'])) {
 				if (!$this->user_exists($opts['user'])) {
@@ -123,16 +109,14 @@
 
 			// ensure the docroot is owned by the target uid to permit installation
 			// correct it at the end
-			if (!$squash) {
+			if (!$opts['squash']) {
 				$this->file_chown($docroot, $this->user_id);
 			}
-			$ret = $this->_exec($docroot, 'core %(mode)s %(version)s', $args);
+			$ret = $this->_exec($docroot, 'core %(mode)s --version=%(version)s', $args);
 
 			if (!$ret['success']) {
-				$vertmp = $version ?? 'LATEST';
-
 				return error("failed to download WP version `%s', error: %s",
-					$vertmp,
+					$opts['version'],
 					coalesce($ret['stdout'], $ret['stderr'])
 				);
 			}
@@ -196,15 +180,12 @@
 			}
 			// by default, let's only open up ACLs to the bare minimum
 
-			if (!$version) {
-				$version = $this->_getLastestVersion();
-			}
 			$params = array(
-				'version'    => $version,
+				'version'    => $this->get_version($hostname, $path),
 				'hostname'   => $hostname,
 				'path'       => $path,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'options'    => $opts
+				'options'    => array_except($opts, 'version')
 			);
 			if (!file_exists($this->domain_fs_path() . "/${docroot}/.htaccess")) {
 				$template = '<IfModule mod_rewrite.c>' . "\n" .
@@ -217,7 +198,7 @@
 					'</IfModule>' . "\n";
 				$this->file_put_file_contents("${docroot}/.htaccess", $template);
 			}
-			$this->_map('add', $docroot, $params);
+			$this->map('add', $docroot, $params);
 			$this->fortify($hostname, $path, 'max');
 
 			if (array_get($opts, 'notify', true)) {
@@ -1071,6 +1052,12 @@
 			}
 			$versions = json_decode($contents, true);
 			$versions = $versions['offers'];
+			if (isset($versions[1]['version'], $versions[0]['version'])
+				&& $versions[0]['version'] === $versions[1]['version'])
+			{
+				// WordPress sends most current + version tree
+				array_shift($versions);
+			}
 			$cache->set($key, $versions, 43200);
 
 			return $versions;

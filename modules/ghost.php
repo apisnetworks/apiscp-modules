@@ -21,60 +21,96 @@
 	 */
 	class Ghost_Module extends \Module\Support\Webapps
 	{
-		const APP_NAME = "Ghost";
-		const GHOST_CLI = '../artisan';
-		protected $_aclList = [];
+		const APP_NAME = 'Ghost';
+		const GHOST_CLI = 'ghost';
 		const DEFAULT_VERSION_LOCK = 'major';
-		private $_versionCache = array();
-
-		/**
-		 * void __construct(void)
-		 *
-		 * @ignore
-		 */
-		public function __construct()
-		{
-
-			parent::__construct();
-		}
+		const VERSION_CHECK_URL = 'https://api.github.com/repos/TryGhost/Ghost/releases?per_page=1000';
 
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
 		{
-			return false;
+			return error('not supported');
 		}
 
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
 		{
-			return false;
+			return error('not supported');
 		}
 
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
-			return false;
-		}
-
-		public function get_versions(): array
-		{
-			return [];
+			return error('not supported');
 		}
 
 		/**
-		 * Install Laravel into a pre-existing location
+		 * Get all available Ghost versions
+		 *
+		 * @return array
+		 */
+		public function get_versions(): array
+		{
+			$versions = $this->_getVersions();
+			return array_column($versions, 'version');
+		}
+
+		/**
+		 * Get next Ghost version
+		 *
+		 * @param string $version
+		 * @param string $maximalbranch
+		 * @return null|string
+		 */
+		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
+		{
+			return parent::next_version($version, $maximalbranch);
+		}
+
+		/**
+		 * Reconfigure a Ghost instance
+		 *
+		 * @param            $field
+		 * @param string     $attribute
+		 * @param array      $new
+		 * @param array|null $old
+		 */
+		public function reconfigure(string $field, string $attribute, array $new, array $old = null)
+		{
+
+			// ghost config url <newurl>
+		}
+
+		public function get_configuration($field)
+		{
+
+		}
+
+		/**
+		 * Install Ghost into a pre-existing location
 		 *
 		 * @param string $hostname domain or subdomain to install Laravel
 		 * @param string $path     optional path under hostname
 		 * @param array  $opts     additional install options
+		 * @return bool
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			$ret = Util_Process_Sudo::exec('composer global require "laravel/installer"');
-			if (!$ret['success']) {
-				return error("failed to install laravel installer via composer: `%s'",
-					coalesce($ret['stderr'], $ret['stdout'])
-				);
+			if (!platform_is('6.5')) {
+				return error('Ghost requires at least a v6.5 platform');
 			}
-			var_dump($ret);
-			$docroot = $this->getAppRoot($hostname, $path);
+			if (!$this->ssh_enabled()) {
+				return error('Ghost requires ssh service to be enabled');
+			}
+			// assume all Ghost installs will be located in a parent directory
+			// once installed, relink the domain/subdomain to $docroot + /public
+			// also block installing under a path, because this would require either relocating
+			// Ghost outside any document root, e.g. /var/www/<hostname>-<path>-ghost and making
+			// a symlink, which fails once the parent document root moves (must use relative symlinks)
+			// and clutters up wherever they get located... no sound solution
+			if ($path) {
+				return error('Ghost may only be installed directly on a subdomain or domain without a child path, e.g. https://domain.com but not https://domain.com/ghost');
+			}
+
+			$this->validateNode();
+			$docroot = $this->getDocumentRoot($hostname, $path);
 			if (!$docroot) {
 				return error("failed to normalize path for `%s'", $hostname);
 			}
@@ -83,88 +119,80 @@
 				return false;
 			}
 
-			if (isset($opts['version'])) {
-				$version = $opts['version'];
-			} else {
-				$version = null;
+			if (!empty($opts['ssl']) && !parent::configureSsl($hostname)) {
+				return false;
 			}
+
+			if (!parent::checkVersion($opts)) {
+				return false;
+			}
+
+			$args['version'] = $opts['version'];
+			parent::prepareSquash($opts);
 
 			if (!isset($opts['autoupdate'])) {
 				$opts['autoupdate'] = true;
 			}
 
-			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
-				return error("invalid email address `%s' specified", $opts['email']);
-			} else {
-				$opts['email'] = $this->get_config('siteinfo', 'email');
+			if (!parent::checkEmail($opts)) {
+				return false;
 			}
 
-			$args = array('mode' => 'download');
-			if (!is_null($version)) {
-				if (strcspn($version, ".0123456789")) {
-					return error("invalid version number, %s", $version);
-				}
-				$args['version'] = '--version=' . $version;
-			} else {
-				$args['version'] = null;
-			}
-
-			$ret = $this->_exec($docroot, 'core %(mode)s %(version)s', $args);
-
-			if (!$ret['success']) {
-				$vertmp = $version ? $version : 'LATEST';
-				return error("failed to download WP version `%s', error: %s",
-					$vertmp,
-					$ret['stderr']
-				);
-			}
 			$db = $this->_suggestDB($hostname);
 			if (!$db) {
 				return false;
 			}
 
-			$dbuser = $this->_suggestUser($db);
+			$dbuser = $this->_suggestUser($db, '127.0.0.1');
 			if (!$dbuser) {
 				return false;
 			}
 			$dbpass = $this->suggestPassword();
-			$credentials = array(
-				'db'       => $db,
-				'user'     => $dbuser,
-				'password' => $dbpass
-			);
+			$args['dbname'] =  $db;
+			$args['dbuser'] = $dbuser;
+			$args['dbpassword'] = $dbpass;
 
 			if (!$this->sql_create_mysql_database($db)) {
 				return error("failed to create suggested db `%s'", $db);
-			} else {
-				if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-					$this->sql_delete_mysql_database($db);
-					return error("failed to create suggested user `%s'", $dbuser);
-				} else {
-					if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db,
-						array('read' => true, 'write' => true))
-					) {
-						$this->sql_delete_mysql_user($dbuser, 'localhost');
-						$this->sql_delete_mysql_database($db);
-						return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-					}
-				}
 			}
+			// ??? wtf Ghost!
+			if (!$this->sql_add_mysql_user($dbuser, '127.0.0.1', $dbpass, 10)) {
+				$this->sql_delete_mysql_database($db);
+				return error("failed to create suggested user `%s'", $dbuser);
+			}
+			if (!$this->sql_set_mysql_privileges($dbuser, '127.0.0.1', $db,
+					array('read' => true, 'write' => true)))
+			{
+				$this->sql_delete_mysql_user($dbuser, '127.0.0.1');
+				$this->sql_delete_mysql_database($db);
+				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
+			}
+
 			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
 				info("added database backup task for `%s'", $db);
 			}
 
-			if (!$this->_generateNewConfig($hostname, $docroot, $credentials)) {
-				info("removing temporary files");
+			$fqdn = $this->web_normalize_hostname($hostname);
+			$args['uri'] = rtrim($fqdn . '/' . $path, '/');
+			$args['proto'] = empty($opts['ssl']) ? 'http://' : 'https://';
+			// use localhost.localdomain, which is an alias to 127.0.0.1;
+			// ghost looks for "mysqld" if dbhost is localhost or 127.0.0.1;
+			// this isn't present in a synthetic root
+			$ret = $this->_exec($docroot,
+				'nvm exec --silent --lts ghost install --process=local --no-prompt --no-stack --no-start --no-color --db=mysql --dbhost=localhost.localdomain --dbuser=%(dbuser)s --dbpass=%(dbpassword)s ' .
+				'--dbname=%(dbname)s --no-setup-linux-user --no-setup-nginx --version=%(version)s --url=%(proto)s%(uri)s --mail=sendmail',
+				$args);
+
+			if (!$ret['success']) {
+				info('removing temporary files');
 				$this->file_delete($docroot, true);
 				$this->sql_delete_mysql_database($db);
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				return false;
+				$this->sql_delete_mysql_user($dbuser, '127.0.0.1');
+				return error('failed to download Ghost v%s: %s', $args['version'], $ret['stderr']);
 			}
 
-			if (!isset($opts['title'])) {
-				$opts['title'] = "A Random Blog for a Random Reason";
-			}
+			$this->node_make_default('lts/*', $docroot);
+
 			$autogenpw = false;
 			if (!isset($opts['password'])) {
 				$autogenpw = true;
@@ -172,105 +200,159 @@
 				info("autogenerated password `%s'", $opts['password']);
 			}
 
-			if (!isset($opts['user'])) {
-				$opts['user'] = $this->username;
-				info("setting admin user to `%s'", $this->username);
-			}
+			$username = $this->user_getpwnam($opts['user']  ?? $this->username)['gecos'] ?: $this->username;
+			info("setting displayed name to `%s'", $username);
 			$opts['url'] = rtrim($hostname . '/' . $path, '/');
 
-			$args = array(
-				'email'    => $opts['email'],
-				'mode'     => 'install',
-				'url'      => $opts['url'],
-				'title'    => $opts['title'],
-				'user'     => $opts['user'],
-				'password' => $opts['password']
-			);
-
-			$ret = $this->_exec($docroot, 'core %(mode)s --admin_email=%(email)s --skip-email ' .
-				'--url=%(url)s --title=%(title)s --admin_user=%(user)s ' .
-				'--admin_password=%(password)s', $args);
-			if (!$ret['success']) {
-				return error("failed to create database structure: %s", $ret['stderr']);
+			foreach (['tmp', 'public', 'logs'] as $dir) {
+				$this->file_create_directory("${docroot}/${dir}") || warn("failed to create application directory `%s/%s'", $docroot, $dir);
 			}
-			// by default, let's only open up ACLs to the bare minimum
 
-			$files = array_map(function ($f) use ($docroot) {
-				return $docroot . '/' . $f;
-			}, $this->_aclList['min']);
-			$this->file_touch($docroot . '/.htaccess');
+			if (!$this->file_put_file_contents($docroot . '/public/.htaccess',
+				'PassengerEnabled on' . "\n" .
+				'PassengerStartupFile current/index.js' . "\n" .
+				'PassengerAppType node' . "\n" .
+				'PassengerNodejs ' . $this->getNodeCommand() . "\n" .
+				'PassengerAppRoot ' . $this->domain_fs_path($docroot) . "\n"
+			)) {
+				return error('failed to create .htaccess control - Ghost is not properly setup');
+			}
 
-			$users = array(
-				array(Web_Module::WEB_USERNAME => 7),
-				array($this->username => 'drwx'),
-				array(Web_Module::WEB_USERNAME => 'drwx'),
-			);
-			if (!$this->file_set_acls($files, $users, array(File_Module::ACL_MODE_RECURSIVE => true))) {
-				warn("failed to set ACLs on `%s/wp-content/'", $docroot);
-			}
-			$this->file_set_acls(array($docroot . '/'), $users);
-			if (!$version) {
-				$version = $this->_getLastestVersion();
-			}
 			$params = array(
-				'version'    => $version,
+				'version'    => $this->get_version($hostname, $path),
 				'hostname'   => $hostname,
+				'path'       => $path,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'fortify'    => 'min'
+				'options'    => array_except($opts, 'version')
 			);
-			$this->_map('add', $docroot, $params);
-			if (false === strpos($hostname, ".")) {
-				$hostname = $hostname . '.' . $this->domain;
+			$approot = $docroot;
+			if (!$this->fixSymlink($docroot)) {
+				return error('Failed to correct current/ symlink');
 			}
-			$url = 'http://' . $hostname . '/' . $path;
-			$msg = "Hello!" . "\r\n" .
-				"This is a confirmation that Laravel has been installed under " . $docroot .
-				". You may access Laravel via " . $url . ". Access the administrative " .
-				"panel at " . rtrim($url, "/") . '/wp-admin' . " using the following details:" . "\r\n\r\n" .
-				"Username: " . $opts['user'] . "\r\n" .
-				($autogenpw ? "Password: " . $opts['password'] . "\r\n" : '');
-			$msg .= "\r\nWhen installing plugins or themes, you will need to use your " .
-				"control panel password!";
-			$hdrs = "From: " . Crm_Module::FROM_NAME . " <" . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
-			Mail::send($opts['email'], "Wordpress Installed", $msg, $hdrs);
-			info("Laravel installed - confirmation email with login info sent to %s", $opts['email']);
-			return true;
+			if (null === ($docroot = $this->remapPublic($hostname, $path))) {
+				$docroot = $this->getDocumentRoot($hostname, $path);
+				// it's more reasonable to fail at this stage, but let's try to complete
+				$approot = $docroot;
+				warn("Failed to remap Ghost to public/, manually remap from `%s'", $docroot);
+			}
+			$this->map('add', $docroot, $params);
+			$this->linkConfiguration($approot, 'production');
+			
+			// @todo migrate cache management to reconfigure method
+			$config = [
+				'useMinFiles' => 'true',
+				'caching.frontend.maxAge' => 120,
+				'logging.rotation.enabled' => 'true',
+				// frontend caches + leave 5 for update/admin
+				'database.pool.max' => 5,
+				'paths.contentPath' => "${approot}/content"
+			];
+			foreach ($config as $c => $v) {
+				$ret = $this->_exec($approot, 'ghost config set %(c)s %(v)s', ['c' => $c, 'v' => $v]);
+				if (!$ret['success']) {
+					return error("Failed to set configuration `%s': %s", $c, coalesce($ret['stderr'], $ret['stdout']));
+				}
+			}
+
+			$this->_exec($approot, 'npm install -g knex-migrator');
+			$ret = $this->_exec("${approot}/current", 'knex-migrator init');
+			if (!$ret['success']) {
+				return error('Failed to create initial database configuration - knex-migrator failed: %s',
+					coalesce($ret['stderr'], $ret['stdout']));
+			}
+			if (!$this->migrate($approot)) {
+				return error('Failed to migrate database configuration - Ghost installation incomplete');
+			}
+			$this->change_admin($hostname, $path, [
+				'email' => $opts['email'],
+				'password' => $opts['password'],
+				'name' => $username
+			]);
+			if (array_get($opts, 'notify', true)) {
+				\Lararia\Bootstrapper::minstrap();
+				\Illuminate\Support\Facades\Mail::to($opts['email'])->
+				send((new \Module\Support\Webapps\Mailer('install.ghost', [
+					'login'    => $opts['email'],
+					'password' => $opts['password'],
+					'uri'      => $args['uri'],
+					'proto'    => $args['proto'],
+					'appname'  => static::APP_NAME
+				]))->setAppName(static::APP_NAME));
+			}
+
+			if (!$opts['squash']) {
+				parent::unsquash(dirname($docroot));
+			}
+			return info('Ghost installed - confirmation email with login info sent to %s', $opts['email']);
 		}
 
 		/**
-		 * Get app root for Laravel
+		 * Get app root for Ghost
 		 *
 		 * @param string $hostname
 		 * @param string $path
-		 * @return ?string
+		 * @return null|string
 		 */
 		protected function getAppRoot(string $hostname, string $path = ''): ?string
 		{
-			// Laravel app root resides 1 level down
+			// Ghost/Laravel app root resides 1 level down
 			$path = $this->web_normalize_path($hostname, $path);
-			return dirname($path);
+			return $path ? dirname($path) : null;
+		}
+
+		/**
+		 * Migrate database configuration to current/
+		 *
+		 * @param string $approot
+		 * @param string $appenv
+		 * @return bool
+		 */
+		private function linkConfiguration(string $approot, string $appenv = 'production'): bool
+		{
+			if ($this->file_file_exists($approot . "/current/config.${appenv}.json")) {
+				return true;
+			}
+			return $this->file_symlink($approot . "/config.${appenv}.json", $approot . "/current/config.${appenv}.json") ||
+				warn("failed to link configuration ${approot}/config.${appenv}.json to current/");
+		}
+
+		/**
+		 * Migrate Ghost database
+		 *
+		 * @param string $approot
+		 * @param string $appenv optional app environment to source DB config
+		 * @return bool
+		 */
+		private function migrate(string $approot, string $appenv = 'production'): bool
+		{
+			$this->linkConfiguration($approot, $appenv);
+			$ret = $this->_exec("${approot}/current", 'knex-migrator migrate');
+			return $ret['success'] ?: error("failed to migrate database in `%s': %s", $approot, coalesce($ret['stderr'], $ret['stdout']));
 		}
 
 		private function _exec($path = null, $cmd, array $args = array())
 		{
 			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get("mysqli.default_socket")) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=64m ' . self::LARAVEL_CLI;
 			if (!is_array($args)) {
 				$args = func_get_args();
 				array_shift($args);
 			}
-
-			$cmd = $cli . ' ' . $cmd;
-
+			$user = $this->username;
 			if ($path) {
-				$cmd = 'cd %(path)s && ' . $cmd;
+				$cmd = 'cd %(path)s && /bin/bash -ic -- ' . escapeshellarg($cmd);
 				$args['path'] = $path;
+				$user = $this->file_stat($path)['owner'] ?? $this->username;
 			}
 
-			$ret = $this->pman_run($cmd, $args);
-			if (!strncmp($ret['stdout'], "Error:", strlen("Error:"))) {
+			$ret = $this->pman_run($cmd, $args,
+				[
+					'BASH_ENV' => '/etc/profile.d/nvm.sh',
+					'NVM_DIR'  => $this->user_get_home($user),
+					'PATH' => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin',
+					'NODE_ENV' => 'production'
+				], ['user' => $user]);
+
+			if (!strncmp($ret['stdout'], 'Error:', strlen('Error:'))) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
 				if (!$ret['stderr']) {
@@ -281,76 +363,37 @@
 			return $ret;
 		}
 
-		private function _generateNewConfig($domain, $docroot, $dbcredentials, $ftpcredentials = array())
-		{
-			// generate db
-			if (!isset($ftpcredentials['user'])) {
-				$ftpcredentials['user'] = $this->username . '@' . $this->domain;
-			}
-			if (!isset($ftpcredentials['host'])) {
-				$ftpcredentials['host'] = 'localhost';
-			}
-			if (!isset($ftpcredentials['password'])) {
-				$ftpcredentials['password'] = '';
-			}
-			$xtraphp = '<<' . "\r\n" .
-				"define('FTP_USER',%(ftpuser)s);" . "\n" .
-				"define('FTP_HOST', %(ftphost)s);" . "\n" .
-				($ftpcredentials['password'] ?
-					"define('FTP_PASS', %(ftppass)s);" : '') . "\r\n";
-			$args = array(
-				'mode'     => 'config',
-				'db'       => $dbcredentials['db'],
-				'password' => $dbcredentials['password'],
-				'user'     => $dbcredentials['user'],
-				'ftpuser'  => $ftpcredentials['user'],
-				'ftphost'  => 'localhost',
-				'ftppass'  => $ftpcredentials['password']
-			);
-
-
-			$ret = $this->_exec($docroot,
-				'core %(mode)s --dbname=%(db)s --dbpass=%(password)s --dbuser=%(user)s --dbhost=localhost --extra-php ' . $xtraphp,
-				$args);
-			if (!$ret['success']) {
-				return error("failed to generate configuration, error: %s", $ret['stderr']);
-			}
-			return true;
-		}
-
-		/**
-		 * Get latest WP release
-		 *
-		 * @return string
-		 */
-		private function _getLastestVersion()
-		{
-			$versions = $this->_getVersions();
-			if (!$versions) {
-				return null;
-			}
-			return $versions[0]['version'];
-		}
-
 		/**
 		 * Get all current major versions
 		 *
 		 * @return array
 		 */
-		private function _getVersions()
+		private function _getVersions(): array
 		{
-			$key = 'laravel.versions';
+			$key = 'ghost.versions';
 			$cache = Cache_Super_Global::spawn();
 			if (false !== ($ver = $cache->get($key))) {
-				return $ver;
+				return (array)$ver;
 			}
 			$url = self::VERSION_CHECK_URL;
-			$contents = file_get_contents($url);
+			$opts = [
+				'http' => [
+					'method' => 'GET',
+					'header' => [
+						'User-Agent: ' . PANEL_BRAND . ' ' . APNSCP_VERSION,
+					]
+				]
+			];
+
+			$context = stream_context_create($opts);
+			$contents = file_get_contents($url, false, $context);
 			if (!$contents) {
 				return array();
 			}
-			$versions = json_decode($contents, true);
-			$versions = $versions['offers'];
+			$versions = array_reverse(json_decode($contents, true));
+			array_walk($versions, function (&$a) {
+				$a['version'] = $a['tag_name'];
+			});
 			$cache->set($key, $versions, 43200);
 			return $versions;
 		}
@@ -366,18 +409,7 @@
 		 */
 		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = 'stable'): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error("invalid WP location");
-			}
-
-			$args = array($plugin);
-			$ret = $this->_exec($docroot, 'plugin install %s --activate', $args);
-			if (!$ret['success']) {
-				return error("failed to install plugin `%s': %s", $plugin, $ret['stderr']);
-			}
-			info("installed plugin `%s'", $plugin);
-			return true;
+			return error('not supported');
 		}
 
 		/**
@@ -390,7 +422,6 @@
 		 */
 		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
 		{
-
 			return parent::uninstall($hostname, $path, $delete);
 		}
 
@@ -403,16 +434,15 @@
 		 */
 		public function valid(string $hostname, string $path = ''): bool
 		{
-			if ($hostname[0] == '/') {
-				$docroot = $hostname;
+			if ($hostname[0] === '/') {
+				$approot = \dirname($hostname);
 			} else {
-				$docroot = $this->getAppRoot($hostname, $path);
-				if (!$docroot) {
+				$approot = $this->getAppRoot($hostname, $path);
+				if (!$approot) {
 					return false;
 				}
 			}
-
-			return false;
+			return file_exists($this->domain_fs_path() . $approot . '/current/core/server/lib/ghost-version.js');
 		}
 
 		/**
@@ -424,18 +454,26 @@
 		 */
 		public function db_config(string $hostname, string $path = '')
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error("failed to determine WP");
+			$approot = $this->getAppRoot($hostname, $path);
+			if (!$approot) {
+				error('failed to determine Ghost config');
+				return [];
 			}
-			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
-			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
-			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
-			if (!$ret['success']) {
-				return error("failed to obtain WP configuration for `%s'", $docroot);
+
+			foreach (['development','production'] as $env) {
+				$path = "${approot}/config.${env}.json";
+				if ($this->file_file_exists($path)) {
+					// @todo unify config into a consistent object
+					$json = json_decode($this->file_get_file_contents($path), true)['database']['connection'];
+					if (!$json) {
+						continue;
+					}
+					$json['db'] = $json['database'];
+					$json['prefix'] = '';
+					return $json;
+				}
 			}
-			$data = unserialize($ret['stdout']);
-			return $data;
+			return [];
 		}
 
 		/**
@@ -451,12 +489,9 @@
 		}
 
 		/**
-		 * Change WP admin credentials
+		 * Change Ghost admin credentials
 		 *
-		 * $fields is a hash whose indices match wp_update_user
-		 * common fields include: user_pass, user_login, and user_nicename
-		 *
-		 * @link https://codex.wordpress.org/Function_Reference/wp_update_user
+		 * Common fields include: password, email, name; email doubles as login
 		 *
 		 * @param string $hostname
 		 * @param string $path
@@ -467,41 +502,44 @@
 		{
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
-				return warn("failed to change administrator information");
+				return warn('failed to change administrator information');
 			}
 			$admin = $this->get_admin($hostname, $path);
 
 			if (!$admin) {
-				return error("cannot determine admin of WP install");
+				return error('cannot determine admin of Ghost install');
 			}
 
-			if (isset($fields['user_login'])) {
-				return error("user login field cannot be changed in WP");
+			if (isset($fields['password'])) {
+				if (!\Opcenter\Auth\Password::strong($fields['password'])) {
+					return false;
+				}
+				$fields['password'] = password_hash($fields['password'], PASSWORD_BCRYPT, ['cost' => 10]);
+			}
+			if (isset($fields['name'])) {
+				$fields['slug'] = str_slug($fields['name']);
 			}
 
-			$args = array(
-				'user' => $admin
-			);
-			$cmd = 'user update %(user)s';
-			foreach ($fields as $k => $v) {
-				$cmd .= ' --' . $k . '=%(' . $k . ')s';
-				$args[$k] = $v;
+			$db = $this->connectDB($hostname, $path);
+			$q = "UPDATE users SET status = 'active'";
+			foreach (['password', 'email', 'name', 'slug'] as $field) {
+				if (!isset($fields[$field])) {
+					continue;
+				}
+				$q .= ", {$field} = '" . $db->escape_string($fields[$field]) . "'";
+			}
+			$q .= " WHERE email = '" . $admin . "'";
+			if (false === $db->query($q) || $db->affected_rows() < 1) {
+				return error("Failed to change admin user `%s'", $admin);
+			}
+			if (isset($fields['email'])) {
+				info('user login changed to %s', $fields['email']);
+			}
+			if (isset($fields['password'])) {
+				info("user `%s' password changed", $fields['email'] ?? $admin);
 			}
 
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("failed to update admin `%s', error: %s",
-					$admin,
-					$ret['stderr']
-				);
-			}
-
-
-			if (isset($fields['user_pass'])) {
-				info("user `%s' password changed", $admin);
-			}
-
-			return $ret['success'];
+			return true;
 		}
 
 		/**
@@ -513,14 +551,19 @@
 		 */
 		public function get_admin(string $hostname, string $path = ''): ?string
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			$ret = $this->_exec($docroot, 'user list --role=administrator --field=user_login');
-			if (!$ret['success']) {
-				warn("failed to enumerate WP administrative users");
+			$mysql = $this->connectDB($hostname, $path);
+			$rs = $mysql->query('SELECT email FROM users WHERE id = 1');
+			if (!$rs || $rs->num_rows < 1) {
 				return null;
 			}
-			$line = strtok($ret['stdout'], "\r\n");
-			return $line;
+			return $rs->fetch_object()->email;
+		}
+
+		private function connectDB($hostname, $path): \MySQL
+		{
+			$dbconfig = $this->db_config($hostname, $path);
+			$host = $dbconfig['host'] === 'localhost.localdomain' ? '127.0.0.1' : $dbconfig['host'];
+			return \MySQL::stub()->connect($host, $dbconfig['user'], $dbconfig['password'], $dbconfig['db']);
 		}
 
 		/**
@@ -535,13 +578,13 @@
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			$ret = $this->_exec($docroot, 'core version');
-			if (!$ret['success']) {
+			$approot = $this->getAppRoot($hostname, $path);
+			$path = $this->domain_fs_path() . $approot . '/current/package.json';
+			if (!file_exists($path)) {
+				warn('missing package.json from Ghost root - cannot detect version');
 				return null;
 			}
-			return trim($ret['stdout']);
-
+			return json_decode(file_get_contents($path))->version;
 		}
 
 		/**
@@ -554,12 +597,11 @@
 		 */
 		public function update_all(string $hostname, string $path = '', string $version = null): bool
 		{
-			return $this->update($hostname, $path, $version) && $this->update_plugins($hostname, $path) &&
-				$this->update_themes($hostname, $path) || error("failed to update all components");
+			return $this->update($hostname, $path, $version) || error('failed to update all components');
 		}
 
 		/**
-		 * Update Laravel to latest version
+		 * Update Ghost to latest version
 		 *
 		 * @param string $hostname domain or subdomain under which WP is installed
 		 * @param string $path     optional subdirectory
@@ -568,27 +610,31 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
+			$approot = $this->getAppRoot($hostname, $path);
+			if (!$approot) {
+				return error('update failed');
 			}
-
-			if ($version) {
-				if (!\Opcenter\Versioning::valid($version)) {
-					return error("invalid version number, %s", $version);
-				}
-				$cmd .= ' --version=%(version)s';
-				$args['version'] = $version;
+			//$this->validateNode();
+			if (!$version) {
+				$version = \Opcenter\Versioning::nextVersion($this->get_versions(), $this->get_version($hostname, $path));
+			} else if (!\Opcenter\Versioning::valid($version)) {
+				return error('invalid version number, %s', $version);
 			}
-			parent::setInfo($docroot, [
+			// -D bypasses permission checks
+			$cmd = 'ghost update -D --no-restart --no-color %(version)s';
+			$args['version'] = $version;
+			$ret = $this->_exec($approot, $cmd, $args);
+			$this->fixSymlink($approot);
+			$this->file_touch("${approot}/tmp/restart.txt");
+			parent::setInfo($approot, [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret['success']
 			]);
-			return $ret['success'];
+			return $ret['success'] && $this->migrate($approot);
 		}
 
 		/**
-		 * Update Laravel plugins
+		 * Update plugins
 		 *
 		 * @param string $hostname domain or subdomain
 		 * @param string $path     optional path within host
@@ -597,42 +643,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			$cmd = 'plugin update';
-			$args = array();
-			if (!$plugins) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
-					$plugin = $plugins[$i];
-					$version = null;
-					if (isset($plugin['version'])) {
-						$version = $plugin['version'];
-					}
-					if (isset($plugin['name'])) {
-						$plugin = $plugin['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $plugin;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", $ret['stderr']);
-			}
-			return $ret['success'];
+			return error('not implemented');
 		}
 
 		/**
@@ -645,42 +656,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error("update failed");
-			}
-
-			$cmd = 'theme update';
-			$args = array();
-			if (!$themes) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = sizeof($themes); $i < $n; $i++) {
-					$theme = $themes[$i];
-					$version = null;
-					if (isset($theme['version'])) {
-						$version = $theme['version'];
-					}
-					if (isset($theme['name'])) {
-						$plugin = $theme['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $theme;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("theme update failed: `%s'", $ret['stderr']);
-			}
-			return $ret['success'];
+			return error('not implemented');
 		}
 
 		/**
@@ -691,7 +667,7 @@
 		 */
 		public function has_fortification(string $mode = null): bool
 		{
-			return parent::has_fortification($mode);
+			return false;
 		}
 
 		/**
@@ -704,7 +680,7 @@
 		 */
 		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
 		{
-			parent::fortify($hostname, $path, $mode);
+			return error('not implemented');
 		}
 
 		/**
@@ -717,7 +693,7 @@
 		 */
 		public function unfortify(string $hostname, string $path = ''): bool
 		{
-			return parent::unfortify($hostname, $path, $mode);
+			return error('not implemented');
 		}
 
 		/**
@@ -732,11 +708,6 @@
 			return true;
 		}
 
-		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
-		{
-			return parent::next_version($version, $maximalbranch);
-		}
-
 		public function theme_status(string $hostname, string $path = '', string $theme = null)
 		{
 			return parent::theme_status($hostname, $path, $theme); // TODO: Change the autogenerated stub
@@ -745,6 +716,61 @@
 		public function install_theme(string $hostname, string $path = '', string $theme, string $version = null): bool
 		{
 			return parent::install_theme($hostname, $path, $theme, $version);
+		}
+
+		/**
+		 * Verify Node LTS is installed
+		 *
+		 * @param string|null $version optional version to compare against
+		 * @return bool
+		 */
+		protected function validateNode(string $version = null): bool
+		{
+			if (!$this->node_installed('lts') && !$this->node_install('lts')) {
+				return error('failed to install Node LTS');
+			}
+			$ret = $this->node_do('lts', 'npm install -g ghost-cli');
+			$this->_exec('~', 'nvm use --delete-prefix --lts');
+			if (!$ret['success']) {
+				return error('failed to install ghost-cli: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
+			}
+			return true;
+		}
+
+		/**
+		 * Get path to active Node
+		 *
+		 * @param string|null $version
+		 * @return null|string
+		 */
+		protected function getNodeCommand(string $version = null): ?string
+		{
+			$ret = $this->node_do('lts', 'which node');
+			return $ret['success'] ? trim($ret['output']) : null;
+		}
+
+		/**
+		 * Relink current/ from absolute to relative symlink
+		 *
+		 * @param string $approot
+		 * @return bool
+		 */
+		private function fixSymlink(string $approot): bool
+		{
+			$path = $this->domain_fs_path("${approot}/current");
+			if (!is_link($path)) {
+				return error("${approot}/current missing - can't relink");
+			}
+			$link = readlink($path);
+			if ($link[0] !== '/') {
+				// relative link
+				$stat = $this->file_stat("${approot}/current");
+				return !empty($stat['referent']) ? true : error("${approot}/current does not point to an active Ghost install");
+			}
+			if (0 !== strpos($link, $approot)) {
+				return false;
+			}
+			return $this->file_delete($approot .'/current') && $this->file_symlink($link, $approot . '/current');
 		}
 	}
 

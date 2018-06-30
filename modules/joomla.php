@@ -271,7 +271,7 @@
 				'autoupdate' => (bool)$opts['autoupdate'],
 				'options'    => $opts
 			);
-			$this->_map('add', $docroot, $params);
+			$this->map('add', $docroot, $params);
 			$fortifymode = self::DEFAULT_FORTIFY_MODE;
 			$this->fortify($hostname, $path, $fortifymode);
 			info('fortification mode set to %s', strtoupper($fortifymode));

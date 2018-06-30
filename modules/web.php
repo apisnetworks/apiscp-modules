@@ -34,6 +34,7 @@
 		const WEB_GROUPID = APACHE_GID;
 		const PROTOCOL_MAP = '/etc/httpd/conf/http10';
 
+		protected $pathCache = [];
 		protected $service_cache;
 
 		/**
@@ -453,7 +454,6 @@
 		 */
 		public function add_subdomain($subdomain, $docroot)
 		{
-
 			if (!IS_CLI) {
 				return $this->query('web_add_subdomain', $subdomain, $docroot);
 			}
@@ -492,7 +492,7 @@
 			if ($subdomain[0] == '*') {
 				$domain = substr($subdomain, 2);
 				$subdomain = '';
-				if (!in_array($domain, $domains)) {
+				if (!in_array($domain, $domains, true)) {
 					return error("domain `%s' not attached to account (DNS > Addon Domains)", $domain);
 				}
 			}
@@ -514,15 +514,13 @@
 						)
 					);
 					break;
-				} else {
-					if ($subdomain === $domain) {
-						// subdomain is fallthrough
-						$recs_to_add[] = array(
-							'subdomain' => '*',
-							'domain'    => $domain
-						);
+				} else if ($subdomain === $domain) {
+					// subdomain is fallthrough
+					$recs_to_add[] = array(
+						'subdomain' => '*',
+						'domain'    => $domain
+					);
 
-					}
 				}
 			}
 			if (!$recs_to_add) {
@@ -643,6 +641,9 @@
 		 */
 		public function remove_subdomain(string $subdomain): bool
 		{
+			// clear both ends
+			$this->purge();
+
 			if (!IS_CLI) {
 				return $this->query('web_remove_subdomain', $subdomain);
 			}
@@ -651,7 +652,7 @@
 			if (!preg_match(Regex::SUBDOMAIN, $subdomain)) {
 				return error($subdomain . ": invalid subdomain");
 			} elseif (!$this->subdomain_exists($subdomain)) {
-				return warn($subdomain . ": subdomain does not exist") || true;
+				return warn($subdomain . ": subdomain does not exist");
 			}
 			$this->map_subdomain('delete', $subdomain);
 			$path = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
@@ -737,7 +738,7 @@
 				if (!$user) {
 					$stat = $this->file_stat($path);
 					if ($stat instanceof Exception) {
-						return $stat;
+						return error("Cannot map subdomain - failed to determine user from `%s'", $path);
 					}
 					$user = $this->user_get_username_from_uid($stat['uid']);
 				}
@@ -795,6 +796,7 @@
 			if ($link) {
 				$old_path = $this->file_convert_relative_absolute(dirname($sdpath), $old_stat['referent']);
 			}
+
 			// rename subdomain, keep path
 
 			if (!$newpath) {
@@ -803,7 +805,7 @@
 			if (!$newsubdomain) {
 				$newsubdomain = $subdomain;
 			}
-			if ($subdomain != $newsubdomain) {
+			if ($subdomain !== $newsubdomain) {
 				if (!$this->remove_subdomain($subdomain) || !$this->add_subdomain($newsubdomain, $newpath)) {
 					error("changing subdomain `%s' to `%s' failed", $subdomain, $newsubdomain);
 					if (!$this->add_subdomain($subdomain, $old_path)) {
@@ -830,6 +832,15 @@
 		// }}}
 
 		/**
+		 * Clear path cache
+		 *
+		 * @return void
+		 */
+		public function purge(): void
+		{
+			$this->pathCache = [];
+		}
+		/**
 		 * Retrieve document root for given host
 		 *
 		 * Doubly useful to evaluate where documents
@@ -839,12 +850,10 @@
 		 * @param string $path optional path component
 		 * @return string document root path
 		 */
-
 		public function normalize_path(string $hostname, string $path = ''): ?string
 		{
-			static $pathHash;
-			if (isset($pathHash[$hostname]) && isset($pathHash[$hostname][$path])) {
-				return $pathHash[$hostname][$path];
+			if (isset($this->pathCache[$hostname][$path])) {
+				return $this->pathCache[$hostname][$path];
 			}
 			$prefix = $this->domain_fs_path();
 			$docroot = $this->get_docroot($hostname);
@@ -858,7 +867,8 @@
 				// take the referent always
 				$checkpath = realpath($checkpath);
 				if (0 !== strpos($checkpath, $prefix)) {
-					return error("docroot for `%s/%s' exceeds site root", $hostname, $path);
+					error("docroot for `%s/%s' exceeds site root", $hostname, $path);
+					return null;
 				}
 				$docroot = substr($checkpath, strlen($prefix));
 			}
@@ -869,10 +879,10 @@
 					return null;
 				}
 			}
-			if (!isset($pathHash[$hostname])) {
-				$pathHash[$hostname] = array();
+			if (!isset($this->pathCache[$hostname])) {
+				$this->pathCache[$hostname] = [];
 			}
-			$pathHash[$hostname][$path] = $docroot;
+			$this->pathCache[$hostname][$path] = $docroot;
 			return $docroot;
 		}
 
@@ -886,7 +896,9 @@
 			if (false !== strpos($host, ".")) {
 				return $host;
 			}
-			return $host . '.' . \Session::get('entry_domain', $this->domain);
+			// @todo track domain/entry_domain better in contexted roles
+			return $host . '.' .
+				($this->inContext() ? $this->domain : \Session::get('entry_domain', $this->domain));
 		}
 
 		/**

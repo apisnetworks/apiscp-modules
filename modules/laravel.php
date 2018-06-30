@@ -18,7 +18,7 @@
 	 *
 	 * @package core
 	 */
-	class Laravel_Module extends \Module\Support\Webapps
+	class Laravel_Module extends \Module\Support\Webapps\Composer
 	{
 		const APP_NAME = 'Laravel';
 
@@ -44,16 +44,6 @@
 		private $_versionCache = array();
 
 		/**
-		 * void __construct(void)
-		 *
-		 * @ignore
-		 */
-		public function __construct()
-		{
-			parent::__construct();
-		}
-
-		/**
 		 * Install Laravel into a pre-existing location
 		 *
 		 * @param string $hostname domain or subdomain to install Laravel
@@ -66,13 +56,39 @@
 			if (!version_compare($this->php_version(), '7', '>=')) {
 				return error('Laravel requires PHP7');
 			}
+
 			if (!$this->php_composer_exists()) {
 				return error('composer missing! contact sysadmin');
 			}
 
-			$docroot = $this->getAppRoot($hostname, $path);
+			// Same situation as with Ghost. We can't install under a path for fear of
+			// leaking information
+			if ($path) {
+				return error("Composer projects may only be installed directly on a subdomain or domain without a child path, e.g. https://domain.com but not https://domain.com/laravel");
+			}
+
+			$docroot = $this->getDocumentRoot($hostname, $path);
 
 			if (!parent::checkDocroot($docroot)) {
+				return false;
+			}
+
+			if (!empty($opts['ssl']) && !parent::configureSsl($hostname)) {
+				return false;
+			}
+
+			if (!parent::checkVersion($opts)) {
+				return false;
+			}
+
+			$args['version'] = $opts['version'];
+			parent::prepareSquash($opts);
+
+			if (!isset($opts['autoupdate'])) {
+				$opts['autoupdate'] = true;
+			}
+
+			if (!parent::checkEmail($opts)) {
 				return false;
 			}
 
@@ -84,10 +100,8 @@
 				if (!$this->file_file_exists($parent) && !$this->file_create_directory($parent)) {
 					return error('unable to create laravel project directory - home missing?');
 				}
-			} else {
-				if (!$this->file_file_exists(dirname($opts['projectname']))) {
-					return error("parent directory `%s' does not exist", dirname($opts['projectname']));
-				}
+			} else if (!$this->file_file_exists(dirname($opts['projectname']))) {
+				return error("parent directory `%s' does not exist", dirname($opts['projectname']));
 			}
 
 			if ($this->file_file_exists($opts['projectname'])) {
@@ -216,7 +230,7 @@
 				'fortify'     => 'min',
 				'updatelimit' => 'patch'
 			);
-			$this->_map('add', $approot, $params);
+			$this->map('add', $approot, $params);
 			if (false === strpos($hostname, '.')) {
 				$hostname = $hostname . '.' . $this->domain;
 			}
@@ -287,7 +301,7 @@
 				}
 			}
 
-			$this->_map('delete', $docroot);
+			$this->map('delete', $docroot);
 
 			if (!$delete) {
 				return info("removed configuration, manually delete files under `%s'", $docroot);

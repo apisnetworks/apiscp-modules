@@ -476,6 +476,19 @@
 		}
 
 		/**
+		 * Get billing renewal link
+		 *
+		 * Link must provide direct access to billing portal
+		 *
+		 * @param string|null $invoice leave blank for current outstanding invoice
+		 * @return string
+		 */
+		public function get_renewal_link($invoice = null): string
+		{
+			return '';
+		}
+
+		/**
 		 * Get customer since
 		 *
 		 * @return int unix timestamp or -1 for connectivity issues

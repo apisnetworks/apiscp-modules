@@ -113,8 +113,8 @@
 		/**
 		 * Transform relative path into an absolute path
 		 *
-		 * @param $file     absolute location of a path
-		 * @param $referent relative path
+		 * @param string $file     absolute location of a path
+		 * @param string $referent relative path
 		 * @return string
 		 */
 		public static function convert_relative_absolute($file, $referent)
@@ -128,20 +128,17 @@
 			$token = strtok($referent, '/');
 
 			if ($token != "..") {
-				return $referent;
+				return "${file}/${referent}";
 			}
-
 			array_pop($file_com);
 			while (false !== ($token = strtok("/"))) {
 				if ($token == '..') {
 					array_pop($file_com);
+				} else if ($token) {
+					$file_com[] = $token;
+					break;
 				} else {
-					if (!$token) {
-						continue;
-					} else {
-						$file_com[] = $token;
-						break;
-					}
+					continue;
 				}
 			}
 
@@ -151,15 +148,12 @@
 				if (!$token)               // path: /
 				{
 					$path .= '/';
+				} else if ($token == '..') { // path: ..
+					return self::convert_relative_absolute($path, strtok(""));
 				} else {
-					if ($token == '..') { // path: ..
-						return self::convert_relative_absolute($path, strtok(""));
-					} else {
-						$path .= '/' . $token;
-					}
+					$path .= '/' . $token;
 				}
 			}
-
 			return $path . strtok("");
 		}
 
@@ -1464,13 +1458,11 @@
 
 				if (!$exdir) {
 					continue;
+				} else if ($depth > 1 || \Util_PHP::is_link($exdir)) {
+					// prevent glob("foo" -> ../../tmp);
+					$globmatch = array($exdir);
 				} else {
-					if ($depth > 1 || \Util_PHP::is_link($exdir)) {
-						// prevent glob("foo" -> ../../tmp);
-						$globmatch = array($exdir);
-					} else {
-						$globmatch = glob($exdir, GLOB_NOSORT);
-					}
+					$globmatch = glob($exdir, GLOB_NOSORT);
 				}
 
 				for ($i = 0, $n = count($globmatch); $i < $n;
@@ -1495,7 +1487,6 @@
 						$ok = 1;
 						continue;
 					}
-
 					if (!$optimized) {
 						// perform stat only on secondary users or old platforms
 						$stat = $this->stat(dirname($file));
@@ -1523,6 +1514,7 @@
 								"recursive option");
 							continue;
 						}
+						clearstatcache(true, $rmpath);
 						$dh = opendir($rmpath);
 						if (!$dh) {
 							error($file . ": cannot open directory");
@@ -1531,8 +1523,15 @@
 
 						$dirfiles = array();
 						while (false !== ($dirent = readdir($dh))) {
-							if ($dirent != '.' && $dirent != '..') {
-								$dirfiles[] = $file . '/' . $dirent;
+							if ($dirent === '.' || $dirent === '..') {
+								continue;
+							}
+							$tmp = "${rmpath}/${dirent}";
+							if (\is_link($tmp) || \is_file($tmp)) {
+								unlink($tmp);
+								clearstatcache(true, $tmp);
+							} else {
+								$dirfiles[] = "${file}/${dirent}";
 							}
 						}
 						closedir($dh);
@@ -2241,16 +2240,11 @@
 			}
 			$file = $this->make_path($mFile);
 
-			if ($mTarget == 'unix') {
-				$cmd = 'dos2unix';
-			} else {
-				if ($mTarget == 'windows') {
-					$cmd = 'unix2dos';
-				} else {
-					if ($mTarget == 'mac') {
-						$cmd = 'dos2unix -c mac';
-					}
-				}
+			$cmd = 'dos2unix';
+			if ($mTarget == 'windows') {
+				$cmd = 'unix2dos';
+			} else if ($mTarget == 'mac') {
+				$cmd = 'dos2unix -c mac';
 			}
 			return Util_Process_Safe::exec($cmd . ' %s',
 					$file) && chown($file, $stat['uid'])
@@ -2278,7 +2272,7 @@
 		 * @param string $mDest destination link
 		 * @return bool
 		 */
-		public function symlink($mSrc, $mDest)
+		public function symlink(string $mSrc, string $mDest): bool
 		{
 			if (!IS_CLI) {
 				return $this->query('file_create_symlink', $mSrc, $mDest);
@@ -2289,55 +2283,50 @@
 				$mSrc = dirname($mDest) . '/' . $mSrc;
 			}
 			if ($mDest[strlen($mDest) - 1] == '/') {
-				$mDest = $mDest . basename($mSrc);
+				$mDest .= basename($mSrc);
 			}
 
 			$src_path = $this->make_path($mSrc);
-			$dest_path = $this->make_path($mDest, $link);
+			$linkname = $this->make_path($mDest, $link);
+			if (file_exists($linkname)) {
+				return error("destination `" . $this->unmake_path($linkname) . "' exists");
+			} else if (!file_exists($src_path)) {
+				return error("source `" . $this->unmake_path($src_path) . "' does not exist");
+			}
 
-			if (file_exists($dest_path)) {
-				return error("destination `" . $this->unmake_path($dest_path) . "' exists");
-			} else {
-				if (!file_exists($src_path)) {
-					return error("source `" . $this->unmake_path($src_path) . "' does not exist");
-				}
-			}
-			$link = self::convert_absolute_relative($dest_path, $src_path);
-			if (!file_exists(dirname($dest_path) . '/' . self::convert_absolute_relative($dest_path, $src_path))) {
-				warn("file $mSrc does not exist");
-			}
+			// properly calculate relative traversals
+			$link = self::convert_absolute_relative(realpath(dirname($linkname)) . '/' . basename($linkname), $src_path);
 
 			//debug(self::convert_absolute_relative($dest_path, $src_path)." -> ".$dest_path);
-			symlink($link, $dest_path);
-			return Util_PHP::lchown($dest_path, $this->user_id) && Util_PHP::lchgrp($dest_path, $this->group_id);
+			return symlink($link, $linkname) && Util_PHP::lchown($linkname, $this->user_id)
+				&& Util_PHP::lchgrp($linkname, $this->group_id);
 		}
 
 		/**
 		 * Transform absolute path into relative path
 		 *
-		 * @param $cwd
-		 * @param $dir
+		 * @param string $cwd  current working directory
+		 * @param string $path target symlink
 		 * @return string
 		 */
-		public static function convert_absolute_relative($pwd, $dir)
+		public static function convert_absolute_relative(string $cwd, string $path): string
 		{
-
-			if (dirname($pwd) == rtrim($dir, '/')) {
-				return '../' . basename($dir);
-			} else if ($pwd === $dir) {
+			if (dirname($cwd) === rtrim($path, '/')) {
+				return '../' . basename($path);
+			} else if ($cwd === $path) {
 				return '.';
 			}
 
-			$pwd = array_values(array_filter(explode("/", $pwd)));
-			$dir = array_values(array_filter(explode("/", $dir)));
+			$cwd = array_values(array_filter(explode("/", $cwd)));
+			$path = array_values(array_filter(explode("/", $path)));
 			// just in case PHP changes scoping rules in the future...
 			$idx = 0;
-			for ($idxMax = sizeof($pwd); $idx < $idxMax; $idx++) {
-				if (!isset($dir[$idx]) || ($dir[$idx] != $pwd[$idx])) {
+			for ($idxMax = sizeof($cwd); $idx < $idxMax; $idx++) {
+				if (!isset($path[$idx]) || ($path[$idx] !== $cwd[$idx])) {
 					break;
 				}
 			}
-			return str_repeat("../", sizeof($pwd) - ($idx + 1)) . join("/", array_slice($dir, $idx));
+			return str_repeat("../", max(0, sizeof($cwd) - ($idx+1))) . implode("/", array_slice($path, $idx));
 		}
 
 		/**

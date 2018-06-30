@@ -547,11 +547,6 @@
 				$query = 'UPDATE pg_authid SET rolpassword = :password WHERE rolname = :name';
 				unset($params[':connlimit']);
 			}
-			// @TODO v7.5
-			if (version_compare(platform_version(), '7.5', '>=')) {
-				$pgdb->prepare('UPDATE pg_authid SET rolpassword = CONCAT(\'md5\', MD5(CONCAT(:password, :name))) WHERE rolname = :name;')->execute($params);
-				unset($params[':connlimit']);
-			}
 
 			$stmt = $pgdb->prepare($query);
 
@@ -562,6 +557,16 @@
 				);
 			}
 
+			// @TODO v7.5
+			if (platform_is('7.5')) {
+				$pgdb->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+				$stmt = $pgdb->prepare('UPDATE pg_authid SET rolpassword = CONCAT(\'md5\', md5(CONCAT(:password, :name))) WHERE rolname = :name;');
+				$ret = $stmt->execute(array_except($params, [':connlimit']));
+				if (!$ret) {
+					return error("failed to update postgresql password for user `%s'", $user);
+				}
+
+			}
 			if ($user == $this->get_username()) {
 				$this->set_password($password);
 			}
@@ -588,7 +593,7 @@
 				return $user;
 			}
 
-			return $matches['username'];
+			return $matches['username'] ?: $this->username;
 		}
 
 		/**

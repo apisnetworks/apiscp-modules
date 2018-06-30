@@ -270,6 +270,9 @@
 		 */
 		public function modify_domain(string $domain, array $newparams): bool
 		{
+			// clear both sides path cache
+			$this->web_purge();
+
 			if (!IS_CLI) {
 				return $this->query('aliases_modify_domain', $domain, $newparams);
 			}

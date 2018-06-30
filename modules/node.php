@@ -32,7 +32,7 @@
 		 */
 		public function __construct()
 		{
-			if (version_compare(platform_version(), '6.5', '<')) {
+			if (!platform_is('6.5')) {
 				$this->exportedFunctions = [];
 			}
 			parent::__construct();
@@ -41,16 +41,18 @@
 		/**
 		 * Execute Node within the scope of a version
 		 *
-		 * @param string $version
+		 * @param null|string $version
 		 * @param string $command
 		 * @param array  $args optional command arguments
 		 * @return array process output from pman_run
 		 */
-		public function do(string $version, string $command, ...$args): array {
+		public function do(?string $version, string $command, ...$args): array {
 			if ($version === 'lts') {
 				$version = '--lts';
+			} else if ($version) {
+				$version = escapeshellarg($version);
 			}
-			$ret = $this->exec('exec --silent ' . escapeshellarg($version), $command, ...$args);
+			$ret = $this->exec('exec --silent ' . $version, $command, ...$args);
 			return $ret;
 		}
 
@@ -150,9 +152,12 @@
 		 */
 		public function list(): array
 		{
+			// 3 = no nodes installed
 			$ret = $this->exec('ls');
 			if (!$ret['success']) {
-				error('failed to query nodes - is nvm installed?');
+				if ($ret['return'] !== 3) {
+					error('failed to query nodes - is nvm installed?');
+				}
 				return [];
 			}
 			if (preg_match_all(\Regex::NVM_NODES, $ret['output'], $versions, PREG_SET_ORDER)) {
@@ -174,7 +179,7 @@
 		public function lts_installed(): bool
 		{
 			$versions = $this->list();
-			$lts = $versions['lts/*'];
+			$lts = $versions['lts/*'] ?? null;
 			return array_has($versions, $lts);
 		}
 
@@ -187,12 +192,7 @@
 		 * @return array
 		 */
 		private function exec(?string $name, string $command = null, ...$args): array {
-			if (isset($args['__nvmexec'])) {
-				return error("cannot specify process argument `__nvmexec', reserved");
-			}
-			$args['__nvmexec'] = "nvm ${name}";
-
-			$ret = $this->pman_run('/bin/bash -c -- %(__nvmexec)s ' . $command,
+			$ret = $this->pman_run('/bin/bash -c -- ' . escapeshellarg("nvm ${name} ${command}"),
 				$args,
 				[
 					'BASH_ENV' => '/etc/profile.d/nvm.sh',

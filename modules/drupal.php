@@ -274,7 +274,7 @@
 				'autoupdate' => (bool)$opts['autoupdate'],
 				'options'    => $opts
 			);
-			$this->_map('add', $docroot, $params);
+			$this->map('add', $docroot, $params);
 			parent::fortify($hostname, $path, 'max');
 			$fqdn = $this->web_normalize_hostname($hostname);
 			/**

@@ -242,17 +242,20 @@
 			} else {
 				$adapter = new HTTP_Request2_Adapter_Socket();
 			}
-			dlog("Purging CP pagespeed cache");
-			$url = 'http://localhost:' . Auth_Redirect::CP_PORT . '/*';
+			if (!APNSCPD_HEADLESS) {
+				dlog("Purging CP pagespeed cache");
+				$url = 'http://localhost:' . Auth_Redirect::CP_PORT . '/*';
 
-			$http = new HTTP_Request2(
-				$url,
-				'PURGE',
-				array(
-					'adapter'    => $adapter,
-					'store_body' => false
-				)
-			);
+				$http = new HTTP_Request2(
+					$url,
+					'PURGE',
+					array(
+						'adapter'    => $adapter,
+						'store_body' => false
+					)
+				);
+			}
+
 			$ret = \Util_Process::exec('%s/artisan config:cache', INCLUDE_PATH);
 			if ($ret['success']) {
 				dlog("Cached Laravel configuration");
