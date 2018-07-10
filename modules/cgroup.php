@@ -20,9 +20,9 @@ declare(strict_types=1);
     class Cgroup_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
     {
         const CGROUP_LOCATION = \Opcenter\System\Cgroup::CGROUP_HOME;
-	    const DEPENDENCY_MAP = [
-		    'apache'
-	    ];
+	const DEPENDENCY_MAP = [
+		'apache'
+	];
         const MAX_MEMORY = 16384;
         const DEFAULT_MEMORY = 512;
         const DEFAULT_CPU = 10240;

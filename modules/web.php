@@ -25,6 +25,7 @@
 			'ipinfo',
 			'ipinfo6',
 			'siteinfo',
+			'dns',
 			'aliases' // addon domains
 		];
 
@@ -1219,7 +1220,7 @@
 				$conf_new[$ssl] != $conf_old[$ssl] ||
 				$conf_new['aliases'] != $conf_old['aliases']
 			) {
-				\Opcenter\Http\Apache::reload();
+				\Opcenter\Http\Apache::activate();
 			}
 
 		}
@@ -1260,7 +1261,7 @@
 		 */
 		public function _create()
 		{
-			\Opcenter\Http\Apache::reload();
+			\Opcenter\Http\Apache::activate();
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
@@ -1271,7 +1272,7 @@
 		public function _reload($why = null)
 		{
 			if (in_array($why, [null, "php", "aliases", "letsencrypt"])) {
-				return \Opcenter\Http\Apache::reload();
+				return \Opcenter\Http\Apache::activate();
 			}
 		}
 
@@ -1284,7 +1285,7 @@
 				// part of DeleteDomain on Delta platform
 				\Opcenter\Provisioning\Apache::removeConfiguration($this->site);
 			}
-			\Opcenter\Http\Apache::reload();
+			\Opcenter\Http\Apache::activate();
 
 		}
 		

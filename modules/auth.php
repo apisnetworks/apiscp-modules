@@ -522,7 +522,7 @@
 				!$this->dns_domain_uses_nameservers($domain) // whois check in the future
 			) {
 				$currentns = join(",", (array)$this->dns_get_authns_from_host($domain));
-				$hostingns = join(",", $this->dns_get_hosting_nameservers());
+				$hostingns = join(",", $this->dns_get_hosting_nameservers($domain));
 				return error("domain uses third-party nameservers - %s, change nameservers to %s before promoting " .
 					"this domain to primary domain status", $currentns, $hostingns);
 			}

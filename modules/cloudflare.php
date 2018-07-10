@@ -353,7 +353,7 @@
 			}
 			return info("CF no longer manages DNS for zone `%s', change nameservers for domain back to %s",
 				$zone,
-				join(", ", $this->dns_get_hosting_nameservers())
+				join(", ", $this->dns_get_hosting_nameservers($zone))
 			);
 		}
 

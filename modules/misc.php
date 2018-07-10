@@ -251,9 +251,18 @@
 					'PURGE',
 					array(
 						'adapter'    => $adapter,
-						'store_body' => false
+						'store_body' => false,
+						'timeout' => 5,
+						'connect_timeout' => 3
 					)
 				);
+				try {
+					$http->send();
+				} catch (Exception $e) {
+					dlog("WARN: failed to purge pagespeed cache, %s. Is `%s' reachable?",
+						$e->getMessage(),
+						dirname($url));
+				}
 			}
 
 			$ret = \Util_Process::exec('%s/artisan config:cache', INCLUDE_PATH);
@@ -261,13 +270,6 @@
 				dlog("Cached Laravel configuration");
 			} else {
 				dlog("Failed to cache Laravel configuration - %s", $ret['stderr']);
-			}
-			try {
-				$http->send();
-			} catch (Exception $e) {
-				dlog("WARN: failed to purge pagespeed cache, %s. Is `%s' reachable?",
-					$e->getMessage(),
-					dirname($url));
 			}
 			return true;
 		}

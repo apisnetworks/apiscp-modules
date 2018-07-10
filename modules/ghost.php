@@ -93,8 +93,13 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			// Ghost needs ~500 MB free to install
+			$quota = $this->site_get_account_quota();
+			if ($quota['qhard'] - $quota['qused'] < 500*1024) {
+				return error("Ghost requires ~500 MB free. Only %.2 MB free.", ($quota['qhard']-$quota['qused'])/1024);
+			}
 			if (!platform_is('6.5')) {
-				return error('Ghost requires at least a v6.5 platform');
+				return error('Ghost requires at least a v6.5 platform. Current platform version %s', platform_version());
 			}
 			if (!$this->ssh_enabled()) {
 				return error('Ghost requires ssh service to be enabled');
@@ -188,7 +193,7 @@
 				$this->file_delete($docroot, true);
 				$this->sql_delete_mysql_database($db);
 				$this->sql_delete_mysql_user($dbuser, '127.0.0.1');
-				return error('failed to download Ghost v%s: %s', $args['version'], $ret['stderr']);
+				return error('failed to download Ghost v%s: %s - possibly out of storage space?', $args['version'], $ret['stderr']);
 			}
 
 			$this->node_make_default('lts/*', $docroot);
@@ -614,23 +619,24 @@
 			if (!$approot) {
 				return error('update failed');
 			}
-			//$this->validateNode();
+
 			if (!$version) {
 				$version = \Opcenter\Versioning::nextVersion($this->get_versions(), $this->get_version($hostname, $path));
 			} else if (!\Opcenter\Versioning::valid($version)) {
 				return error('invalid version number, %s', $version);
 			}
-			// -D bypasses permission checks
-			$cmd = 'ghost update -D --no-restart --no-color %(version)s';
+			// --local bypasses permission checks
+			$cmd = 'ghost update --local -D --no-restart --no-color %(version)s';
 			$args['version'] = $version;
 			$ret = $this->_exec($approot, $cmd, $args);
 			$this->fixSymlink($approot);
 			$this->file_touch("${approot}/tmp/restart.txt");
-			parent::setInfo($approot, [
+			parent::setInfo($this->getDocumentRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret['success']
 			]);
-			return $ret['success'] && $this->migrate($approot);
+			return $ret['success'] ?: error("failed to update Ghost: %s", coalesce($ret['stderr'], $ret['stdout']))
+				&& $this->migrate($approot);
 		}
 
 		/**
@@ -729,8 +735,8 @@
 			if (!$this->node_installed('lts') && !$this->node_install('lts')) {
 				return error('failed to install Node LTS');
 			}
-			$ret = $this->node_do('lts', 'npm install -g ghost-cli');
 			$this->_exec('~', 'nvm use --delete-prefix --lts');
+			$ret = $this->node_do('lts', 'npm install -g ghost-cli');
 			if (!$ret['success']) {
 				return error('failed to install ghost-cli: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
 			}

@@ -305,7 +305,7 @@
 			string $hostname,
 			string $path = '',
 			string $plugin,
-			string $version = 'stable'
+			string $version = ''
 		): bool {
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {

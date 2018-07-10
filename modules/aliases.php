@@ -442,6 +442,9 @@
 		 */
 		public function challenge_token(): string
 		{
+			if (!IS_CLI) {
+				return $this->query('aliases_challenge_token');
+			}
 			$str = (string)fileinode($this->domain_info_path('users'));
 			return sha1($str);
 		}
@@ -623,7 +626,7 @@
 				!$this->_verify_dns($domain) && !$this->_verify_url($domain)
 			) {
 				$nameservers = $this->dns_get_authns_from_host($domain);
-				$cpnameservers = $this->dns_get_hosting_nameservers();
+				$cpnameservers = $this->dns_get_hosting_nameservers($domain);
 				$hash = $this->challenge_token($domain);
 				$script = $hash . '.html';
 				return error("`%s': domain has DNS records delegated to nameservers %s. " .
@@ -709,7 +712,7 @@
 			if (is_null($ns)) {
 				return -1;
 			}
-			$hostingns = $this->dns_get_hosting_nameservers();
+			$hostingns = $this->dns_get_hosting_nameservers($domain);
 			// uses at least 1 of the required nameservers, we're good
 
 			foreach ($ns as $n) {

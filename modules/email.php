@@ -20,7 +20,7 @@
 	class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable, \Module\Skeleton\Contracts\Proxied
 	{
 		const DEPENDENCY_MAP = [
-			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'aliases'
+			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'aliases', 'dns'
 		];
 		const MAILDIR_HOME = \Opcenter\Mail\Storage::MAILDIR_HOME;
 		const MAILBOX_SPECIAL = 's';
@@ -77,6 +77,7 @@
 				'webmail_apps'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'create_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'remove_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_records'                     => PRIVILEGE_SITE,
 				'*'                               => PRIVILEGE_SITE,
 				'get_provider'                    => PRIVILEGE_ALL
 			);
@@ -966,7 +967,7 @@
 			$mymailrec = rtrim('mail.' . $subdomain, '.');
 
 			if (!$this->dns_domain_uses_nameservers($domain)) {
-				$nsrecs = join(", ", $this->dns_get_hosting_nameservers());
+				$nsrecs = join(", ", $this->dns_get_hosting_nameservers($domain));
 				warn("Domain uses third-party nameservers to provide DNS. Continuing to make " .
 					"local MX records on local nameservers. Email configuration in Mail > Manage Mailboxes " .
 					"will not be reflected until nameservers are changed to %s",
@@ -982,6 +983,7 @@
 			if (!$this->dns_configured()) {
 				return warn("DNS is not configured for `%s' - unable to provision DNS automatically", $domain);
 			}
+
 			if ($this->dns_record_exists($domain, $mymailrec, 'A')) {
 				$srvrec = $this->dns_get_records($mymailrec, 'A', $domain);
 				if (count($srvrec) === 0) {
@@ -1012,6 +1014,10 @@
 			$rec = $this->dns_get_records($subdomain, 'MX', $domain);
 			// just examine the first record...
 			$rec = array_pop($rec);
+			if (!$rec) {
+				return warn("Failed to examine MX records for `%s'",
+					ltrim(implode('.', [$subdomain, $domain]), '.'));
+			}
 			list($priority, $host) = preg_split("/\s+/", (string)$rec['parameter']);
 			$mxip = $this->dns_gethostbyname_t($host);
 			if ($mxip != $myip) {
@@ -1272,8 +1278,15 @@
 			return $this->create_maildir_backend($this->username, $mailbox);
 		}
 
+		/**
+		 * Create
+		 * @param $user
+		 * @param $mailbox
+		 * @return bool|void
+		 */
 		public function create_maildir_backend($user, $mailbox)
 		{
+			$mailbox = '.' . ltrim($mailbox, '.');
 			if (!preg_match(Regex::EMAIL_MAILDIR_FOLDER, $mailbox)) {
 				return error("invalid maildir folder name `%s'", $mailbox);
 			}
@@ -1291,6 +1304,32 @@
 				return error("mail home `%s' does not exist", $chkvpath);
 			}
 			return \Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($path, $pwd['uid'], $pwd['gid']);
+		}
+
+		/**
+		 * Get DNS records
+		 *
+		 * @param string $domain
+		 * @return array
+		 */
+		public function get_records(string $domain): array {
+			$myip = $this->site_ip_address();
+			$ttl = $this->dns_get_default('ttl');
+			return [
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'mail', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '10 mail.' . $domain]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '20 mail.' . $domain]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'txt', 'parameter' => '"v=spf1 a mx ~all"']),
+				/* webmail */
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'horde', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'roundcube', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+			];
 		}
 
 		public function _delete()

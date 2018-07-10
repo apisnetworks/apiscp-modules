@@ -285,8 +285,9 @@
 			if (!\Opcenter\Database\PostgreSQL::createUser($user, $password)) {
 				return false;
 			}
-			$pghandler->query($vendor->setMaxConnections($user, $maxconn));
-			return true;
+			\Opcenter\Database\PostgreSQL::setRole($user, $this->username);
+			$vendor = \Opcenter\Database\PostgreSQL::vendor();
+			return (bool)\PostgreSQL::initialize()->query($vendor->setMaxConnections($user, $maxconn));
 		}
 
 		/**
@@ -760,21 +761,15 @@
 				$user .= $chars[$n];
 			}
 
-			$sqldb = \PostgreSQL::initialize();
-			$q = "SELECT rolname FROM pg_authid WHERE rolname = '" . $user . "'";
-			$rs = $sqldb->query($q);
-			if ($sqldb->num_rows() > 0) {
+			if ($this->user_exists($user)) {
 				return error("cannot create temp pgsql user");
 			}
 
-			$q = "CREATE ROLE \"" . $user . "\" WITH UNENCRYPTED PASSWORD '" . self::PG_TEMP_PASSWORD . "' INHERIT LOGIN " .
-				"IN ROLE \"" . $this->get_username() . "\"";
-			$rs = $sqldb->query($q);
-
-			if (!$rs || pg_last_error()) {
+			if (!$this->add_user($user, self::PG_TEMP_PASSWORD, 1)) {
 				return error("unable to create role on pgsql database %s", $db);
 			}
 
+			$sqldb = \PostgreSQL::initialize();
 			$q = "SELECT 'GRANT SELECT ON ' || relname || ' TO \"$user\";'
 				FROM pg_class JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
 				WHERE nspname = 'public' AND relkind IN ('r', 'v');";
@@ -824,7 +819,7 @@
 			}
 
 			$dbs = $this->list_databases();
-			if (false === array_search($db, $dbs)) {
+			if (false === array_search($db, $dbs, true)) {
 				return error("database `%s' does not exist", $db);
 			}
 			$unlink = null;
