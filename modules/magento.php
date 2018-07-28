@@ -178,7 +178,7 @@
 				'--dbUser=%(dbuser)s --dbPass=%(dbpass)s --installSampleData=no --dbName=%(dbname)s --magentoVersionByName=' .
 				'%(vername)s';
 			$ret = $this->_exec($docroot, $cmd, $args, $magerunver);
-			if ($magerunconf && $this->file_file_exists($magerunconf)) {
+			if ($magerunconf && $this->file_exists($magerunconf)) {
 				$this->file_delete($magerunconf);
 			}
 			if (!$ret['success']) {
@@ -315,7 +315,7 @@
 		public function get_key()
 		{
 			$file = $this->_keyAuthFile();
-			if (!$this->file_file_exists($file)) {
+			if (!$this->file_exists($file)) {
 				return null;
 			}
 			$contents = json_decode($this->file_get_file_contents($file), true);
@@ -680,7 +680,7 @@
 		public function delete_key()
 		{
 			$file = $this->_keyAuthFile();
-			if (!$this->file_file_exists($file)) {
+			if (!$this->file_exists($file)) {
 				return error("failed to get Magento key file `%s'", $file);
 			}
 			$contents = json_decode($this->file_get_file_contents($file), true);
@@ -698,10 +698,10 @@
 			}
 			$file = $this->_keyAuthFile();
 			$contents = array();
-			if ($this->file_file_exists($file)) {
+			if ($this->file_exists($file)) {
 				$contents = $this->file_get_file_contents($file);
 				$contents = json_decode($contents, true);
-			} else if (!$this->file_file_exists(dirname($file))) {
+			} else if (!$this->file_exists(dirname($file))) {
 				$this->file_create_directory(dirname($file), 0755, true);
 			}
 			if (!isset($contents['http-basic'])) {
@@ -854,7 +854,7 @@
 		{
 			$file = $docroot . '/downloader/connect.cfg';
 			$preamble = '::ConnectConfig::v::1.0::';
-			if ($this->file_file_exists($file)) {
+			if ($this->file_exists($file)) {
 				$raw = $this->file_get_file_contents($file);
 				if (!preg_match('/^((?:::[[[:alnum:].]*]*)+?)([sibNaO]:.*)$/mi', $raw, $preamble)) {
 					return error('cannot set Magento Connect FTP login information, ' .

@@ -115,7 +115,35 @@
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				return $this->admin_get_email();
 			}
+		}
 
+		/**
+		 * Set email for active session
+		 *
+		 * @param $email
+		 * @return bool
+		 */
+		public function set_email(string $email): bool
+		{
+			if ($this->permission_level & PRIVILEGE_SITE) {
+				return $this->site_set_admin_email($email);
+			}
+
+			if ($this->permission_level & PRIVILEGE_USER) {
+				if (!preg_match(Regex::EMAIL, $email)) {
+					return error("invalid email address specified `%s'", $email);
+				}
+				$prefs = \Preferences::factory($this->getAuthContext());
+				$prefs->unlock($this->getApnscpFunctionInterceptor());
+				$prefs['email'] = $email;
+				return true;
+			}
+
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				return $this->admin_set_email($email);
+			}
+
+			return error("unknown authentication level `%d'", $this->permission_level);
 		}
 
 		/**
@@ -587,7 +615,7 @@
 							$val = array_get($procs, $key, 0);
 							break;
 						default:
-							continue;
+							continue 2;
 					}
 					$procs[$key] = trim((string)$val);
 				}
@@ -659,11 +687,12 @@
 		 */
 		public function save_service_information_backend(array $services, bool $journal = false): bool
 		{
+			$suffixed = !platform_is('7.5');
 			foreach ($services as $srvc_name => $data) {
 				array_unshift($data, '[DEFAULT]');
 				$conf = Util_Conf::build_ini($data);
 				if ($journal) {
-					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . '.new', $conf);
+					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . ($suffixed ? '.new' : ''), $conf);
 				} else {
 					file_put_contents($this->domain_info_path() . '/current/' . $srvc_name, $conf);
 				}
@@ -720,7 +749,7 @@
 			$prefs['timezone'] = $zone;
 			// update shell prefs...
 			$bashrc = $this->user_get_home() . '/.bashrc';
-			if (!$this->file_file_exists($bashrc)) {
+			if (!$this->file_exists($bashrc)) {
 				$this->file_touch($bashrc);
 			}
 			// possible race condition
@@ -930,36 +959,34 @@
 		private function _collect_services($mType)
 		{
 			$svc = array();
+			if ($mType ===  'current') {
+				$mType = 'cur';
+			}
 			if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				$path = $this->domain_info_path('/current');
-				if (!file_exists($path . '/siteinfo')) {
-					$path = $this->domain_info_path('/new');
-				}
-				$prefix = dirname($path);
-				$dir = opendir($path);
-				if (!$dir) {
-					fatal('failed to collect services - account meta does not exist?');
-				}
-				while (false !== ($cfg = readdir($dir))) {
-					if ($cfg == "." || $cfg == "..") {
-						continue;
+				$suffixed = !platform_is('7.5');
+				$newpath = $this->domain_info_path('/new');
+				$curpath = $this->domain_info_path('/current');
+				foreach ([$curpath, $newpath] as $path) {
+					$dir = opendir($path);
+					if (!$dir) {
+						fatal('failed to collect services - account meta does not exist?');
 					}
+					while (false !== ($cfg = readdir($dir))) {
+						if ($cfg == "." || $cfg == "..") {
+							continue;
+						}
 
-					if (!file_exists($file = "${prefix}/new/${cfg}.new") &&
-						!file_exists($file = "${prefix}/new/${cfg}"))
-					{
-						// @todo v7.5+ platforms drop .new suffix
-						// update elsewhere
-						$file = $prefix . '/current/' . $cfg;
+						$data = Util_Conf::parse_ini($path . '/' . $cfg);
+						if (false === $data) {
+							return error($cfg . ": parse error");
+						}
+						if ($suffixed && false !== strpos($cfg, '.new')) {
+							$cfg = substr($cfg, 0, -4);
+						}
+						$svc[$cfg] = $data;
 					}
-
-					$data = Util_Conf::parse_ini($file);
-					if (false === $data) {
-						return error($cfg . ": parse error");
-					}
-					$svc[$cfg] = $data;
+					closedir($dir);
 				}
-				closedir($dir);
 			}
 
 			return $svc;
@@ -970,16 +997,17 @@
 			$svcs = (array)$svc;
 			$conf = array();
 			$path = $this->domain_info_path() . '/' . $type;
+			$suffixed = !platform_is('7.5');
 			foreach ($svcs as $s) {
 				$file = $path . '/' . $s;
-				if (!file_exists($file)) {
+				if ($suffixed && $type === 'new') {
 					// older platforms name "new/<svc>.new"
 					// removed as of v7.5
 					$file .= '.' . $type;
-					if (!file_exists($file))
-					{
-						continue;
-					}
+				}
+				if (!file_exists($file))
+				{
+					continue;
 				}
 				$conf[$s] = Util_Conf::parse_ini($file);
 
@@ -1014,7 +1042,7 @@
 		public function _housekeeping() {
 			if (STYLE_ALLOW_CUSTOM) {
 				// @todo permissions should be corrected in build...
-				$path = public_path() . \Frontend\Css\StyleManager::THEME_PATH;
+				$path = public_path(\Frontend\Css\StyleManager::THEME_PATH);
 				if (is_dir($path)) {
 					chown($path, WS_UID);
 				}

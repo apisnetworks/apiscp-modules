@@ -223,7 +223,7 @@
 				return $this->query('watch_lockdown', $path, $diff);
 			}
 
-			if (!$this->file_file_exists($path)) {
+			if (!$this->file_exists($path)) {
 				return error("path `%s' does not exist", $path);
 			}
 			$stat = $this->file_stat($path);

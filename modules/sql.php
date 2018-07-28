@@ -226,6 +226,9 @@
 		 */
 		public function change_prefix($prefix)
 		{
+			if (platform_is('7.5')) {
+				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
+			}
 			if (!IS_CLI) {
 				return $this->query('sql_change_prefix', $prefix);
 			}

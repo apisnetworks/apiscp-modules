@@ -555,7 +555,7 @@
 		 * @return bool  creation succeeded
 		 */
 
-		public function create_database($db, $charset = 'latin1', $collation = 'latin1_general_ci')
+		public function create_database($db, $charset = 'latin1', $collation = 'latin1_swedish_ci')
 		{
 			if (!IS_CLI) {
 				return $this->query('mysql_create_database', $db, $charset, $collation);
@@ -1448,7 +1448,7 @@
 				$file = '/tmp/' . $file;
 			}
 			$pdir = dirname($file);
-			if (!$this->file_file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
+			if (!$this->file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
 				return error("failed to create parent directory, `%s'", $pdir);
 			}
 			$path = $this->file_make_path($file);

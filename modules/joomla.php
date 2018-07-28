@@ -727,7 +727,7 @@
 				}
 			}
 
-			return $this->file_file_exists($docroot . '/libraries/joomla');
+			return $this->file_exists($docroot . '/libraries/joomla');
 		}
 
 		/**
@@ -851,7 +851,7 @@
 
 			$uri = $juext['update']['downloads']['downloadurl'];
 			$path = $docroot . '/tmp/com_joomlaupdate';
-			if ($this->file_file_exists($path)) {
+			if ($this->file_exists($path)) {
 				return false;
 			}
 

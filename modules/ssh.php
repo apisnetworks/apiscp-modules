@@ -91,8 +91,6 @@
 				dlog("Loading terminal...");
 				Service_Terminal::autostart();
 			}
-
-
 		}
 
 		public function _create()

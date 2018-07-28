@@ -21,6 +21,9 @@
 	 */
 	class Ghost_Module extends \Module\Support\Webapps
 	{
+		use \Module\Support\Webapps\Traits\PublicRelocatable {
+			getAppRoot as getAppRootReal;
+		}
 		const APP_NAME = 'Ghost';
 		const GHOST_CLI = 'ghost';
 		const DEFAULT_VERSION_LOCK = 'major';
@@ -93,10 +96,13 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (($memory = $this->get_config('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
+				return error("Ghost requires at least 1024 MB memory, `%s' provided for account", $memory);
+			}
 			// Ghost needs ~500 MB free to install
 			$quota = $this->site_get_account_quota();
 			if ($quota['qhard'] - $quota['qused'] < 500*1024) {
-				return error("Ghost requires ~500 MB free. Only %.2 MB free.", ($quota['qhard']-$quota['qused'])/1024);
+				return error("Ghost requires ~500 MB free. Only %.2f MB free.", ($quota['qhard']-$quota['qused'])/1024);
 			}
 			if (!platform_is('6.5')) {
 				return error('Ghost requires at least a v6.5 platform. Current platform version %s', platform_version());
@@ -114,15 +120,16 @@
 				return error('Ghost may only be installed directly on a subdomain or domain without a child path, e.g. https://domain.com but not https://domain.com/ghost');
 			}
 
-			$this->validateNode();
-			$docroot = $this->getDocumentRoot($hostname, $path);
-			if (!$docroot) {
+
+			if (!($docroot = $this->getDocumentRoot($hostname, $path))) {
 				return error("failed to normalize path for `%s'", $hostname);
 			}
 
-			if (!parent::checkDocroot($docroot)) {
+			if (!parent::checkDocroot($docroot, $opts['user'] ?? null)) {
 				return false;
 			}
+
+			$this->validateNode('lts', $opts['user'] ?? null);
 
 			if (!empty($opts['ssl']) && !parent::configureSsl($hostname)) {
 				return false;
@@ -196,7 +203,8 @@
 				return error('failed to download Ghost v%s: %s - possibly out of storage space?', $args['version'], $ret['stderr']);
 			}
 
-			$this->node_make_default('lts/*', $docroot);
+			$wrapper = empty($opts['user']) ? $this : \apnscpFunctionInterceptor::factory(Auth::context($opts['user'], $this->site));
+			$wrapper->node_make_default('lts/*', $docroot);
 
 			$autogenpw = false;
 			if (!isset($opts['password'])) {
@@ -209,20 +217,6 @@
 			info("setting displayed name to `%s'", $username);
 			$opts['url'] = rtrim($hostname . '/' . $path, '/');
 
-			foreach (['tmp', 'public', 'logs'] as $dir) {
-				$this->file_create_directory("${docroot}/${dir}") || warn("failed to create application directory `%s/%s'", $docroot, $dir);
-			}
-
-			if (!$this->file_put_file_contents($docroot . '/public/.htaccess',
-				'PassengerEnabled on' . "\n" .
-				'PassengerStartupFile current/index.js' . "\n" .
-				'PassengerAppType node' . "\n" .
-				'PassengerNodejs ' . $this->getNodeCommand() . "\n" .
-				'PassengerAppRoot ' . $this->domain_fs_path($docroot) . "\n"
-			)) {
-				return error('failed to create .htaccess control - Ghost is not properly setup');
-			}
-
 			$params = array(
 				'version'    => $this->get_version($hostname, $path),
 				'hostname'   => $hostname,
@@ -230,16 +224,36 @@
 				'autoupdate' => (bool)$opts['autoupdate'],
 				'options'    => array_except($opts, 'version')
 			);
-			$approot = $docroot;
 			if (!$this->fixSymlink($docroot)) {
-				return error('Failed to correct current/ symlink');
+				return error("Failed to correct current/ symlink in `%s'", $docroot);
 			}
+			$this->fixThemeLink($docroot);
+
 			if (null === ($docroot = $this->remapPublic($hostname, $path))) {
-				$docroot = $this->getDocumentRoot($hostname, $path);
 				// it's more reasonable to fail at this stage, but let's try to complete
-				$approot = $docroot;
-				warn("Failed to remap Ghost to public/, manually remap from `%s'", $docroot);
+				return error("Failed to remap Ghost to public/, manually remap from `%s' - Ghost setup is incomplete!", $docroot);
 			}
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			$approot = $this->getAppRoot($hostname, $path);
+
+			foreach (['tmp', 'public', 'logs'] as $dir) {
+				( $this->file_create_directory("${approot}/${dir}") &&
+					$this->file_chown("${approot}/${dir}", $opts['user'] ?? $this->username)
+				) || warn("failed to create application directory `%s/%s'", $docroot, $dir);
+			}
+
+			if (!$this->file_put_file_contents($approot . '/public/.htaccess',
+				'# Enable caching' . "\n" .
+				'UnsetEnv no-cache' . "\n" .
+				'PassengerEnabled on' . "\n" .
+				'PassengerStartupFile current/index.js' . "\n" .
+				'PassengerAppType node' . "\n" .
+				'PassengerNodejs ' . $this->getNodeCommand('lts', $opts['user'] ?? null) . "\n" .
+				'PassengerAppRoot ' . $this->domain_fs_path($approot) . "\n"
+			)) {
+				return error('failed to create .htaccess control - Ghost is not properly setup');
+			}
+
 			$this->map('add', $docroot, $params);
 			$this->linkConfiguration($approot, 'production');
 			
@@ -300,9 +314,7 @@
 		 */
 		protected function getAppRoot(string $hostname, string $path = ''): ?string
 		{
-			// Ghost/Laravel app root resides 1 level down
-			$path = $this->web_normalize_path($hostname, $path);
-			return $path ? dirname($path) : null;
+			return $this->getAppRootReal($hostname, $path);
 		}
 
 		/**
@@ -314,7 +326,7 @@
 		 */
 		private function linkConfiguration(string $approot, string $appenv = 'production'): bool
 		{
-			if ($this->file_file_exists($approot . "/current/config.${appenv}.json")) {
+			if ($this->file_exists($approot . "/current/config.${appenv}.json")) {
 				return true;
 			}
 			return $this->file_symlink($approot . "/config.${appenv}.json", $approot . "/current/config.${appenv}.json") ||
@@ -357,7 +369,7 @@
 					'NODE_ENV' => 'production'
 				], ['user' => $user]);
 
-			if (!strncmp($ret['stdout'], 'Error:', strlen('Error:'))) {
+			if (!strncmp(coalesce($ret['stderr'], $ret['stdout']), 'Error:', strlen('Error:'))) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
 				if (!$ret['stderr']) {
@@ -395,9 +407,19 @@
 			if (!$contents) {
 				return array();
 			}
-			$versions = array_reverse(json_decode($contents, true));
+			$versions = json_decode($contents, true);
 			array_walk($versions, function (&$a) {
 				$a['version'] = $a['tag_name'];
+			});
+
+			usort($versions, function ($a, $b) {
+				if (version_compare($a['version'], $b['version'], '<')) {
+					return -1;
+				}
+				if (version_compare($a['version'], $b['version'], '>')) {
+					return 1;
+				}
+				return 0;
 			});
 			$cache->set($key, $versions, 43200);
 			return $versions;
@@ -427,6 +449,7 @@
 		 */
 		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
 		{
+			$this->kill($hostname, $path);
 			return parent::uninstall($hostname, $path, $delete);
 		}
 
@@ -440,14 +463,18 @@
 		public function valid(string $hostname, string $path = ''): bool
 		{
 			if ($hostname[0] === '/') {
-				$approot = \dirname($hostname);
+				if (! ($path = realpath($this->domain_fs_path($hostname))) ) {
+					return false;
+				}
+				$approot = \dirname($path);
 			} else {
 				$approot = $this->getAppRoot($hostname, $path);
 				if (!$approot) {
 					return false;
 				}
+				$approot = $this->domain_fs_path($approot);
 			}
-			return file_exists($this->domain_fs_path() . $approot . '/current/core/server/lib/ghost-version.js');
+			return file_exists($approot . '/current/core/server/lib/ghost-version.js');
 		}
 
 		/**
@@ -461,13 +488,12 @@
 		{
 			$approot = $this->getAppRoot($hostname, $path);
 			if (!$approot) {
-				error('failed to determine Ghost config');
+				error('failed to determine Ghost config - ' . $approot);
 				return [];
 			}
-
 			foreach (['development','production'] as $env) {
 				$path = "${approot}/config.${env}.json";
-				if ($this->file_file_exists($path)) {
+				if ($this->file_exists($path)) {
 					// @todo unify config into a consistent object
 					$json = json_decode($this->file_get_file_contents($path), true)['database']['connection'];
 					if (!$json) {
@@ -635,8 +661,10 @@
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret['success']
 			]);
-			return $ret['success'] ?: error("failed to update Ghost: %s", coalesce($ret['stderr'], $ret['stdout']))
-				&& $this->migrate($approot);
+			if (!$ret['success']) {
+				return error("failed to update Ghost: %s", coalesce($ret['stderr'], $ret['stdout']));
+			}
+			return $this->migrate($approot) && ($this->kill($hostname, $path) || true);
 		}
 
 		/**
@@ -728,17 +756,27 @@
 		 * Verify Node LTS is installed
 		 *
 		 * @param string|null $version optional version to compare against
+		 * @param string|null $user
 		 * @return bool
 		 */
-		protected function validateNode(string $version = null): bool
+		protected function validateNode(string $version = 'lts', string $user = null): bool
 		{
-			if (!$this->node_installed('lts') && !$this->node_install('lts')) {
-				return error('failed to install Node LTS');
+			if ($user) {
+				$afi = \apnscpFunctionInterceptor::factory(Auth::context($user, $this->site));
 			}
-			$this->_exec('~', 'nvm use --delete-prefix --lts');
-			$ret = $this->node_do('lts', 'npm install -g ghost-cli');
+			$wrapper = $afi ?? $this;
+			if (!$wrapper->node_installed($version) && !$wrapper->node_install($version)) {
+				return error('failed to install Node %s', $version);
+			}
+			$wrapper->node_do($version, 'nvm use --delete-prefix --lts');
+			$ret = $wrapper->node_do($version, 'npm install -g ghost-cli');
 			if (!$ret['success']) {
 				return error('failed to install ghost-cli: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
+			}
+			$home = $this->user_get_home($user);
+			$stat = $this->file_stat($home);
+			if (!$stat || !$this->file_chmod($home, decoct($stat['permissions'])|0001)) {
+				return error("failed to query user home directory `%s' for user `%s'", $home, $user);
 			}
 			return true;
 		}
@@ -747,12 +785,48 @@
 		 * Get path to active Node
 		 *
 		 * @param string|null $version
+		 * @param string|null $user
 		 * @return null|string
 		 */
-		protected function getNodeCommand(string $version = null): ?string
+		protected function getNodeCommand(string $version = 'lts', string $user = null): ?string
 		{
-			$ret = $this->node_do('lts', 'which node');
+			if ($user) {
+				$afi = \apnscpFunctionInterceptor::factory(Auth::context($user, $this->site));
+			}
+			$ret = ($afi ?? $this)->node_do($version, 'which node');
 			return $ret['success'] ? trim($ret['output']) : null;
+		}
+
+		/**
+		 * Correct theme link when Ghost is installed in primary docroot
+		 *
+		 * @param string $approot
+		 * @return bool
+		 */
+		private function fixThemeLink(string $approot): bool
+		{
+			$path = $this->domain_fs_path("${approot}/content/themes");
+			if (!file_exists($path)) {
+				return warn("Cannot correct theme symlinks, cannot find theme path");
+			}
+			$dh = opendir($path);
+			while (false !== ($file = readdir($dh))) {
+				if ($file === '.' || $file === '..') {
+					continue;
+				}
+				if (!is_link("${path}/${file}")) {
+					continue;
+				}
+				$link = readlink("${path}/${file}");
+				if (0 !== strpos($link . '/', Web_Module::MAIN_DOC_ROOT . '/')) {
+					continue;
+				}
+				$localpath = $this->file_unmake_path("${path}/${file}");
+				$this->file_delete($localpath) && $this->file_symlink($approot . substr($link, strlen(Web_Module::MAIN_DOC_ROOT)),
+					$localpath);
+			}
+			closedir($dh);
+			return true;
 		}
 
 		/**
@@ -773,10 +847,12 @@
 				$stat = $this->file_stat("${approot}/current");
 				return !empty($stat['referent']) ? true : error("${approot}/current does not point to an active Ghost install");
 			}
+
 			if (0 !== strpos($link, $approot)) {
 				return false;
 			}
-			return $this->file_delete($approot .'/current') && $this->file_symlink($link, $approot . '/current');
+			return $this->file_delete($approot .'/current') && $this->file_symlink($link, $approot . '/current') &&
+				$this->file_chown_symlink($approot . '/current', $this->file_stat($approot)['owner']);
 		}
 	}
 

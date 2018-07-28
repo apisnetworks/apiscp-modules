@@ -74,8 +74,7 @@
 		 */
 		public function session_info()
 		{
-			$auth = Auth::autoload()->authInfo();
-			return (array)$auth;
+			return (array)$this->getAuthContext();
 		}
 
 		/**
@@ -474,6 +473,9 @@
 		 */
 		public function change_domain($domain)
 		{
+			if (platform_is('7.5')) {
+				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
+			}
 			if (!IS_CLI) {
 				$olddomain = $this->domain;
 				$ret = $this->query('auth_change_domain', $domain);
@@ -529,9 +531,9 @@
 			// alternatively use $this->set_config_journal() and require a sync
 			$proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
 			$proc->setConfig('siteinfo', 'domain', $domain)->
-			setConfig('proftpd', 'ftpserver', 'ftp' . $domain)->
-			setConfig('apache', 'webserver', 'www.' . $domain)->
-			setConfig('sendmail', 'mailserver', 'mail.' . $domain);
+				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('proftpd'), 'ftpserver', 'ftp' . $domain)->
+				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('apache'), 'webserver', 'www.' . $domain)->
+				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('sendmail'), 'mailserver', 'mail.' . $domain);
 			return $proc->edit();
 		}
 
@@ -543,6 +545,9 @@
 		 */
 		public function change_username($user): bool
 		{
+			if (platform_is('7.5')) {
+				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
+			}
 			if (!IS_CLI) {
 				$olduser = $this->username;
 				$ret = $this->query('auth_change_username', $user);

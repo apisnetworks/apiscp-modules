@@ -132,7 +132,7 @@
 					}
 					$bw_rs = $bw_rs->fetch_object();
 					// @BUG account has no bandwidth enddate
-					if ((!$bw_rs || !$bw_rs->begindate) && $this->get_service_value('bandwidth', 'enabled')) {
+					if ($bw_rs && !$bw_rs->begindate && $this->get_service_value('bandwidth', 'enabled')) {
 						$ret = $this->_autofix_bandwidth($site_id, $this->get_service_value('bandwidth', 'rollover'));
 						if (!$ret) {
 							return error("failed to autofix bandwidth for site `%d'", $this->site_id);

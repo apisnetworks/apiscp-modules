@@ -24,25 +24,19 @@
 		const ADMIN_CONFIG = '.config/';
 		const ADMIN_CONFIG_LEGACY = '/etc/appliance/appliance.ini';
 
-		/**
-		 * {{{ void __construct(void)
-		 *
-		 * @ignore
-		 */
-		public function __construct()
-		{
-			parent::__construct();
-			$this->exportedFunctions =
-				array('*' => PRIVILEGE_ADMIN);
-		}
+		protected $exportedFunctions = [
+			'*' => PRIVILEGE_ADMIN
+		];
+
 		/* }}} */
 
 		/**
 		 * List all domains on the server
 		 *
 		 * @return array
+		 * @throws PostgreSQLError
 		 */
-		public function get_domains()
+		public function get_domains(): array
 		{
 
 			$q = \PostgreSQL::initialize()->query("SELECT domain,site_id FROM siteinfo ORDER BY domain");
@@ -57,9 +51,10 @@
 		 * Get e-mail from domain
 		 *
 		 * @param  string $domain
-		 * @return string
+		 * @return bool|string address or false on error
+		 * @throws PostgreSQLError
 		 */
-		public function get_address_from_domain($domain)
+		public function get_address_from_domain(string $domain)
 		{
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				return error("invalid domain `%s'", $domain);
@@ -80,24 +75,34 @@
 		 * Translate domain to id
 		 *
 		 * @param  string $domain domain
-		 * @return int
+		 * @return null|int
+		 * @throws PostgreSQLError
 		 */
-		public function get_site_id_from_domain($domain)
+		public function get_site_id_from_domain($domain): ?int
 		{
 			if (!preg_match(Regex::DOMAIN, $domain)) {
-				return error("invalid domain `%s'", $domain);
+				error("invalid domain `%s'", $domain);
+				return null;
 			}
 			$pgdb = \PostgreSQL::initialize();
 			$q = $pgdb->query("SELECT site_id FROM siteinfo WHERE domain = '" . $domain . "'");
 			if ($pgdb->num_rows() > 0) {
-				return $q->fetch_object()->site_id;
+				return (int)$q->fetch_object()->site_id;
 			}
 			$id = Auth::get_site_id_from_domain($domain);
 			return $id;
 
 		}
 
-		public function get_meta_from_domain($domain, $service, $class = null)
+		/**
+		 * Get account metadata
+		 *
+		 * @param string $domain
+		 * @param string $service
+		 * @param string $class
+		 * @return array|bool|mixed|void
+		 */
+		public function get_meta_from_domain(string $domain, string $service, string $class = null)
 		{
 
 			if (!IS_CLI) {
@@ -106,25 +111,21 @@
 			$site = $domain;
 
 			// $domain passed as site
-			if (substr($domain, 0, 4) != 'site' || intval($domain) != substr($domain, 4)) {
+			if (strpos($domain, 'site') !== 0 || (int)$domain !== substr($domain, 4)) {
 				$tmp = Auth::get_site_id_from_domain($domain);
 				if (!$tmp) {
 					return error("unknown domain `$domain'");
 				}
 				$site = 'site' . $tmp;
-			} else {
-				if (!Auth::site_exists($site)) {
-					return error("site `%s' out of bounds", $site);
-				}
+			} else if (!Auth::site_exists($site)) {
+				return error("site `%s' out of bounds", $site);
 			}
 			$file = '/home/virtual/' . $site . '/info/current/' . $service;
-			$new = '/home/virtual/' . $site . '/info/new/' . $service . '.new';
+			$new = '/home/virtual/' . $site . '/info/new/' . $service . (!platform_is('7.5') ? '.new' : '');
 			if (file_exists($new)) {
 				$file = $new;
-			} else {
-				if (!file_exists($file)) {
-					return error("service `$service' not installed for `$domain'");
-				}
+			} else if (!file_exists($file)) {
+				return error("service `$service' not installed for `$domain'");
 			}
 
 			$meta = Util_Conf::parse_ini($file);
@@ -336,7 +337,156 @@
 			return $count;
 		}
 
+		/**
+		 * Locate webapps under site
+		 *
+		 * @param string|array $site
+		 * @return array
+		 */
 		public function locate_webapps($site = null): array {
 			return \Module\Support\Webapps\Finder::find($site);
+		}
+
+		/**
+		 * Delete site
+		 *
+		 * @param string $site
+		 * @return bool
+		 */
+		public function delete_site(string $site): bool {
+			if (!IS_CLI) {
+				return $this->query('admin_delete_site', $site);
+			}
+
+			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/DeleteDomain --output=json %s', $site);
+			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Add site
+		 *
+		 * @param string $domain
+		 * @param string $admin
+		 * @param array  $opts
+		 * @return bool
+		 */
+		public function add_site(string $domain, string $admin, array $opts = []): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_add_site', $domain, $admin, $opts);
+			}
+			array_set($opts, 'siteinfo.admin_user', $admin);
+			array_set($opts, 'siteinfo.domain', $domain);
+			$cmd = implode(' ', array_key_map(function ($key, $val) {
+				return '-c ' . escapeshellarg(str_replace_first('.', ',',
+						$key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
+			}, array_dot($opts)));
+
+			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . "/bin/AddDomain --output=json ${cmd}");
+			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Edit site
+		 *
+		 * @param string $site
+		 * @param array  $opts
+		 * @return bool
+		 */
+		public function edit_site(string $site, array $opts = []): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_edit_site', $site);
+			}
+			$cmd = implode(' ', array_key_map(function($key, $val) {
+				return '-c ' . escapeshellarg(str_replace_first('.', ',', $key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
+			}, array_dot($opts)));
+			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . "/bin/EditDomain --output=json ${cmd} %s", $site);
+			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+
+			return $ret['success'] ;
+		}
+
+		/**
+		 * Activate site
+		 *
+		 * @param string $site
+		 * @return bool
+		 */
+		public function activate_site(string $site): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_activate_site', $site);
+			}
+
+			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/ActivateDomain --output=json %s', $site);
+			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Deactivate site
+		 *
+		 * @param string $site
+		 * @return bool
+		 */
+		public function deactivate_site(string $site): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_deactivate_site', $site);
+			}
+
+			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/SuspendDomain --output=json %s', $site);
+			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Hijack a user account
+		 *
+		 * Replaces current session with new account session
+		 *
+		 * @param string      $site
+		 * @param string|null $user
+		 * @return null|string
+		 */
+		public function hijack(string $site, string $user = null): ?string
+		{
+			$context = \Auth::context($user, $site);
+			\apnscpSession::init()->read($context->id);
+			$this->setApnscpFunctionInterceptor(\apnscpFunctionInterceptor::factory($context));
+			return $context->id;
+		}
+
+		/**
+		 * Get server storage usage
+		 *
+		 * @return array
+		 */
+		public function get_storage(): array {
+			$mounts = $this->stats_get_partition_information();
+			for ($i = 0, $n = count($mounts); $i < $n; $i++) {
+				$mount = $mounts[$i];
+				if ($mount['mount'] != '/') {
+					continue;
+				}
+				return [
+					'qused' => $mount['used'],
+					'qhard' => $mount['size'],
+					'qsoft' => $mount['size'],
+					'fused' => 0,
+					'fsoft' => PHP_INT_MAX,
+					'fhard' => PHP_INT_MAX
+				];
+
+			}
+			warn("Failed to locate root partition / - storage information incomplete");
+			return [];
 		}
 	}

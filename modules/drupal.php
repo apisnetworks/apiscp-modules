@@ -125,7 +125,7 @@
 					coalesce($ret['stderr'], $ret['stdout'])
 				);
 			}
-			if ($this->file_file_exists($docroot)) {
+			if ($this->file_exists($docroot)) {
 				$this->file_delete($docroot, true);
 			}
 
@@ -339,8 +339,8 @@
 				}
 			}
 
-			return $this->file_file_exists($docroot . '/sites/default')
-				|| $this->file_file_exists($docroot . '/sites/all');
+			return $this->file_exists($docroot . '/sites/default')
+				|| $this->file_exists($docroot . '/sites/all');
 		}
 
 		/**
@@ -699,7 +699,7 @@
 
 			// save .htaccess
 			$htaccess = $docroot . DIRECTORY_SEPARATOR . '.htaccess';
-			if ($this->file_file_exists($htaccess) && !$this->file_move($htaccess, $htaccess . '.bak', true)) {
+			if ($this->file_exists($htaccess) && !$this->file_move($htaccess, $htaccess . '.bak', true)) {
 				return error('upgrade failure: failed to save copy of original .htaccess');
 			}
 			$this->file_purge();
@@ -711,7 +711,7 @@
 			$this->file_purge();
 			$this->_setMaintenance($docroot, false, $current);
 
-			if ($this->file_file_exists($htaccess . '.bak') && !$this->file_move($htaccess . '.bak', $htaccess, true)
+			if ($this->file_exists($htaccess . '.bak') && !$this->file_move($htaccess . '.bak', $htaccess, true)
 				&& ($this->file_purge() || true)
 			) {
 				warn("failed to rename backup `%s/.htaccess.bak' to .htaccess", $docroot);

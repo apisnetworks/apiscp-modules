@@ -47,7 +47,7 @@
 
 		public function scan($file)
 		{
-			if (!$this->file_file_exists($file)) {
+			if (!$this->file_exists($file)) {
 				$this->file_touch($file);
 			}
 			$splfile = $this->_getSPLObjectFromFile($file);
@@ -211,7 +211,7 @@
 			$controlpath = $docroot . DIRECTORY_SEPARATOR . self::CONTROL_FILE;
 			$olddata = '';
 			// do a check to make sure data is consistent
-			if ($this->file_file_exists($controlpath)) {
+			if ($this->file_exists($controlpath)) {
 				$olddata = $this->file_get_file_contents($controlpath);
 				if ($this->hash($controlpath) != $hash) {
 					return error("control file `%s' out of sync", $controlpath);
@@ -273,7 +273,7 @@
 					 */
 
 				} else {
-					if (!$this->file_file_exists($obj)) {
+					if (!$this->file_exists($obj)) {
 						return error("unknown control file `%s'", $obj);
 					}
 

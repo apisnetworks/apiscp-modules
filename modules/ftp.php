@@ -67,7 +67,7 @@
 			file_put_contents($this->domain_fs_path(self::VSFTPD_CHROOT_FILE),
 				join("\n", $chroot_users) . "\n");
 			if ($dir) {
-				if (!$this->file_file_exists($dir)) {
+				if (!$this->file_exists($dir)) {
 					$this->file_create_directory($dir, 0755, true);
 				} else {
 					$stat = $this->file_stat($dir);

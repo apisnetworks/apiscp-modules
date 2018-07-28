@@ -865,8 +865,11 @@
 
 			$checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
 			if (\Util_PHP::is_link($checkpath)) {
-				// take the referent always
-				$checkpath = realpath($checkpath);
+				// take the referent unless the path doesn't exist
+				// let the API figure out what to do with it
+				if (false === ($checkpath = realpath($checkpath))) {
+					return $docroot;
+				}
 				if (0 !== strpos($checkpath, $prefix)) {
 					error("docroot for `%s/%s' exceeds site root", $hostname, $path);
 					return null;
@@ -884,7 +887,7 @@
 				$this->pathCache[$hostname] = [];
 			}
 			$this->pathCache[$hostname][$path] = $docroot;
-			return $docroot;
+			return $docroot ?: null;
 		}
 
 		/**
@@ -1028,11 +1031,11 @@
 
 		public function get_hostname_from_docroot(string $docroot): ?string {
 			$docroot = rtrim($docroot, '/');
-			if ($docroot === '/var/www/html') {
+			if ($docroot === static::MAIN_DOC_ROOT) {
 				return $this->get_service_value('siteinfo', 'domain');
 			}
 			$aliases = $this->aliases_list_shared_domains();
-			if (false !== ($domain = array_search($docroot, $aliases))) {
+			if (false !== ($domain = array_search($docroot, $aliases, true))) {
 				return $domain;
 			}
 

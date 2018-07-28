@@ -289,7 +289,7 @@
 			// pre-flight checks done, let's install
 			if (!$overwrite || !$this->enabled()) {
 				$cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
-				$cmd->setConfig('openssl', 'enabled', 1);
+				$cmd->setConfig(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled', 1);
 				// ensure HTTP config is rebuild
 				$cmd->edit();
 			}
@@ -306,7 +306,7 @@
 		}
 
 		public function enabled(): bool {
-			return (bool)$this->get_service_value('openssl', 'enabled');
+			return (bool)$this->get_service_value(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled');
 		}
 
 		/**
@@ -658,7 +658,7 @@
 			}
 			// reload HTTP server and rebuild config
 			$editor = new Util_Account_Editor($this->getAuthContext()->getAccount());
-			$editor->setConfig('openssl', 'enabled', 0);
+			$editor->setConfig(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled', 0);
 			$status = $editor->edit();
 			if (!$status) {
 				return error("failed to deactivate openssl on account");

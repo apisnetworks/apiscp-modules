@@ -20,12 +20,15 @@
 	 */
 	class Laravel_Module extends \Module\Support\Webapps\Composer
 	{
+		use \Module\Support\Webapps\Traits\PublicRelocatable {
+			getAppRoot as getAppRootReal;
+		}
 		const APP_NAME = 'Laravel';
 
 		const VERSION_CHECK_URL = 'https://packagist.org/p/laravel/framework.json';
 
 		// every Laravel app should contain artisan one level down...
-		const LARAVEL_CLI = '../artisan';
+		const LARAVEL_CLI = 'artisan';
 		const DEFAULT_VERSION_LOCK = 'minor';
 
 		protected $_aclList = array(
@@ -41,7 +44,6 @@
 				'/bootstrap/cache'
 			)
 		);
-		private $_versionCache = array();
 
 		/**
 		 * Install Laravel into a pre-existing location
@@ -67,9 +69,15 @@
 				return error("Composer projects may only be installed directly on a subdomain or domain without a child path, e.g. https://domain.com but not https://domain.com/laravel");
 			}
 
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			if (!($docroot = $this->getDocumentRoot($hostname, $path))) {
+				return error("failed to normalize path for `%s'", $hostname);
+			}
 
-			if (!parent::checkDocroot($docroot)) {
+			if (!parent::checkDocroot($docroot, $opts['user'] ?? null)) {
+				return false;
+			}
+
+			if (!parent::checkVersion($opts)) {
 				return false;
 			}
 
@@ -87,73 +95,62 @@
 			if (!isset($opts['autoupdate'])) {
 				$opts['autoupdate'] = true;
 			}
-
-			if (!parent::checkEmail($opts)) {
-				return false;
+			if (!isset($opts['verlock'])) {
+				$opts['verlock'] = static::DEFAULT_VERSION_LOCK;
 			}
 
-			// toss all projects in ~/laravel-projects
-			if (!isset($opts['projectname'])) {
-				$home = $this->user_get_home();
-				$parent = $home . '/laravel-projects';
-				$opts['projectname'] = $parent . '/' . $hostname . ($path ? '-' . $path : '');
-				if (!$this->file_file_exists($parent) && !$this->file_create_directory($parent)) {
-					return error('unable to create laravel project directory - home missing?');
-				}
-			} else if (!$this->file_file_exists(dirname($opts['projectname']))) {
-				return error("parent directory `%s' does not exist", dirname($opts['projectname']));
-			}
-
-			if ($this->file_file_exists($opts['projectname'])) {
-				$files = $this->file_get_directory_contents($opts['projectname']);
-				if (count($files)) {
-					return error("directory `%s' must be empty", $opts['projectname']);
-				}
-				$this->file_delete($opts['projectname'], true);
-			}
-
-			$approot = $opts['projectname'];
-			/*$ret = $this->_execComposer(null, 'global require "laravel/installer"');
-
+			$ret = $this->_execComposer($docroot, 'init --name=%(project)s',
+				[
+					'project' => $hostname
+				]);
 			if (!$ret['success']) {
-				return error("failed to install laravel installer via composer: `%s'",
+				return error("failed to init composer project: %s", coalesce($ret['stderr'], $ret['stdout']));
+			}
+			$lock = $this->parseLock($opts['verlock'], $opts['version']);
+			// framework pulls in laravel/laravel package location
+			$ret = $this->_execComposer($docroot, 'require laravel/framework \'%(version)s\'', ['version' => $lock]);
+			if (!$ret['success']) {
+				return error('failed to install Laravel, error: %s',
 					coalesce($ret['stderr'], $ret['stdout'])
 				);
 			}
-*/
-			if (!isset($opts['autoupdate'])) {
-				$opts['autoupdate'] = true;
-				$opts['updatestrategy'] = 'patch';
-			}
 
-			$home = $this->user_get_home();
-
-			$ret = $this->_exec(
-				dirname($opts['projectname']),
-				'%(home)s/.composer/vendor/bin/laravel --no-interaction -q %(dev)s new %(project)s',
+			$ret = $this->_execComposer($docroot, 'require laravel/laravel \'%(version)s\'',
 				[
-					'home'        => $home,
-					'dev'         => !empty($opts['dev']) ? '--dev' : null,
-					'projecthome' => dirname($opts['projectname']),
-					'project'     => basename($opts['projectname'])
+					'version' => $lock
 				]
 			);
-
 			if (!$ret['success']) {
-				return error('failed to install Laravel, error: %s',
-					$ret['stderr']
+				return error("failed to download laravel/laravel package: %s",
+					coalesce($ret['stderr'], $ret['stdout'])
 				);
 			}
-			if ($this->file_file_exists($docroot)) {
-				$this->file_delete($docroot, true);
+			if (null === ($docroot = $this->remapPublic($hostname, $path))) {
+				// it's more reasonable to fail at this stage, but let's try to complete
+				return error("Failed to remap Laravel to public/, manually remap from `%s' - Laravel setup is incomplete!",
+					$docroot);
 			}
-			$this->file_symlink($approot . '/public', $docroot);
+			$approot = $this->getAppRoot($hostname, $path);
+			$ret = $this->pman_run('/bin/mv %(approot)s/vendor/laravel/laravel/{*,.e*,.g*} %(approot)s/', ['approot' => $approot], [], ['user' => $opts['user'] ?? $this->username]);
+			if (!$ret['success']) {
+				return error("failed to copy Laravel files into doc root: %s", $ret['stderr']);
+			}
+			$this->_execComposer($approot, 'composer config name %(hostname)s', ['hostname' => $hostname]);
+			$this->file_delete($approot . '/vendor/laravel/laravel', true);
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			$commands = [
+				'install --no-scripts',
+				'run-script post-root-package-install',
+				'run-script post-create-project-cmd',
+				'run-script post-autoload-dump'
+			];
+			foreach ($commands as $cmd) {
+				$this->_execComposer($approot, $cmd);
+			}
+
 			// ensure it's reachable
-			$stat = $this->file_stat($home);
-			$this->file_chmod($home, decoct($stat['permissions']) | 001);
 			$this->_fixCache($approot);
 
-			return false;
 			$db = $this->_suggestDB($hostname);
 			if (!$db) {
 				return false;
@@ -165,84 +162,144 @@
 			}
 			$dbpass = $this->suggestPassword();
 			$credentials = array(
-				'db'       => $db,
-				'user'     => $dbuser,
-				'password' => $dbpass
+				'dbname'     => $db,
+				'dbuser'     => $dbuser,
+				'dbpassword' => $dbpass
 			);
 
 			if (!$this->sql_create_mysql_database($db)) {
 				return error("failed to create suggested db `%s'", $db);
-			} else {
-				if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-					$this->sql_delete_mysql_database($db);
-
-					return error("failed to create suggested user `%s'", $dbuser);
-				} else {
-					if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db,
-						array('read' => true, 'write' => true))
-					) {
-						$this->sql_delete_mysql_user($dbuser, 'localhost');
-						$this->sql_delete_mysql_database($db);
-
-						return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-					}
-				}
 			}
+			if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
+				$this->sql_delete_mysql_database($db);
+				return error("failed to create suggested user `%s'", $dbuser);
+			}
+			if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db,
+				array('read' => true, 'write' => true)))
+			{
+				$this->sql_delete_mysql_user($dbuser, 'localhost');
+				$this->sql_delete_mysql_database($db);
+				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
+			}
+
 			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
 				info("added database backup task for `%s'", $db);
 			}
 
-			if (!$this->_generateNewConfig($hostname, $approot, $credentials)) {
+			$fqdn = $this->web_normalize_hostname($hostname);
+			$args['uri'] = rtrim($fqdn . '/' . $path, '/');
+			$args['proto'] = empty($opts['ssl']) ? 'http://' : 'https://';
+			if (!$this->setConfiguration($approot, $docroot, array_merge($credentials, $args))) {
 				info('removing temporary files');
+				return false;
 				$this->file_delete($approot, true);
 				$this->sql_delete_mysql_database($db);
 				$this->sql_delete_mysql_user($dbuser, 'localhost');
-
-				return false;
+				return error("failed to set .env configuration");
 			}
 
-
-			$args = array(
-				'email'    => $opts['email'],
-				'mode'     => 'install',
-				'url'      => $opts['url'],
-				'title'    => $opts['title'],
-				'user'     => $opts['user'],
-				'password' => $opts['password']
-			);
-
-			$ret = $this->_exec($approot, 'core %(mode)s --admin_email=%(email)s --skip-email ' .
-				'--url=%(url)s --title=%(title)s --admin_user=%(user)s ' .
-				'--admin_password=%(password)s', $args);
-			if (!$ret['success']) {
-				return error('failed to create database structure: %s', $ret['stderr']);
+			$commands = [
+				'key:generate',
+				'queue:seed',
+				'migrate'
+			];
+			foreach ($commands as $cmd) {
+				$this->_exec($approot, './artisan ' . $cmd);
 			}
+
 			// by default, let's only open up ACLs to the bare minimum
 			$this->fortify($hostname, $path, 'max');
 
-			if (!$version) {
-				$version = $this->_getLastestVersion();
-			}
 			$params = array(
-				'version'     => $version,
+				'version'     => $this->get_version($hostname, $path),
 				'hostname'    => $hostname,
 				'autoupdate'  => (bool)$opts['autoupdate'],
-				'fortify'     => 'min',
-				'updatelimit' => 'patch'
+				'options'     => array_except($opts, 'version'),
 			);
-			$this->map('add', $approot, $params);
-			if (false === strpos($hostname, '.')) {
-				$hostname = $hostname . '.' . $this->domain;
+			$this->map('add', $docroot, $params);
+			$this->fixRewriteBase($docroot);
+			$email = $opts['email'] ?? $this->common_get_email();
+			$this->buildConfig($approot, $docroot);
+			if (array_get($opts, 'notify', true)) {
+				\Lararia\Bootstrapper::minstrap();
+				\Illuminate\Support\Facades\Mail::to($email)->
+				send((new \Module\Support\Webapps\Mailer('install.laravel', [
+					'uri'      => $args['uri'],
+					'proto'    => $args['proto'],
+					'appname'  => static::APP_NAME,
+					'approot'  => $approot
+				]))->setAppName(static::APP_NAME));
 			}
-			$url = 'http://' . $hostname . '/' . $path;
-			$msg = 'Hello!' . "\r\n" .
-				'This is a confirmation that Laravel has been installed under ' . $approot .
-				'. You may access Laravel via ' . $url . "\r\n";
-			$hdrs = 'From: ' . Crm_Module::FROM_NAME . ' <' . Crm_Module::FROM_ADDRESS . ">\r\nReply-To: " . Crm_Module::REPLY_ADDRESS;
-			Mail::send($opts['email'], 'Laravel Installed', $msg, $hdrs);
-			info('Laravel installed - confirmation email with login info sent to %s', $opts['email']);
 
-			return true;
+			if (!$opts['squash']) {
+				parent::unsquash(dirname($docroot));
+			}
+
+			return info("Laravel installed on %s", $args['uri']);
+		}
+
+		/**
+		 * Restrict version semantically
+		 *
+		 * @param string $lockType
+		 * @param string $version
+		 * @return string
+		 */
+		private function parseLock(string $lockType, string $version): string
+		{
+			switch ($lockType) {
+				case 'major':
+					return '~' . \Opcenter\Versioning::asMinor($version);
+				case 'minor':
+					return \Opcenter\Versioning::asMinor($version) . '.*';
+				case 'patch':
+					return $version;
+				case '':
+					return '>' . $version;
+				default:
+					warn("unknown lock type `%s' - restricting to `%s'", $lockType, $version);
+					return $version;
+			}
+		}
+
+		private function setConfiguration(string $approot, string $docroot, array $config) {
+			$envcfg = (new \Opcenter\Provisioning\ConfigurationWriter("webapps.laravel.env", \Opcenter\SiteConfiguration::import($this->getAuthContext())))
+				->compile($config);
+			$this->file_put_file_contents("${approot}/.env", (string)$envcfg);
+			return $this->buildConfig($approot, $docroot);
+		}
+
+		/**
+		 * Rebuild config and force frontend cache
+		 *
+		 * @param string $approot
+		 * @param string $docroot
+		 * @return bool
+		 */
+		private function buildConfig(string $approot, string $docroot): bool
+		{
+			$ret = $this->_exec($approot, 'artisan config:cache');
+			if (!$ret['success']) {
+				return error("config rebuild failed: %s", coalesce($ret['stderr'], $ret['stdout']));
+			}
+			if (!($uri = $this->web_get_hostname_from_docroot($docroot))) {
+				return error("no URI specified, cannot deduce URI from docroot `%s'", $docroot);
+			}
+			$uri = $this->web_normalize_hostname($uri);
+			$ctx = stream_context_create(array(
+				'http' =>
+					array(
+						'timeout' => 5,
+						'method'  => 'HEAD',
+						'header'  => [
+							"User-agent: apnscp Internal check",
+						    "Host: ${uri}"
+						],
+						'protocol_version' => '1.1'
+					)
+			));
+			return (bool)get_headers('http://' . $this->site_ip_address(), 0, $ctx) ?:
+				warn("failed to cache configuration directly, visit `%s' to cache configuration", $uri);
 		}
 
 		public function get_versions(): array
@@ -274,49 +331,11 @@
 		 */
 		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
 		{
-
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('failed to determine Laravel');
-			}
-			if (!$this->valid($hostname, $path)) {
-				return error("`%s' does not contain a valid Laravel install", $docroot);
-			}
-
-			$approot = $this->getAppRoot($docroot);
-
-			$config = $this->db_config($hostname, $path);
-			if (!$config) {
-				warn('cannot remove database, conf/database.php missing?');
-			}
-
-			if ($this->sql_mysql_database_exists($config['db']) && !$this->sql_delete_mysql_database($config['db'])) {
-				warn("failed to delete mysql database `%s'", $config['db']);
-			}
-			if ($config['user'] !== $this->get_service_value('mysql', 'dbaseadmin')) {
-				if ($this->sql_mysql_user_exists($config['user'],
-						'localhost') && !$this->sql_delete_mysql_user($config['user'], 'localhost')
-				) {
-					warn("failed to delete mysql user `%s' on localhost", $config['user']);
-				}
-			}
-
-			$this->map('delete', $docroot);
-
-			if (!$delete) {
-				return info("removed configuration, manually delete files under `%s'", $docroot);
-			}
-
-			$this->file_delete($docroot, true);
-			$url = rtrim(join('/', array($hostname, $path)), '/');
-			$this->file_purge();
-			$this->file_create_directory($docroot);
-
-			return info("deleted WP blog `%s' located under `%s'", $url, $docroot);
+			return parent::uninstall($hostname, $path, $delete);
 		}
 
 		/**
-		 * Location is a valid WP install
+		 * Location is a valid Laravel install
 		 *
 		 * @param string $hostname or $docroot
 		 * @param string $path
@@ -324,17 +343,20 @@
 		 */
 		public function valid(string $hostname, string $path = ''): bool
 		{
-			if ($hostname[0] == '/') {
-				$approot = dirname($hostname);
-			} else {
-				$docroot = $this->getAppRoot($hostname, $path);
-				if (!$docroot) {
+			if ($hostname[0] === '/') {
+				if (!($path = realpath($this->domain_fs_path($hostname)))) {
 					return false;
 				}
-				$approot = dirname($this->getAppRoot($docroot));
+				$approot = \dirname($path);
+			} else {
+				$approot = $this->getAppRoot($hostname, $path);
+				if (!$approot) {
+					return false;
+				}
+				$approot = $this->domain_fs_path($approot);
 			}
 
-			return $this->file_file_exists($approot . '/artisan');
+			return file_exists($approot . '/artisan');
 		}
 
 		/**
@@ -342,21 +364,23 @@
 		 *
 		 * @param string $hostname domain or subdomain of wp blog
 		 * @param string $path     optional path
-		 * @return array
+		 * @return array|bool
 		 */
-		public function db_config(string $hostname, string $path = ''): array
+		public function db_config(string $hostname, string $path = '')
 		{
+			$this->web_purge();
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
-				error('failed to determine Laravel');
-				return null;
+				return error('failed to determine Laravel');
 			}
-			$code = 'include("./wp-config.php"); print serialize(array("user" => DB_USER, "password" => DB_PASSWORD, "db" => DB_NAME, "host" => DB_HOST, "prefix" => $table_prefix));';
+			$code = '$cfg = (include("./bootstrap/cache/config.php"))["database"]; $db=$cfg["connections"][$cfg["default"]]; ' .
+				'print serialize(array("user" => $db["username"], "password" => $db["password"], "db" => $db["database"], ' .
+				'"host" => $db["host"], "prefix" => $db["prefix"]));';
 			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
 			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
+
 			if (!$ret['success']) {
-				error("failed to obtain Laravel configuration for `%s'", $docroot);
-				return null;
+				return error("failed to obtain Laravel configuration for `%s'", $docroot);
 			}
 			$data = \Util_PHP::unserialize($ret['stdout']);
 
@@ -376,48 +400,30 @@
 		}
 
 		/**
-		 * Get Laravel application name
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return string|null declared name
-		 */
-		public function get_name($hostname, $path = '')
-		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			$path = $this->getAppRoot($docroot);
-			$prefix = $this->domain_fs_path();
-			$info = $prefix . '/' . $path . '/composer.json';
-			if (!file_exists($info)) {
-				return null;
-			}
-			$json = json_decode(file_get_contents($info));
-
-			return !empty($json->name) ? $json->name : null;
-
-		}
-
-		/**
 		 * Get installed version
 		 *
 		 * @param string $hostname
 		 * @param string $path
 		 * @return string version number
 		 */
-		public function get_version(string $hostname, string $path = ''): string
+		public function get_version(string $hostname, string $path = ''): ?string
 		{
 			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			$path = $this->getAppRoot($docroot);
-			$ret = $this->_exec($path, 'artisan -V');
-			if (!$ret['success']) {
+			$approot = $this->getAppRoot($hostname, $path);
+			$path = $this->domain_fs_path($approot . '/vendor/composer/installed.json');
+
+			if (!file_exists($path) || !($json = json_decode(file_get_contents($path), true))) {
 				return null;
 			}
-			$output = $ret['stdout'];
+			foreach ($json as $pkg) {
+				if ($pkg['name'] === 'laravel/framework') {
+					return \Opcenter\Versioning::asPatch($pkg['version_normalized']);
+				}
+			}
 
-			return trim(substr($output, strrpos($output, ' ')));
+			return null;
 		}
 
 		/**
@@ -434,8 +440,8 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
-			$approot = $this->getAppRoot($docroot);
-			$ret = $this->_execComposer($approot, 'update');
+			$approot = $this->getAppRoot($hostname, $path);
+			$ret = $this->_execComposer($approot, 'update laravel/framework ');
 			parent::setInfo($docroot, [
 				'version' => $this->get_version($hostname, $path) ?? $version,
 				'failed'  => !$ret['success']
@@ -453,43 +459,7 @@
 		 */
 		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('update failed');
-			}
-
-			$cmd = 'plugin update';
-			$args = array();
-			if (!$plugins) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = sizeof($plugins); $i < $n; $i++) {
-					$plugin = $plugins[$i];
-					$version = null;
-					if (isset($plugin['version'])) {
-						$version = $plugin['version'];
-					}
-					if (isset($plugin['name'])) {
-						$plugin = $plugin['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $plugin;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("plugin update failed: `%s'", $ret['stderr']);
-			}
-
-			return $ret['success'];
+			return parent::update_plugins($hostname, $path, $plugins);
 		}
 
 		/**
@@ -502,43 +472,7 @@
 		 */
 		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('update failed');
-			}
-
-			$cmd = 'theme update';
-			$args = array();
-			if (!$themes) {
-				$cmd .= ' --all';
-			} else {
-				for ($i = 0, $n = sizeof($themes); $i < $n; $i++) {
-					$theme = $themes[$i];
-					$version = null;
-					if (isset($theme['version'])) {
-						$version = $theme['version'];
-					}
-					if (isset($theme['name'])) {
-						$plugin = $theme['name'];
-					}
-
-					$name = 'p' . $i;
-
-					$cmd .= ' %(' . $name . ')s';
-					$args[$name] = $theme;
-					if ($version) {
-						$cmd .= ' --version=%(' . $name . 'v)s';
-						$args[$name . 'v'] = $version;
-					}
-				}
-			}
-
-			$ret = $this->_exec($docroot, $cmd, $args);
-			if (!$ret['success']) {
-				return error("theme update failed: `%s'", $ret['stderr']);
-			}
-
-			return $ret['success'];
+			return parent::update_themes($hostname, $path, $themes);
 		}
 
 		/**
@@ -575,19 +509,7 @@
 		 */
 		public function unfortify(string $hostname, string $path = ''): bool
 		{
-			return parent::unfortify($hostname, $path, $mode);
-		}
-
-		/**
-		 * Laravel housekeeping
-		 *
-		 * @return bool
-		 */
-		public function _housekeeping()
-		{
-			// nothing to do as Symfony is managed separately by
-			// a the PHP module
-			return true;
+			return parent::unfortify($hostname, $path);
 		}
 
 		/**
@@ -600,10 +522,10 @@
 		{
 			$file = $this->domain_fs_path() . '/' . $approot . '/app/ApplicationWrapper.php';
 			$tmpfile = tempnam($this->domain_fs_path() . '/tmp', 'appwrapper');
-			if (!copy(__DIR__ . '/laravel/ApplicationWrapper.php', $tmpfile)) {
+			if (!copy(resource_path('storehouse/laravel/ApplicationWrapper.php'), $tmpfile)) {
 				return warn('failed to copy optimized cache bootstrap');
 			}
-			if (is_debug()) {
+			if (!posix_getuid()) {
 				chown($tmpfile, File_Module::UPLOAD_UID);
 			}
 
@@ -618,25 +540,16 @@
 			$contents = preg_replace('/new\sIlluminate\\\\Foundation\\\\Application/m', 'new App\\ApplicationWrapper',
 				$contents);
 
-			return file_put_contents($file, $contents);
-		}
-
-		/**
-		 * Override docroot map generation since the files to modify
-		 * will be below 1 level
-		 *
-		 * @param array  $files
-		 * @param string $docroot
-		 * @return array
-		 */
-		protected function _mapFiles(array $files, string $docroot): array
-		{
-			return parent::_mapFiles($files, dirname($docroot));
+			if (file_put_contents($file, $contents) < 1) {
+				return false;
+			}
+			$ret = $this->_execComposer($approot, 'dumpautoload -o');
+			return $ret['success'];
 		}
 
 		private function _execComposer($path = null, $cmd, array $args = array())
 		{
-			$cmd = '/usr/bin/composer --no-interaction -q --no-progress ' . $cmd;
+			$cmd = '/usr/bin/composer --no-interaction -q ' . $cmd;
 			if (!is_array($args)) {
 				$args = array_slice(func_get_args(), 2);
 			}
@@ -652,11 +565,18 @@
 				$args = array_slice(func_get_args(), 2);
 			}
 
+			$user = $this->username;
+			if ($path) {
+				$cmd = 'cd %(path)s && /bin/bash -c -- ' . escapeshellarg($cmd);
+				$args['path'] = $path;
+				$user = $this->file_stat($path)['owner'] ?? $this->username;
+			}
+
 			if ($path) {
 				$cmd = 'cd %(chdir)s && ' . $cmd;
 				$args['chdir'] = $path;
 			}
-			$ret = $this->pman_run($cmd, $args);
+			$ret = $this->pman_run($cmd, $args, [], ['user' => $user]);
 
 			return $ret;
 		}
@@ -668,70 +588,6 @@
 				' -d date.timezone=' . $tz . ' -d memory_limit=128m ';
 
 			return $cli;
-		}
-
-		private function _generateNewConfig($domain, $docroot, $dbcredentials, $ftpcredentials = array())
-		{
-			// generate db
-			if (!isset($ftpcredentials['user'])) {
-				$ftpcredentials['user'] = $this->username . '@' . $this->domain;
-			}
-			if (!isset($ftpcredentials['host'])) {
-				$ftpcredentials['host'] = 'localhost';
-			}
-			if (!isset($ftpcredentials['password'])) {
-				$ftpcredentials['password'] = '';
-			}
-			$xtraphp = '<<' . "\r\n" .
-				"define('FTP_USER',%(ftpuser)s);" . "\n" .
-				"define('FTP_HOST', %(ftphost)s);" . "\n" .
-				($ftpcredentials['password'] ?
-					"define('FTP_PASS', %(ftppass)s);" : '') . "\r\n";
-			$args = array(
-				'mode'     => 'config',
-				'db'       => $dbcredentials['db'],
-				'password' => $dbcredentials['password'],
-				'user'     => $dbcredentials['user'],
-				'ftpuser'  => $ftpcredentials['user'],
-				'ftphost'  => 'localhost',
-				'ftppass'  => $ftpcredentials['password']
-			);
-
-
-			$ret = $this->_exec($docroot,
-				'core %(mode)s --dbname=%(db)s --dbpass=%(password)s --dbuser=%(user)s --dbhost=localhost --extra-php ' . $xtraphp,
-				$args);
-			if (!$ret['success']) {
-				return error('failed to generate configuration, error: %s', $ret['stderr']);
-			}
-
-			return true;
-		}
-
-		/**
-		 * Get latest WP release
-		 *
-		 * @return string
-		 */
-		private function _getLastestVersion()
-		{
-			$versions = $this->_getVersions();
-			if (!$versions) {
-				return null;
-			}
-			$version = $max = null;
-			foreach ($versions as $v => $data) {
-				if ($v[0] !== 'v') {
-					continue;
-				}
-				if ($data['uid'] > $max) {
-					$version = $v;
-					$max = $data['uid'];
-				}
-			}
-			$latest = $versions[$version];
-
-			return $latest['version_normalized'];
 		}
 
 		/**
@@ -809,4 +665,11 @@
 		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string {
 			return parent::next_version($version, $maximalbranch);
 		}
+
+		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		{
+			return $this->getAppRootReal($hostname, $path);
+		}
+
+
 	}

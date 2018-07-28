@@ -279,15 +279,13 @@
 			$sysconf = '/etc/sysconfig/vmount-' . $svc;
 			touch($sysconf);
 			$sites = explode("\n", trim(file_get_contents($sysconf)));
-			$idx = array_search($this->site, $sites);
+			$idx = array_search($this->site, $sites, true);
 			if ($mount && $idx === false) {
 				$sites[] = $this->site;
+			} else if (!$mount && $idx !== false) {
+				unset($sites[$idx]);
 			} else {
-				if (!$mount && $idx !== false) {
-					unset($sites[$idx]);
-				} else {
-					return -1;
-				}
+				return -1;
 			}
 			file_put_contents($sysconf, join("\n", $sites));
 			return 1;

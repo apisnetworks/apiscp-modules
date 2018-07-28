@@ -403,7 +403,7 @@
 				$this->trans_paths[$this->site_id] = array();
 			}
 			$this->trans_paths[$this->site_id][$path] = array($newpath, $link);
-			$this->trans_paths[$this->site_id][$newpath] = $path;
+			$this->trans_paths[$newpath] = $path;
 			return $newpath;
 
 		}
@@ -1404,21 +1404,23 @@
 		{
 			$purged = array();
 			$siteid = $this->site_id;
+			$path = $this->domain_fs_path();
 			foreach ((array)$files as $f) {
 				$dir = dirname($f);
 				$hash = md5($dir);
 				if (isset($purged[$hash])) {
 					continue;
 				}
+				$this->trans_paths[$this->site_id][$f] = null;
+				clearstatcache(true, $path . '/' . $f);
 				self::$stat_cache[$siteid][$hash] = null;
 				$this->cached->delete('s:' . $hash);
 				$purged[$hash] = 1;
 			}
-
 			if (count($purged) > 1) {
 				$this->clearstat = true;
 			}
-			return;
+			return true;
 		}
 
 		/**
@@ -2275,10 +2277,11 @@
 		public function symlink(string $mSrc, string $mDest): bool
 		{
 			if (!IS_CLI) {
-				return $this->query('file_create_symlink', $mSrc, $mDest);
+				return $this->query('file_create_symlink', $mSrc, $mDest) && $this->_purgeCache($mDest);
 			}
 
-			$link = '';
+
+			$target = '';
 			if (0 === strpos($mSrc, '..')) {
 				$mSrc = dirname($mDest) . '/' . $mSrc;
 			}
@@ -2287,19 +2290,19 @@
 			}
 
 			$src_path = $this->make_path($mSrc);
-			$linkname = $this->make_path($mDest, $link);
-			if (file_exists($linkname)) {
-				return error("destination `" . $this->unmake_path($linkname) . "' exists");
+			$link = $this->make_path($mDest, $target);
+			if (file_exists($link)) {
+				return error("destination `" . $this->unmake_path($link) . "' exists");
 			} else if (!file_exists($src_path)) {
 				return error("source `" . $this->unmake_path($src_path) . "' does not exist");
 			}
 
 			// properly calculate relative traversals
-			$link = self::convert_absolute_relative(realpath(dirname($linkname)) . '/' . basename($linkname), $src_path);
+			$target = self::convert_absolute_relative(realpath(dirname($link)) . '/' . basename($link), $src_path);
 
 			//debug(self::convert_absolute_relative($dest_path, $src_path)." -> ".$dest_path);
-			return symlink($link, $linkname) && Util_PHP::lchown($linkname, $this->user_id)
-				&& Util_PHP::lchgrp($linkname, $this->group_id);
+			return symlink($target, $link) && $this->_purgeCache($mDest) && Util_PHP::lchown($link, $this->user_id)
+				&& Util_PHP::lchgrp($link, $this->group_id);
 		}
 
 		/**
@@ -2432,7 +2435,7 @@
 				return error("missing source/destination");
 			}
 			if ($this->permission_level & PRIVILEGE_SITE) {
-				$optimized = !!$this->_optimizedShadowAssertion;
+				$optimized = (bool)$this->_optimizedShadowAssertion;
 			} else {
 				$optimized = false;
 			}
@@ -2618,12 +2621,11 @@
 			}
 			$validUsers = array_keys($this->user_get_users());
 			$validUsers[] = 'apache';
-			if (!in_array($mUser, $validUsers)) {
+			if (!in_array($mUser, $validUsers, true)) {
 				return error("invalid chown user `%s'", $mUser);
-			} else {
-				if (!is_array($mFile)) {
-					$mFile = array($mFile);
-				}
+			}
+			if (!is_array($mFile)) {
+				$mFile = array($mFile);
 			}
 
 			$errors = array();
@@ -2646,15 +2648,13 @@
 				} else {
 					if (($ex = $this->can_descend(dirname($path))) instanceof Exception || !$ex) {
 						$errors[$file] = $ex->getMessage();
-					} else {
-						if ($stat['can_chown']) {
-							if (!lchown($link, (int)$uid_cache)) {
-								$errors[$file] = Error_Reporter::get_last_php_msg();
-							}
-
-						} else {
-							$errors[$file] = "Unable to change user ownership of " . $file;
+					} else if ($stat['can_chown']) {
+						if (!\Util_PHP::lchown($link, $uid_cache)) {
+							$errors[$file] = Error_Reporter::get_last_php_msg();
 						}
+
+					} else {
+						$errors[$file] = "Unable to change user ownership of " . $file;
 					}
 				}
 			}
@@ -2662,6 +2662,10 @@
 			return (sizeof($errors) == 0 ? true : new FileError(join("\n", $errors)));
 		}
 
+		public function file_exists($file, array &$missing = null) {
+			deprecated_func('use exists');
+			return $this->exists($file, $missing);
+		}
 		/**
 		 * Check existence of file
 		 *
@@ -2669,10 +2673,10 @@
 		 * @param array        $missing files not found
 		 * @return bool|array
 		 */
-		public function file_exists($file, array &$missing = null)
+		public function exists($file, array &$missing = null)
 		{
 			if (!IS_CLI && (is_array($file) || !file_exists($this->make_path($file)))) {
-				return $this->query('file_file_exists', $file);
+				return $this->query('file_exists', $file);
 			}
 
 			/** CLI */
@@ -3342,7 +3346,7 @@
 				'newuid' => $newuid
 			];
 			$ret = \Util_Process_Safe::exec(
-				'find -P %(path)s -xdev -gid %(gid)d -uid %(olduid)d -exec chown %(newuid)d "{}" \; -printf "%%P\n"',
+				'find -P %(path)s -xdev -gid %(gid)d -uid %(olduid)d -exec chown -h %(newuid)d "{}" \; -printf "%%P\n"',
 				$args
 			);
 			if (!$ret['success']) {

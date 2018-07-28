@@ -487,6 +487,9 @@
 
 		public function initialize_gemset($user = null)
 		{
+			if (platform_is('7.5')) {
+				return true;
+			}
 			if (!IS_CLI) {
 				return $this->query('ruby_initialize_gemset', $user);
 			}
@@ -507,6 +510,7 @@
 			if (!$this->misc_procfs_enabled()) {
 				return -1;
 			}
+
 			$proc = new Util_Process_Sudo();
 			$proc->setOption('user', $user);
 			$ret = $proc->run("/bin/bash -i rvm user gemsets");
@@ -528,5 +532,3 @@
 
 		}
 	}
-
-?>

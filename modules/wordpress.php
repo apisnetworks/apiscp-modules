@@ -170,7 +170,7 @@
 				'title'    => $opts['title'],
 				'user'     => $opts['user'],
 				'password' => $opts['password'],
-				'proto'    => !empty($opts['ssl']) ? 'https://' : null
+				'proto'    => !empty($opts['ssl']) ? 'https://' : 'http://'
 			);
 			$ret = $this->_exec($docroot, 'core %(mode)s --admin_email=%(email)s --skip-email ' .
 				'--url=%(proto)s%(url)s --title=%(title)s --admin_user=%(user)s ' .
@@ -185,7 +185,7 @@
 				'hostname'   => $hostname,
 				'path'       => $path,
 				'autoupdate' => (bool)$opts['autoupdate'],
-				'options'    => array_except($opts, 'version')
+				'options'    => array_except($opts, 'version'),
 			);
 			if (!file_exists($this->domain_fs_path() . "/${docroot}/.htaccess")) {
 				$template = '<IfModule mod_rewrite.c>' . "\n" .
@@ -587,7 +587,7 @@
 				}
 			}
 
-			return $this->file_file_exists($docroot . '/wp-config.php') || $this->file_file_exists($docroot . '/wp-config-sample.php');
+			return $this->file_exists($docroot . '/wp-config.php') || $this->file_exists($docroot . '/wp-config-sample.php');
 		}
 
 		/**

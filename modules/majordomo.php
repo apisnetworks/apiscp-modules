@@ -22,7 +22,6 @@
 		const DEPENDENCY_MAP = [
 			'mail'
 		];
-		const  POSTFIX_LOCAL_ALIASES_FILE = '/etc/postfix/aliases';
 		const  MAJORDOMO_SETUID = 'nobody';
 
 		/**
@@ -163,14 +162,18 @@
 			}
 
 			/** check that we have the very basic majordomo mapping */
-			$mapping = system('/usr/sbin/postalias -q majordomo+' . $domain . ' ' . self::POSTFIX_LOCAL_ALIASES_FILE . ' > /dev/null',
+			$mapping = system('/usr/sbin/postalias -q majordomo+' . $domain . ' ' . \Opcenter\Mail\Services\Postfix::getAliasesPath() . ' > /dev/null',
 				$ret);
 			if ($ret === 1) {
 
 				// alias not found, add it
-				file_put_contents(self::POSTFIX_LOCAL_ALIASES_FILE,
-					trim(file_get_contents(self::POSTFIX_LOCAL_ALIASES_FILE)) . "\n" .
-					'majordomo+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' . $prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/majordomo"');
+				$aliasPath = \Opcenter\Mail\Services\Postfix::getAliasesPath();
+				file_put_contents(
+					$aliasPath,
+					trim(file_get_contents($aliasPath)) . "\n" .
+						'majordomo+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' .
+						$prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/majordomo"'
+				);
 				// delete in case it was replicated by an alias addition
 				$this->email_remove_alias('majordomo', $domain);
 				$this->email_add_alias('majordomo', $domain, 'majordomo+' . $domain);
@@ -207,14 +210,16 @@
 				chmod($prefix . '/var/lib/majordomo/' . $dir, 02771) &&
 				system('setfacl -m user:postfix:7 -d -m user:' . $this->user_id . ':7 ' . $aclprefix . '/var/lib/majordomo/' . $dir);
 			}
-
-			file_put_contents(self::POSTFIX_LOCAL_ALIASES_FILE,
-				trim(file_get_contents(self::POSTFIX_LOCAL_ALIASES_FILE)) . "\n" .
-				$list . '+' . $domain . ': "|  env HOME=/usr/lib/majordomo /usr/lib/majordomo/wrapper resend -C ' . $prefix . '/etc/majordomo-' . $domain . '.cf -l ' . $list . ' -h ' . $domain . ' ' . $list . '-outgoing+' . $domain . '"' . "\n" .
-				$list . '-outgoing+' . $domain . ': :include:' . $prefix . '/var/lib/majordomo/lists/' . $list . "\n" .
-				$list . '-request+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' . $prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/request-answer ' . $list . ' -h ' . $domain . '"' . "\n");
+			$aliasPath = \Opcenter\Mail\Services\Postfix::getAliasesPath();
+			file_put_contents(
+				$aliasPath,
+				trim(file_get_contents($aliasPath)) . "\n" .
+					$list . '+' . $domain . ': "|  env HOME=/usr/lib/majordomo /usr/lib/majordomo/wrapper resend -C ' . $prefix . '/etc/majordomo-' . $domain . '.cf -l ' . $list . ' -h ' . $domain . ' ' . $list . '-outgoing+' . $domain . '"' . "\n" .
+					$list . '-outgoing+' . $domain . ': :include:' . $prefix . '/var/lib/majordomo/lists/' . $list . "\n" .
+					$list . '-request+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' . $prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/request-answer ' . $list . ' -h ' . $domain . '"' . "\n"
+			);
 			// add aliases
-			Util_Process::exec('/usr/sbin/postalias -w /etc/postfix/aliases');
+			Util_Process::exec('/usr/sbin/postalias -w %s', $aliasPath);
 			foreach (array($list, $list . '.config', $list . '.intro', $list . '.info') as $file) {
 				touch($prefix . '/var/lib/majordomo/lists/' . $file);
 				chown($prefix . '/var/lib/majordomo/lists/' . $file, self::MAJORDOMO_SETUID);
@@ -351,7 +356,8 @@
 			if (!$moreLists) {
 				$this->email_remove_alias('majordomo', $domain);
 			}
-			foreach (explode("\n", file_get_contents(self::POSTFIX_LOCAL_ALIASES_FILE)) as $line) {
+			$lines = [];
+			foreach (explode("\n", file_get_contents(\Opcenter\Mail\Services\Postfix::getAliasesPath())) as $line) {
 				if (preg_match('!' . $list . '(?:-outgoing|-request)?\+' . $domain . ':!', $line)) {
 					continue;
 				} else {
@@ -369,8 +375,8 @@
 			$this->email_remove_alias($list . '-request', $domain);
 
 
-			file_put_contents(self::POSTFIX_LOCAL_ALIASES_FILE, join("\n", $lines));
-			Util_Process::exec("postalias -r /etc/postfix/aliases");
+			file_put_contents(\Opcenter\Mail\Services\Postfix::getAliasesPath(), join("\n", $lines));
+			Util_Process::exec("postalias -r %s", \Opcenter\Mail\Services\Postfix::getAliasesPath());
 
 			return true;
 

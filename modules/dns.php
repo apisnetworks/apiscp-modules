@@ -1093,7 +1093,6 @@
 			if (null !== $res) {
 				Error_Reporter::set_buffer($buffer);
 				warn("DNS for zone `%s' already exists, not overwriting", $domain);
-
 				return true;
 			}
 			// make sure DNS does not exist yet for the parent
@@ -1324,7 +1323,7 @@
 			// empty out old zone first
 			$nrecs = 0;
 			$zoneinfo = $this->get_zone_information($domain);
-			if (false === $zoneinfo) {
+			if (null === $zoneinfo) {
 				return error('unable to get old zone information - is this domain added to your account?');
 			}
 			foreach ($zoneinfo as $rr => $recs) {
@@ -1423,12 +1422,12 @@
 		 * Get all zone records parsed
 		 *
 		 * @param string $domain
-		 * @return array|null
+		 * @return array|null zone data or null if zone not present
 		 */
 		protected function get_zone_data(string $domain): ?array
 		{
 			if (null === ($data = $this->zoneAxfr($domain))) {
-				return [];
+				return $data;
 			}
 
 			$zoneData = array();
@@ -1502,6 +1501,10 @@
 			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
 				$this->getTsigKey($domain), static::MASTER_NAMESERVER, $domain, [-1, 0]);
 
+			// AXFR can fail yet return a success RC
+			if (false !== strpos($data['output'], '; Transfer failed.')) {
+				return null;
+			}
 			return $data['success'] ? $data['output'] : null;
 		}
 
@@ -1713,7 +1716,7 @@
 						if ($r['parameter'] !== $oldip) {
 							continue;
 						}
-						if (!$this->dns_modify_record($r['domain'], $r['subdomain'], 'A', $oldip, $newparams)) {
+						if (!$this->modify_record($r['domain'], $r['subdomain'], 'A', $oldip, $newparams)) {
 							$frag = ltrim($r['subdomain'] . ' . ' . $r['domain'], '.');
 							error('failed to modify record for `' . $frag . "'");
 						} else {

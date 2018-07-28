@@ -73,11 +73,9 @@
 				// helios, apollo/aleph
 				$key = $this->_getKey();
 				return (bool)$this->get_service_value($key, 'permit');
-			} else {
-				// older platforms with PostgreSQL enabled imply permit
-				return (bool)$this->sql_enabled('pgsql');
 			}
-			return (bool)$this->get_service_value($key, 'permit');
+			// older platforms with PostgreSQL enabled imply permit
+			return (bool)$this->sql_enabled('pgsql');
 		}
 
 		/**

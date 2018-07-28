@@ -33,28 +33,20 @@
 		 */
 		protected static $uid_mappings = array();
 
-		/**
-		 * void __construct(void)
-		 *
-		 * @ignore
-		 */
+		protected $exportedFunctions = [
+			'*'                     => PRIVILEGE_SITE,
+			'flush'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'get_user_home'         => PRIVILEGE_ALL,
+			'get_home'              => PRIVILEGE_ALL,
+			'get_users'             => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'change_gecos'          => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'get_uid_from_username' => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'get_username_from_uid' => PRIVILEGE_ALL,
+			'exists'                => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'get_quota'             => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'getpwnam'              => PRIVILEGE_SITE | PRIVILEGE_USER
+		];
 
-		public function __construct()
-		{
-			$this->exportedFunctions = array(
-				'*'                     => PRIVILEGE_SITE,
-				'flush'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_user_home'         => PRIVILEGE_ALL,
-				'get_home'              => PRIVILEGE_ALL,
-				'get_users'             => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'change_gecos'          => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_uid_from_username' => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_username_from_uid' => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'exists'                => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_quota'             => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'getpwnam'              => PRIVILEGE_SITE | PRIVILEGE_USER
-			);
-		}
 		// {{{ change_quota()
 
 		/**
@@ -254,7 +246,7 @@
 				'uid'     => $uid,
 			]);
 			if (!$ret) {
-				$instance->releaseUid($uid);
+				$instance->releaseUid($uid, $this->site_id);
 				// user creation failed
 				return false;
 			}
@@ -413,7 +405,7 @@
 
 			$blocking = array();
 			foreach ($domains as $domain => $path) {
-				if (!$this->file_file_exists($path)) {
+				if (!$this->file_exists($path)) {
 					continue;
 				}
 				$stat = $this->file_stat($path);
@@ -458,7 +450,7 @@
 			}
 			$this->flush();
 			\apnscpSession::invalidate_by_user($this->site_id, $user);
-			$instance->releaseUid($uid);
+			$instance->releaseUid($uid, $this->site_id);
 			$key = $this->site . '.' . $user;
 
 			if (array_has(self::$uid_mappings, $key)) {
@@ -773,6 +765,9 @@
 
 		public function get_username_from_uid($uid)
 		{
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				return posix_getpwuid($uid)['name'] ?? $uid;
+			}
 			$site = $this->site_id;
 			if (!isset(self::$uid_mappings[$site])) {
 				self::$uid_mappings[$site] = array();

@@ -22,7 +22,7 @@
 		const NVM_LOCATION = FILESYSTEM_SHARED . '/node/nvm/nvm-exec';
 
 		protected $exportedFunctions = [
-			'*' => PRIVILEGE_SITE
+			'*' => PRIVILEGE_SITE|PRIVILEGE_USER
 		];
 
 		/**

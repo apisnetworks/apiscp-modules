@@ -123,6 +123,7 @@
 		{
 			$filter_clause = '1=1';
 
+
 			if ($filter == 'forward') {
 				$filter = self::MAILBOX_FORWARD;
 			} else if ($filter == 'local') {
@@ -195,9 +196,9 @@
 					'user'        => trim($row->user),
 					'domain'      => trim($row->domain),
 					'type'        => $row->type,
-					'enabled'     => $row->enabled,
+					'enabled'     => (int)$row->enabled,
 					'mailbox'     => $row->destination,
-					'uid'         => $row->uid,
+					'uid'         => (int)$row->uid,
 					'custom'      => ($filter === 'local' ? $row->target : null),
 					'destination' => $row->destination
 				);

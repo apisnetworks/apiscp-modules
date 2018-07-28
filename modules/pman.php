@@ -24,7 +24,7 @@
 	{
 		const PROC_PATH = '/proc';
 		const PROC_CACHE_KEY = 'pman.all';
-		const MAX_WAIT_TIME = 300;
+		const MAX_WAIT_TIME = 600;
 		/* biggest signal number + 1 taken from bits/signum.h */
 		const _NSIG = 65;
 
@@ -289,9 +289,9 @@
 			}
 			// capture & extract the safe command, then sudo
 			$proc->setOption('umask', 0022)->
-			setOption('timeout', self::MAX_WAIT_TIME)->
-			setOption('user', $user)->
-			setOption('home', true);
+				setOption('timeout', self::MAX_WAIT_TIME)->
+				setOption('user', $user)->
+				setOption('home', true);
 			// temp fix, last arg is checked for user/domain substitution,
 			// wordpress sets user for example
 			$ret = $proc->run($cmd, $args);
@@ -455,7 +455,9 @@
 					$cwd = readlink($path . '/cwd');
 					$cmdline = file_get_contents($path . '/cmdline');
 					$statraw = file_get_contents($path . '/stat');
-					$cwd = $that->file_canonicalize_site($cwd);
+					if (!$this->permission_level & PRIVILEGE_ADMIN) {
+						$cwd = $that->file_canonicalize_site($cwd);
+					}
 					//$memraw = explode(" ", file_get_contents($path . '/statm'));
 					$scanraw = sscanf($statraw, $scanspec); // read up to rsslim
 					$stat = array_combine(

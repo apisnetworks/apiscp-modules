@@ -56,6 +56,7 @@
 				// necessary for DB backup routines
 				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'database_exists'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'site_from_tablespace' => PRIVILEGE_ADMIN
 			);
 		}
 
@@ -127,7 +128,7 @@
 			if ($user != $this->get_config('mysql', 'dbaseadmin') && strncmp($user, $prefix, strlen($prefix))) {
 				$user = $prefix . $user;
 			}
-			$tblspace = $this->_get_tablespace();
+			$tblspace = $this->get_tablespace();
 			if (function_exists('pg_escape_literal')) {
 				$usersafe = pg_escape_identifier($user);
 			} else {
@@ -149,10 +150,39 @@
 
 		/**
 		 * Get tablespace name for domain
+		 *
+		 * @return null|string
 		 */
-		private function _get_tablespace()
+		public function get_tablespace(): ?string
 		{
-			return \Opcenter\Database\PostgreSQL::getTablespaceFromUser($this->username);
+			return $this->get_service_value(
+				'pgsql',
+				'tablespace',
+				\Opcenter\Database\PostgreSQL::getTablespaceFromUser($this->username)
+			);
+		}
+
+		/**
+		 * Get site from tablespace
+		 *
+		 * @param string $tblspace
+		 * @return null|string
+		 */
+		public function site_from_tablespace(string $tblspace): ?string
+		{
+			$db = \PostgreSQL::pdo();
+			$query = "SELECT rolname FROM pg_authid JOIN pg_tablespace ON (pg_authid.oid = pg_tablespace.spcowner) WHERE spcname = '" . pg_escape_string($tblspace) . "'";
+			$rs = $db->query($query);
+			if (!$rs) {
+				return null;
+			}
+			$user = $rs->fetchObject()->rolname;
+			if ($siteid = \Auth::get_site_id_from_admin($user)) {
+				return 'site' . $siteid;
+			}
+			// not strictly enforced yet...
+			$map = \Opcenter\Map::load('pgsql.usermap');
+			return $map->fetch($user) ?: null;
 		}
 
 		public function set_password($password)
@@ -322,7 +352,7 @@
 				$template = "TEMPLATE = template1";
 			}
 			$pghandler = \PostgreSQL::initialize();
-			$pghandler->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->_get_tablespace() . "\" CONNECTION LIMIT = " . static::PER_DATABASE_CONNECTION_LIMIT);
+			$pghandler->query("CREATE DATABASE \"" . $db . "\" WITH OWNER = " . $this->username . " $template TABLESPACE = \"" . $this->get_tablespace() . "\" CONNECTION LIMIT = " . static::PER_DATABASE_CONNECTION_LIMIT);
 			if ($pghandler->error) {
 				return error("error while creating database: %s", $pghandler->error);
 			}
@@ -881,7 +911,7 @@
 			}
 
 			$pdir = dirname($file);
-			if (!$this->file_file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
+			if (!$this->file_exists($pdir) && !$this->file_create_directory($pdir, 0755, true)) {
 				return error("failed to create parent directory, `%s'", $pdir);
 			}
 
