@@ -99,24 +99,10 @@
 				$opts['verlock'] = static::DEFAULT_VERSION_LOCK;
 			}
 
-			$ret = $this->_execComposer($docroot, 'init --name=%(project)s',
-				[
-					'project' => $hostname
-				]);
-			if (!$ret['success']) {
-				return error("failed to init composer project: %s", coalesce($ret['stderr'], $ret['stdout']));
-			}
 			$lock = $this->parseLock($opts['verlock'], $opts['version']);
-			// framework pulls in laravel/laravel package location
-			$ret = $this->_execComposer($docroot, 'require laravel/framework \'%(version)s\'', ['version' => $lock]);
-			if (!$ret['success']) {
-				return error('failed to install Laravel, error: %s',
-					coalesce($ret['stderr'], $ret['stdout'])
-				);
-			}
-
-			$ret = $this->_execComposer($docroot, 'require laravel/laravel \'%(version)s\'',
+			$ret = $this->_execComposer($docroot, 'create-project --prefer-dist laravel/laravel %(docroot)s \'%(version)s\'',
 				[
+					'docroot' => $docroot,
 					'version' => $lock
 				]
 			);
@@ -131,22 +117,8 @@
 					$docroot);
 			}
 			$approot = $this->getAppRoot($hostname, $path);
-			$ret = $this->pman_run('/bin/mv %(approot)s/vendor/laravel/laravel/{*,.e*,.g*} %(approot)s/', ['approot' => $approot], [], ['user' => $opts['user'] ?? $this->username]);
-			if (!$ret['success']) {
-				return error("failed to copy Laravel files into doc root: %s", $ret['stderr']);
-			}
 			$this->_execComposer($approot, 'composer config name %(hostname)s', ['hostname' => $hostname]);
-			$this->file_delete($approot . '/vendor/laravel/laravel', true);
 			$docroot = $this->getDocumentRoot($hostname, $path);
-			$commands = [
-				'install --no-scripts',
-				'run-script post-root-package-install',
-				'run-script post-create-project-cmd',
-				'run-script post-autoload-dump'
-			];
-			foreach ($commands as $cmd) {
-				$this->_execComposer($approot, $cmd);
-			}
 
 			// ensure it's reachable
 			$this->_fixCache($approot);
@@ -441,12 +413,17 @@
 				return error('update failed');
 			}
 			$approot = $this->getAppRoot($hostname, $path);
-			$ret = $this->_execComposer($approot, 'update laravel/framework ');
+			$ret = $this->_execComposer($approot, 'update laravel/framework');
 			parent::setInfo($docroot, [
 				'version' => $this->get_version($hostname, $path) ?? $version,
 				'failed'  => !$ret['success']
 			]);
-			return $ret['success'];
+			return $ret['success'] ?: error($ret['stderr']);
+		}
+
+		public function update_all(string $hostname, string $path = '', string $version = null): bool
+		{
+			return $this->update($hostname, $path, $version) || error('failed to update all components');
 		}
 
 		/**
@@ -655,11 +632,6 @@
 		public function get_admin(string $hostname, string $path = ''): ?string
 		{
 			return null;
-		}
-
-		public function update_all(string $hostname, string $path = '', string $version = null): bool
-		{
-			return false;
 		}
 
 		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string {

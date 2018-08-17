@@ -296,12 +296,13 @@
 		/**
 		 * Schedule a periodic task
 		 *
-		 * @param mixed  $min   minute (0-59)
-		 * @param mixed  $hour  hour (0-23)
-		 * @param mixed  $dom   day of month (1-31)
-		 * @param mixed  $month month (1-12)
-		 * @param mixed  $dow   0-7 day of week
-		 * @param string $cmd   command
+		 * @param mixed       $min   minute (0-59)
+		 * @param mixed       $hour  hour (0-23)
+		 * @param mixed       $dom   day of month (1-31)
+		 * @param mixed       $month month (1-12)
+		 * @param mixed       $dow   0-7 day of week
+		 * @param string      $cmd   command
+		 * @param string|null $user optional user to runas
 		 *
 		 * @return bool
 		 */

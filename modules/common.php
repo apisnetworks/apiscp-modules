@@ -581,10 +581,7 @@
 		 */
 		public function get_operating_system()
 		{
-			if (file_exists('/etc/redhat-release')) {
-				return file_get_contents('/etc/redhat-release');
-			}
-			return null;
+			return os_version();
 		}
 
 		public function get_processor_information()

@@ -102,9 +102,7 @@
 		public function is_mounted($svc)
 		{
 			// helios & apollo automatically mount fcgi
-			if ($svc == 'fcgi' && version_compare(platform_version(), '4.5', '>=')) {
-				return true;
-			} else if (version_compare(platform_version(), '6', '>=')) {
+			if (version_compare(platform_version(), '6', '>=')) {
 				// sol automatically mounts procfs
 				return true;
 			}
@@ -120,12 +118,8 @@
 		public function unmount_service($svc)
 		{
 			// helios & apollo automatically mount fcgi
-			if ($svc == 'fcgi' && version_compare(platform_version(), '4.5', '>=')) {
+			if ($svc == 'procfs' && version_compare(platform_version(), '6', '>=')) {
 				return true;
-			} else {
-				if ($svc == 'procfs' && version_compare(platform_version(), '6', '>=')) {
-					return true;
-				}
 			}
 
 			if (!IS_CLI) {

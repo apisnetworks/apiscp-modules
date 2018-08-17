@@ -963,7 +963,7 @@
 			$cmd = $cli . ' ' . $cmd;
 			// $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php
 			$ret = $this->pman_run($cmd, $args, ['SERVER_NAME' => $this->domain], ['user' => $user]);
-			if (0 === strpos($ret['stdout'], 'Error:')) {
+			if (0 === strpos(coalesce($ret['stderr'], $ret['stdout']), 'Error:')) {
 				// move stdout to stderr on error for consistency
 				$ret['success'] = false;
 				if (!$ret['stderr']) {

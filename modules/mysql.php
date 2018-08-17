@@ -440,6 +440,18 @@
 
 		/**
 		 * bool add_mysql_user(string, string, string[, int[, int[, int[, string[, string[, string[, string]]]]]]])
+		 *
+		 * @param        $user
+		 * @param        $host
+		 * @param        $password
+		 * @param int    $maxconn
+		 * @param int    $maxupdates
+		 * @param int    $maxquery
+		 * @param string $ssl
+		 * @param string $cipher
+		 * @param string $issuer
+		 * @param string $subject
+		 * @return bool|MySQLError|void
 		 */
 		public function add_user(
 			$user,
@@ -466,10 +478,8 @@
 				$maxconn = 5;
 			}
 			$host = trim($host);
-			if ($host != 'localhost') {
-				if (!ip2long($host) && !preg_match(Regex::SQL_MYSQL_IP_WILDCARD, $host)) {
-					return error("rejected host `%s': only numeric IP addresses are permitted, not hostnames", $host);
-				}
+			if ($host != 'localhost' && !ip2long($host) && !preg_match(Regex::SQL_MYSQL_IP_WILDCARD, $host)) {
+				return error("rejected host `%s': only numeric IP addresses are permitted, not hostnames", $host);
 			}
 			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
@@ -529,6 +539,7 @@
 			if ($stmt->error) {
 				return new MySQLError("Invalid query, " . $stmt->error);
 			}
+
 			$conn->query("FLUSH PRIVILEGES;");
 
 			if ($stmt->affected_rows < 1) {

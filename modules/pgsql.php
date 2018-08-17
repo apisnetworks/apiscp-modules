@@ -1097,7 +1097,7 @@
 
 		public function _edit()
 		{
-			if (version_compare(platform_version(), '7.5', '>=')) {
+			if (platform_is('7.5')) {
 				return true;
 			}
 			$conf = $this->getAuthContext()->getAccount();

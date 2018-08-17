@@ -415,6 +415,9 @@
 			if (!$this->certificateIssued(self::SYSCERT_NAME)) {
 				// make a dummy cert that has already expired to bootstrap
 				$cns = array(SERVER_NAME);
+				if (SERVER_NAME !== ($name = gethostname())) {
+					$cns[] = $name;
+				}
 				if (defined('LETSENCRYPT_ADDITIONAL_CERTS')) {
 					$cns = array_merge($cns, preg_split('/[, ]+/', constant('LETSENCRYPT_ADDITIONAL_CERTS')));
 				}

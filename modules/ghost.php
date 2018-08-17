@@ -96,8 +96,8 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			if (($memory = $this->get_config('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
-				return error("Ghost requires at least 1024 MB memory, `%s' provided for account", $memory);
+			if ($this->cgroup_enabled() && ($memory = $this->get_config('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
+				return error("Ghost requires at least 1024 MB memory, `%s' MB provided for account", $memory);
 			}
 			// Ghost needs ~500 MB free to install
 			$quota = $this->site_get_account_quota();
@@ -192,7 +192,7 @@
 			// this isn't present in a synthetic root
 			$ret = $this->_exec($docroot,
 				'nvm exec --silent --lts ghost install --process=local --no-prompt --no-stack --no-start --no-color --db=mysql --dbhost=localhost.localdomain --dbuser=%(dbuser)s --dbpass=%(dbpassword)s ' .
-				'--dbname=%(dbname)s --no-setup-linux-user --no-setup-nginx --version=%(version)s --url=%(proto)s%(uri)s --mail=sendmail',
+				'--dbname=%(dbname)s --no-setup-linux-user --no-setup-nginx --url=%(proto)s%(uri)s --mail=sendmail %(version)s',
 				$args);
 
 			if (!$ret['success']) {
@@ -241,7 +241,7 @@
 					$this->file_chown("${approot}/${dir}", $opts['user'] ?? $this->username)
 				) || warn("failed to create application directory `%s/%s'", $docroot, $dir);
 			}
-
+			$phusionroot = platform_is('7.5') ? $approot : $this->domain_fs_path($approot);
 			if (!$this->file_put_file_contents($approot . '/public/.htaccess',
 				'# Enable caching' . "\n" .
 				'UnsetEnv no-cache' . "\n" .
@@ -249,7 +249,7 @@
 				'PassengerStartupFile current/index.js' . "\n" .
 				'PassengerAppType node' . "\n" .
 				'PassengerNodejs ' . $this->getNodeCommand('lts', $opts['user'] ?? null) . "\n" .
-				'PassengerAppRoot ' . $this->domain_fs_path($approot) . "\n"
+				'PassengerAppRoot ' . $phusionroot . "\n"
 			)) {
 				return error('failed to create .htaccess control - Ghost is not properly setup');
 			}
@@ -651,8 +651,29 @@
 			} else if (!\Opcenter\Versioning::valid($version)) {
 				return error('invalid version number, %s', $version);
 			}
-			// --local bypasses permission checks
-			$cmd = 'ghost update --local -D --no-restart --no-color %(version)s';
+
+			// Permission requirements are insanely insecure... otherwise Ghost vomits.
+			$this->pman_run(
+				'find %(approot)s/content/themes/ -type d -exec chmod 00775 {} \;',
+				['approot' => $approot],
+				[],
+				['user' => $this->getDocrootUser($approot)]
+			);
+			$this->file_chmod($approot, 705);
+
+			$oldversion = $this->get_version($hostname, $path);
+			if (\Opcenter\Versioning::asMajor($version) !== \Opcenter\Versioning::asMajor($oldversion)) {
+				info("Major upgrade detected - updating ghost-cli");
+				if (!$this->validateNode('lts', $this->getDocrootUser($approot)) ||
+					!$this->_exec($approot, 'ghost update --local -D --no-restart --no-color --v%d', [\Opcenter\Versioning::asMajor($oldversion)]))
+				{
+					return error("Failed to prep for major version upgrade");
+				}
+				return error("Ghost must be upgraded from terminal. Run the following command to use the migration assistant: ".
+					"cd %s && env NODE_ENV=production ghost update --local -f", $approot);
+			}
+
+			$cmd = 'ghost update --no-restart --local --no-prompt --no-color %(version)s';
 			$args['version'] = $version;
 			$ret = $this->_exec($approot, $cmd, $args);
 			$this->fixSymlink($approot);
@@ -851,8 +872,12 @@
 			if (0 !== strpos($link, $approot)) {
 				return false;
 			}
-			return $this->file_delete($approot .'/current') && $this->file_symlink($link, $approot . '/current') &&
-				$this->file_chown_symlink($approot . '/current', $this->file_stat($approot)['owner']);
+			// debugging code...
+			if (!$this->file_delete($approot .'/current') || !$this->file_symlink($link, $approot . '/current')) {
+				return false;
+			}
+			report(var_export($this->file_stat($approot), true));
+			return $this->file_chown_symlink($approot . '/current', $this->file_stat($approot)['owner']);
 		}
 	}
 

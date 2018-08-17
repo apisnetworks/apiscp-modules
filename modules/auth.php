@@ -22,7 +22,6 @@
 		const DEPENDENCY_MAP = [
 			'siteinfo', 'users'
 		];
-		const RESET_WRAPPER = INCLUDE_PATH . '/bin/scripts/reset_password';
 		const API_KEY_LIMIT = 10;
 		const API_USER_SYNC_COMMENT = "apnscp user sync";
 		// override in effect, don't report
@@ -473,9 +472,6 @@
 		 */
 		public function change_domain($domain)
 		{
-			if (platform_is('7.5')) {
-				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
-			}
 			if (!IS_CLI) {
 				$olddomain = $this->domain;
 				$ret = $this->query('auth_change_domain', $domain);
@@ -545,9 +541,6 @@
 		 */
 		public function change_username($user): bool
 		{
-			if (platform_is('7.5')) {
-				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
-			}
 			if (!IS_CLI) {
 				$olduser = $this->username;
 				$ret = $this->query('auth_change_username', $user);
@@ -1058,7 +1051,7 @@
 			// @XXX centralize logins
 			$invoice = $this->billing_get_invoice();
 			if (!$db->query("UPDATE login_log SET `username` = '" . $db->escape_string($usernew) . "' " .
-				"WHERE `username` = '" . $db->escape_string($userold) . "' AND invoice = '" . $db->escape_string($invoice)) . "'") {
+				"WHERE `username` = '" . $db->escape_string($userold) . "' AND invoice = '" . $db->escape_string($invoice) . "'")) {
 				warn("failed to rename login history for user `%s' to `%s'", $userold, $usernew);
 			}
 
@@ -1088,9 +1081,6 @@
 		}
 
 		public function _housekeeping() {
-			// ensure reset wrapper is always up to date, should be a
-			// git hook, but to-do
-			\Opcenter\Filesystem::chogp(static::RESET_WRAPPER, 'root', WS_GID, 04750);
 			// convert domain map over to TokyoCabinet
 			$this->rebuildMap();
 		}

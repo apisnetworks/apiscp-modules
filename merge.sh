@@ -3,6 +3,7 @@ set -euo pipefail
 
 APNSCP_HOME="/usr/local/apnscp"
 pushd `dirname $0`
+git pull
 LAST=$(git log -n 1 modules/ | grep '^Date:' | cut -d' ' -f1 --complement)
 rm -rf modules
 git clone --depth=0 $APNSCP_HOME/lib/modules modules

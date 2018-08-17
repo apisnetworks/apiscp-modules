@@ -270,11 +270,13 @@
 		 */
 		public function modify_domain(string $domain, array $newparams): bool
 		{
-			// clear both sides path cache
-			$this->web_purge();
-
 			if (!IS_CLI) {
-				return $this->query('aliases_modify_domain', $domain, $newparams);
+				$ret = $this->query('aliases_modify_domain', $domain, $newparams);
+				if (!$this->inContext()) {
+					\Preferences::reload();
+				}
+				$this->web_purge();
+				return $ret;
 			}
 			if (!$this->shared_domain_exists($domain)) {
 				return error("domain `$domain' is not attached to account");
@@ -307,6 +309,7 @@
 					return false;
 				}
 			}
+			$this->web_purge();
 			return true;
 		}
 
@@ -574,6 +577,7 @@
 					warn("failed to update domain `%s'", $domain);
 				}
 			}
+			$this->web_purge();
 			return true;
 		}
 
@@ -800,6 +804,11 @@
 				$this->addMap($domain, $oldpath);
 				return error("domain `$domain' path change failure - reverting");
 			}
+
+			if ($oldpath === $newpath) {
+				return true;
+			}
+
 			$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
 			$meta->rename($oldpath, $newpath);
 			return true;

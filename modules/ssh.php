@@ -87,9 +87,11 @@
 
 		public function _housekeeping()
 		{
-			if (SSH_EMBED_TERMINAL) {
+			if (SSH_EMBED_TERMINAL && !APNSCPD_HEADLESS) {
 				dlog("Loading terminal...");
 				Service_Terminal::autostart();
+			} else {
+				Service_Terminal::stop();
 			}
 		}
 

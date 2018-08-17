@@ -46,7 +46,7 @@ declare(strict_types=1);
 
         public function get_controllers()
         {
-            return array('cpu', 'memory', 'pids');
+            return ['cpu', 'memory', 'pids', 'cpuacct'];
         }
 
         public function get_cgroup()
@@ -69,6 +69,12 @@ declare(strict_types=1);
 	        }
 	        return array_except($limits, ['version', 'enabled']);
         }
+
+        public function enabled(): bool
+        {
+        	return (bool)$this->get_service_value('cgroup', 'enabled');
+        }
+
         /**
          * Get controller memory usage
          *
@@ -84,11 +90,14 @@ declare(strict_types=1);
 			return $this->_fillUsage(
 				$stats,
 				[
-					//'limit' => $this->get_service_value('cgroup', 'memory', $max) * 1024 * 1024 * 1024,
 					'free' => $stats['limit'] - $stats['used']
 				]
 			);
 
+        }
+
+        private function _get_cpuacct_usage() {
+        	return [];
         }
 
 	    private function _get_pids_usage()
@@ -170,7 +179,8 @@ declare(strict_types=1);
 
 	    public function _edit()
 	    {
-		    if (platform_is('7.5')) {
+		    if (platform_is('7.5') || !platform_is('7')) {
+		    	// busted on Helios (v5)
 		    	return true;
 		    }
 		    $svc = \Opcenter\SiteConfiguration::import($this->getAuthContext());

@@ -19,6 +19,9 @@
 	 */
 	class Dns_Module extends Module_Support_Dns
 	{
+		const DEPENDENCY_MAP = [
+			'siteinfo'
+		];
 		/**
 		 * apex markers are marked with @
 		 */
@@ -31,7 +34,7 @@
 
 		const DYNDNS_TTL = 300;
 		// default DNS TTL for records modified via update()
-		// @var int DNS_TTL default DNS TTL
+		// @var int default DNS TTL
 		const DNS_TTL = DNS_DEFAULT_TTL;
 		// default DNS TTL for records
 		const IP_ALLOCATION_BLOCK = DNS_ALLOCATION_CIDR;
@@ -648,15 +651,21 @@
 			$nameservers = null;
 			try {
 				$lookup = array_pop($components) . '.' . $seen;
-				$res = $resolver->query($lookup, 'NS');
+				$res = silence(function() use ($resolver, $lookup) {
+					return $resolver->query($lookup, 'NS');
+				});
 				if ($res->answer) {
 					$nameservers = array_filter(array_map(function ($arr) {
 						return gethostbyname($arr->nsdname);
 					}, $res->answer));
 					$resolver->setServers($nameservers);
 				}
-			} catch (Net_DNS2_Exception $e) {
+			} catch (Net_DNS2_Exception | \Error $e) {
 				if ($components) {
+					if (false !== strpos($e->getMessage(), "member function open() on null")) {
+						// invalid tld extension
+						return null;
+					}
 					// resolver chain broken
 					warn("failed to recurse on `%s': %s", $lookup, $e->getMessage());
 				}
@@ -812,7 +821,7 @@
 				warn("record `@' alias for domain - record stripped");
 			}
 			$rr = strtoupper($rr);
-			if ($rr !== 'any' && !in_array($rr, static::$permitted_records, true)) {
+			if ($rr !== 'ANY' && !in_array($rr, static::$permitted_records, true)) {
 				return error("`$rr' invalid resource record type");
 			}
 			$rr = strtoupper($rr);
@@ -1225,7 +1234,7 @@
 			}
 
 			$rr = strtoupper($rr);
-			if ($rr !== 'any' && !in_array($rr, static::$permitted_records, true)) {
+			if ($rr !== 'ANY' && !in_array($rr, static::$permitted_records, true)) {
 				error("`$rr' invalid resource record type");
 				return null;
 			}
@@ -1234,7 +1243,7 @@
 			if (!$recs) {
 				return array();
 			}
-			if ($rr == 'any') {
+			if ($rr == 'ANY') {
 				return $recs;
 			}
 			if (!isset($recs[strtoupper($rr)])) {

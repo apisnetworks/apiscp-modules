@@ -28,7 +28,23 @@
 			'*' => PRIVILEGE_ADMIN
 		];
 
-		/* }}} */
+		public function __construct()
+		{
+			parent::__construct();
+			if (!AUTH_ADMIN_API) {
+				$this->exportedFunctions = array_merge($this->exportedFunctions,
+					array_fill_keys([
+						'activate_site',
+						'deactivate_site',
+						'add_site',
+						'edit_site',
+						'delete_site',
+						'hijack',
+					], PRIVILEGE_NONE)
+				);
+			}
+		}
+
 
 		/**
 		 * List all domains on the server
@@ -149,6 +165,9 @@
 		 */
 		public function get_email(): ?string
 		{
+			if (!IS_CLI) {
+				return $this->query('admin_get_email');
+			}
 			$ini = $this->_get_admin_config();
 			return $ini['adminemail'] ?? null;
 		}
@@ -234,7 +253,7 @@
 				return self::ADMIN_CONFIG_LEGACY;
 			}
 			return self::ADMIN_HOME . DIRECTORY_SEPARATOR . self::ADMIN_CONFIG .
-				DIRECTORY_SEPARATOR . basename(self::ADMIN_CONFIG_LEGACY);
+				DIRECTORY_SEPARATOR . $this->username;
 		}
 
 		/**
@@ -359,7 +378,7 @@
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/DeleteDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
 
 			return $ret['success'];
 		}
@@ -383,9 +402,10 @@
 				return '-c ' . escapeshellarg(str_replace_first('.', ',',
 						$key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
 			}, array_dot($opts)));
-
-			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . "/bin/AddDomain --output=json ${cmd}");
-			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+			$cmd = INCLUDE_PATH . "/bin/AddDomain --output=json ${cmd}";
+			info("AddDomain command: $cmd");
+			$ret = \Util_Process_Safe::exec($cmd);
+			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
 
 			return $ret['success'];
 		}
@@ -400,12 +420,15 @@
 		public function edit_site(string $site, array $opts = []): bool
 		{
 			if (!IS_CLI) {
-				return $this->query('admin_edit_site', $site);
+				return $this->query('admin_edit_site', $site, $opts);
 			}
-			$cmd = implode(' ', array_key_map(function($key, $val) {
+
+			$args = implode(' ', array_key_map(function($key, $val) {
 				return '-c ' . escapeshellarg(str_replace_first('.', ',', $key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
 			}, array_dot($opts)));
-			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . "/bin/EditDomain --output=json ${cmd} %s", $site);
+			$cmd = INCLUDE_PATH . "/bin/EditDomain --output=json ${args} %s";
+			info("Edit command: $cmd", $site);
+			$ret = \Util_Process_Safe::exec($cmd, $site);
 			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
 
 			return $ret['success'] ;
@@ -424,7 +447,7 @@
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/ActivateDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
 
 			return $ret['success'];
 		}
@@ -442,7 +465,7 @@
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/SuspendDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer(json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
 
 			return $ret['success'];
 		}
@@ -459,8 +482,10 @@
 		public function hijack(string $site, string $user = null): ?string
 		{
 			$context = \Auth::context($user, $site);
-			\apnscpSession::init()->read($context->id);
 			$this->setApnscpFunctionInterceptor(\apnscpFunctionInterceptor::factory($context));
+			$_SESSION = \apnscpSession::restore_from_id($context->id);
+			\session_id($context->id);
+			\Auth::autoload()->setID($context->id)->authInfo(true);
 			return $context->id;
 		}
 

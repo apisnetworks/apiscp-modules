@@ -224,7 +224,12 @@
 		 */
 		public function enabled(string $which = null): bool {
 			// @TODO rename sendmail to smtp service
-			if ($which && $which !== 'smtp' && $which !== 'imap' && $which !== 'pop3') {
+			if (platform_is('7.5')) {
+				$which = $which === 'smtp_relay' ? 'smtp' : $which;
+			} else {
+				$which = $which === 'smtp' ? 'smtp_relay' : $which;
+			}
+			if ($which && $which !== 'smtp' && $which !== 'smtp_relay' && $which !== 'imap' && $which !== 'pop3') {
 				return error("unknown service `%s'", $which);
 			}
 			if ($which) {
@@ -992,8 +997,8 @@
 				}
 				// should only be 1 record...
 				$srvrec = array_pop($srvrec);
-				if ($srvrec['parameter'] != $myip) {
-					$hostname = join(".", array($mymailrec, $domain));
+				if ($srvrec['parameter'] && $srvrec['parameter'] !== $myip) {
+					$hostname = implode(".", array($mymailrec, $domain));
 					warn("A record for %s points to %s, not overwriting! Email will not " .
 						"route properly until the record is changed from %s to %s.",
 						$hostname,
@@ -1425,9 +1430,8 @@
 			unmute_warn();
 			// update uids in uids table
 			$db = \PostgreSQL::initialize();
-			$q = 'UPDATE "uids" SET "user" = \'' . pg_escape_string($usernew) . '\' ' .
-				'WHERE "user" = \'' . pg_escape_string($userold) . '\' AND uid = ' . $uid;
-			$db->query($q);
+			$query = \Opcenter\Database\PostgreSQL::vendor('mail')->renameUser($userold, $usernew, $uid);
+			$db->query($query);
 			// make 2 sweeps:
 			// sweep 1: update mailboxes that refer to the uid
 			// sweep 2: update aliases that forward to the user
@@ -1580,7 +1584,7 @@
 			$regex = Regex::compile(
 				Regex::EMAIL_MTA_IP_RECORD,
 				array(
-					'ip' => preg_quote($ip)
+					'ip' => preg_quote($ip, '/')
 				)
 			);
 
@@ -1632,7 +1636,7 @@
 		private function _update_email_aliases($user, $usernew)
 		{
 			$prepfunc = function ($domain) use ($user) {
-				return '\b' . preg_quote($user) . '@(' . preg_quote($domain) . ')\b';
+				return '\b' . preg_quote($user, '/') . '@(' . preg_quote($domain, '/') . ')\b';
 			};
 
 			$regexcb = function ($matches) use ($usernew) {

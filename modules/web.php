@@ -840,6 +840,9 @@
 		public function purge(): void
 		{
 			$this->pathCache = [];
+			if (!IS_CLI) {
+				$this->query('web_purge');
+			}
 		}
 		/**
 		 * Retrieve document root for given host
@@ -864,6 +867,7 @@
 			}
 
 			$checkpath = $prefix . DIRECTORY_SEPARATOR . $docroot;
+			clearstatcache(true, $checkpath);
 			if (\Util_PHP::is_link($checkpath)) {
 				// take the referent unless the path doesn't exist
 				// let the API figure out what to do with it
@@ -1001,6 +1005,7 @@
 		public function get_docroot($hostname, $path = '')
 		{
 			$domains = $this->list_domains();
+			$path = ltrim($path, '/');
 			if (isset($domains[$hostname])) {
 				return rtrim($domains[$hostname] . '/' . $path, '/');
 			}
