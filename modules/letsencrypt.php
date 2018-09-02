@@ -87,20 +87,13 @@
 			if ($this->auth_is_inactive()) {
 				return error("account `%s' is inactive - not renewing SSL", $this->domain);
 			}
-			$cert = $this->ssl_get_certificates();
-			if (!$cert) {
+
+			$cns = $this->getSanFromCertificate();
+			if ($cns === []) {
 				return error("no certificates installed on account");
-			}
-			// get_certificates() returns array of certs
-			$cert = array_pop($cert);
-			$cert = $this->ssl_get_certificate($cert['crt']);
-			$crt = $this->ssl_parse_certificate($cert);
-			if (!$this->is_ca($crt)) {
+			} else if ($cns === null) {
 				return warn("certificate for `%s' is not provided by LE", $this->domain);
 			}
-			// LE certificates will always contain the CN in its SAN list
-			// not sure if true for all certificates...
-			$cns = $this->ssl_get_alternative_names($crt);
 			$ret = $this->request($cns, $verifyip);
 			if (null === $ret) {
 				// case in which a request is processed OK, but
@@ -135,9 +128,7 @@
 				return error("invalid ssl certificate");
 			}
 
-			if (!isset($cert['extensions']) ||
-				!isset($cert['extensions']['authorityKeyIdentifier'])
-			) {
+			if (!isset($cert['extensions']['authorityKeyIdentifier'])) {
 				return false;
 			}
 			$authority = $cert['extensions']['authorityKeyIdentifier'];
@@ -151,17 +142,30 @@
 		}
 
 		/**
+		 * Append hostnames to request in non-destructive manner
+		 *
+		 * @param      $cnames
+		 * @param bool $verifyip
+		 * @return bool
+		 */
+		public function append($cnames, bool $verifyip = true): bool {
+			$cnames = array_flip((array)$cnames);
+			$cnames += array_flip((array)$this->getSanFromCertificate());
+			return $this->request(array_keys($cnames), $verifyip);
+		}
+
+		/**
 		 * Request a Let's Encrypt certificate for the given common names
 		 *
 		 * Because there is no unreasonable limit on SANs, a www and non-www
 		 * variant for each CN will be generated
 		 *
 		 * @param array|string $cnames   list of hosts
-		 * @param string       $email    email address to use
 		 * @param bool         $verifyip verify IP matches account before issuing
+		 * @param boool        $strict   loss of any hostname from certificate causes operation to fail
 		 * @return bool
 		 */
-		public function request($cnames, bool $verifyip = true)
+		public function request($cnames, bool $verifyip = true, bool $strict = false)
 		{
 			if (!IS_CLI) {
 				return $this->query('letsencrypt_request', $cnames, $verifyip);
@@ -179,12 +183,18 @@
 				if (!$this->web_domain_exists($domain)) {
 					error("cannot register lets encrypt: domain `%s' not a valid domain on this account",
 						$domain);
+					if ($strict) {
+						return false;
+					}
 					continue;
 				}
 
 				$host = ltrim($subdomain . '.' . $domain, '.');
 				if (!preg_match(Regex::HTTP_HOST, $host)) {
 					error("invalid server name `%s' specified", $c);
+					if ($strict) {
+						return false;
+					}
 					continue;
 				}
 
@@ -199,6 +209,8 @@
 					}
 					if ($this->_verifyIP($altform, $myip)) {
 						$cnreq[] = $altform;
+					} else if ($strict) {
+						return error("Domain `%s' would be dropped from renewal", $altform);
 					} else {
 						info("skipping alternative hostname form `%s', IP does not resolve to `%s'",
 							$altform, $myip);
@@ -206,19 +218,23 @@
 				}
 
 				if (LETSENCRYPT_VERIFY_IP && $verifyip && !$this->_verifyIP($host, $myip)) {
-					warn("hostname `%s' IP `%s' doesn't match hosting IP `%s', "
+					$msg = [
+						"hostname `%s' IP `%s' doesn't match hosting IP `%s', "
 						. "skipping request",
 						$host,
 						$this->dns_gethostbyname_t($host, 1500),
 						$myip
-					);
+					];
+					if ($strict) {
+						return error(...$msg);
+					}
+					warn(...$msg);
 					continue;
 				}
 				$cnreq[] = $host;
 			}
 			if (!$cnreq) {
 				error("no hostnames to register");
-
 				return null;
 			}
 			if (!$this->requestReal($cnreq, $this->site)) {
@@ -289,7 +305,7 @@
 			$acmeClient = $php . ' ' . $this->getAcmeClientDirectory() . '/bin/acme %s';
 			$newargs = array();
 			foreach ($args as $k => $v) {
-				if ($k[0] == '-') {
+				if ($k[0] === '-') {
 					$newargs[] = $k;
 					$acmeClient .= ' %s';
 				}

@@ -36,15 +36,15 @@
 
 		protected $_aclList = array(
 			'min' => array(
-				'/wp-content',
-				'/.htaccess',
-				'/wp-config.php'
+				'wp-content',
+				'.htaccess',
+				'wp-config.php'
 			),
 			'max' => array(
-				'/wp-content/uploads',
-				'/wp-content/cache',
-				'/wp-content/wflogs',
-				'/wp-content/updraft'
+				'wp-content/uploads',
+				'wp-content/cache',
+				'wp-content/wflogs',
+				'wp-content/updraft'
 			)
 		);
 
@@ -65,7 +65,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error("failed to detect document root for `%s'", $hostname);
@@ -903,6 +905,39 @@
 
 			return true;
 		}
+
+		protected function _mapFiles(array $files, string $docroot): array
+		{
+			if (file_exists($this->domain_fs_path($docroot . '/wp-content'))) {
+				return parent::_mapFiles($files, $docroot);
+			}
+			$path = $tmp = $docroot;
+			// WP can allow relocation of assets, look for them
+			$ret = $this->pman_run('cd %(docroot)s && php -r %(code)s', [
+				'docroot' => $docroot,
+				'code' => 'set_error_handler(function() { echo defined("WP_CONTENT_DIR") ? constant("WP_CONTENT_DIR") : dirname(__FILE__); die(); }); include("./wp-config.php"); trigger_error("");define("ABS_PATH", "/dev/null");'
+			], null, ['user' => $this->getDocrootUser($docroot)]);
+
+			if ($ret['success']) {
+				$tmp = $ret['stdout'];
+				if (0 === strpos($tmp, $this->domain_fs_path() . '/')) {
+					$tmp = $this->file_unmake_path($tmp);
+				}
+			}
+
+			if ($path !== $tmp) {
+				$relpath = $this->file_convert_absolute_relative($docroot . '/wp-content/', $tmp);
+				foreach ($files as $k => $f) {
+					if (0 !== strpos($f, 'wp-content/')) {
+						continue;
+					}
+					$f = $relpath . substr($f, strlen('wp-content'));
+					$files[$k] = $f;
+				}
+			}
+			return parent::_mapFiles($files, $docroot);
+		}
+
 
 		/**
 		 * Relax permissions to allow write-access

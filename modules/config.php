@@ -70,7 +70,7 @@ class Config_Module extends Module_Skeleton {
 			$class = strtolower($class);
 
 			array_push($list, ...array_map(function ($f) use ($class) {
-				return $class . '.' . strtolower(basename($f, '.php'));
+				return $class . '.' . strtolower(snake_case(basename($f, '.php'), '-'));
 			}, $config));
 		}
 		closedir($dh);

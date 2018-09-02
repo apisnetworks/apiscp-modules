@@ -33,15 +33,15 @@
 
 		protected $_aclList = array(
 			'min' => array(
-				'/storage/framework/',
-				'/app/bootstrap/cache'
+				'storage/framework/',
+				'app/bootstrap/cache'
 			),
 			'max' => array(
-				'/storage/framework/cache',
-				'/storage/framework/views',
-				'/storage/framework/sessions',
-				'/storage/logs',
-				'/bootstrap/cache'
+				'storage/framework/cache',
+				'storage/framework/views',
+				'storage/framework/sessions',
+				'storage/logs',
+				'bootstrap/cache'
 			)
 		);
 
@@ -55,6 +55,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			if (!version_compare($this->php_version(), '7', '>=')) {
 				return error('Laravel requires PHP7');
 			}

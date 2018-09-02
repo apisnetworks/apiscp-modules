@@ -21,13 +21,14 @@
 	class Site_Module extends Module_Support_Auth
 		implements Opcenter\Contracts\Hookable
 	{
+		use ImpersonableTrait;
 		const MIN_STORAGE_AMNESTY = QUOTA_STORAGE_WAIT;
 
 		// time in seconds between amnesty requests
 		const AMNESTY_DURATION = QUOTA_STORAGE_DURATION;
 		// 24 hours
 		const AMNESTY_MULTIPLIER = QUOTA_STORAGE_BOOST;
-
+		const DEPENDENCY_MAP = [];
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -460,6 +461,25 @@
 			$time = isset($_SERVER['REQUEST_TIME']) ? $_SERVER['REQUEST_TIME'] : time();
 			$amnesty = $this->get_service_value('diskquota', 'amnesty');
 			return ($time - $amnesty) <= self::AMNESTY_DURATION;
+		}
+
+		/**
+		 * Assume the role of a secondary user
+		 *
+		 * @param string $user
+		 * @return string
+		 */
+		public function hijack(string $user): string
+		{
+			if (!$this->user_exists($user)) {
+				error("unknown user `%s'", $user);
+				return $this->session_id;
+			}
+			if ($user === $this->username) {
+				return $this->session_id;
+			}
+
+			return $this->impersonateRole($this->site, $user);
 		}
 
 		public function _create()

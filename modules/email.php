@@ -1008,6 +1008,7 @@
 					);
 				}
 			} else {
+
 				$this->dns_add_record($domain, $mymailrec, 'A', $myip) ||
 				warn("failed to populate DNS record for MX!");
 			}
@@ -1701,7 +1702,7 @@
 		}
 
 		public function _housekeeping() {
-			$dummyfile = app_path('webmail/dummyset.php');
+			$dummyfile = webapp_path('webmail/dummyset.php');
 			$dest = '/var/www/html/dummyset.php';
 			if (!file_exists($dest) || fileinode($dummyfile) !== fileinode($dest)) {
 				file_exists($dest) && unlink($dest);

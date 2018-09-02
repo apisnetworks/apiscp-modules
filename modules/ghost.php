@@ -96,6 +96,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			if ($this->cgroup_enabled() && ($memory = $this->get_config('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
 				return error("Ghost requires at least 1024 MB memory, `%s' MB provided for account", $memory);
 			}
@@ -246,6 +249,7 @@
 				'# Enable caching' . "\n" .
 				'UnsetEnv no-cache' . "\n" .
 				'PassengerEnabled on' . "\n" .
+				'PassengerAppEnv production' . "\n" .
 				'PassengerStartupFile current/index.js' . "\n" .
 				'PassengerAppType node' . "\n" .
 				'PassengerNodejs ' . $this->getNodeCommand('lts', $opts['user'] ?? null) . "\n" .
@@ -363,7 +367,6 @@
 
 			$ret = $this->pman_run($cmd, $args,
 				[
-					'BASH_ENV' => '/etc/profile.d/nvm.sh',
 					'NVM_DIR'  => $this->user_get_home($user),
 					'PATH' => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin',
 					'NODE_ENV' => 'production'
@@ -652,18 +655,19 @@
 				return error('invalid version number, %s', $version);
 			}
 
-			// Permission requirements are insanely insecure... otherwise Ghost vomits.
-			$this->pman_run(
-				'find %(approot)s/content/themes/ -type d -exec chmod 00775 {} \;',
-				['approot' => $approot],
-				[],
-				['user' => $this->getDocrootUser($approot)]
-			);
+
 			$this->file_chmod($approot, 705);
 
 			$oldversion = $this->get_version($hostname, $path);
 			if (\Opcenter\Versioning::asMajor($version) !== \Opcenter\Versioning::asMajor($oldversion)) {
-				info("Major upgrade detected - updating ghost-cli");
+				info("Major upgrade detected - updating ghost-cli, relaxing permissions");
+				// Permission requirements are insanely insecure... otherwise Ghost vomits.
+				$this->pman_run(
+					'find %(approot)s/ -mindepth 1 -type d -exec chmod 00775 {} \;',
+					['approot' => $approot],
+					[],
+					['user' => $this->getDocrootUser($approot)]
+				);
 				if (!$this->validateNode('lts', $this->getDocrootUser($approot)) ||
 					!$this->_exec($approot, 'ghost update --local -D --no-restart --no-color --v%d', [\Opcenter\Versioning::asMajor($oldversion)]))
 				{
@@ -673,7 +677,8 @@
 					"cd %s && env NODE_ENV=production ghost update --local -f", $approot);
 			}
 
-			$cmd = 'ghost update --no-restart --local --no-prompt --no-color %(version)s';
+			// more bad permission requirements, -D bypasses chmod requirement
+			$cmd = 'ghost update --no-restart -D --local --no-prompt --no-color %(version)s';
 			$args['version'] = $version;
 			$ret = $this->_exec($approot, $cmd, $args);
 			$this->fixSymlink($approot);

@@ -35,8 +35,24 @@
 		const DEFAULT_VERSION_LOCK = 'major';
 
 		protected $_aclList = array(
-			'min' => array('/media', '/var', '/downloader', '/generated', '/pub/static'),
-			'max' => array('/media/downloadable', '/downloader', '/var/cache', '/var/session', '/var/page_cache', '/var/log', '/generated/code', '/generated/metadata', '/pub/static')
+			'min' => array(
+				'media',
+				'var',
+				'downloader',
+				'generated',
+				'pub/static'
+			),
+			'max' => array(
+				'media/downloadable',
+				'downloader',
+				'var/cache',
+				'var/session',
+				'var/page_cache',
+				'var/log',
+				'generated/code',
+				'generated/metadata',
+				'pub/static'
+			)
 		);
 
 		/**
@@ -60,6 +76,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Magento');

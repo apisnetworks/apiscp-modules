@@ -19,6 +19,8 @@
 	 */
 	class Admin_Module extends Module_Skeleton
 	{
+		use ImpersonableTrait;
+
 		const ADMIN_HOME = '/etc/opcenter/webhost';
 		// @var string under ADMIN_HOME
 		const ADMIN_CONFIG = '.config/';
@@ -169,7 +171,7 @@
 				return $this->query('admin_get_email');
 			}
 			$ini = $this->_get_admin_config();
-			return $ini['adminemail'] ?? null;
+			return $ini['adminemail'] ?? $ini['email'] ?? null;
 		}
 
 		/**
@@ -245,7 +247,10 @@
 			if (!file_exists($file)) {
 				return [];
 			}
-			return parse_ini_file($file);
+			if (!platform_is('7.5')) {
+				return parse_ini_file($file);
+			}
+			return Util_PHP::unserialize(file_get_contents($file));
 		}
 
 		private function getAdminConfigFile(): string {
@@ -481,12 +486,7 @@
 		 */
 		public function hijack(string $site, string $user = null): ?string
 		{
-			$context = \Auth::context($user, $site);
-			$this->setApnscpFunctionInterceptor(\apnscpFunctionInterceptor::factory($context));
-			$_SESSION = \apnscpSession::restore_from_id($context->id);
-			\session_id($context->id);
-			\Auth::autoload()->setID($context->id)->authInfo(true);
-			return $context->id;
+			return $this->impersonateRole($site, $user);
 		}
 
 		/**

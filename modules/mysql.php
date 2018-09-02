@@ -457,7 +457,7 @@
 			$user,
 			$host,
 			$password,
-			$maxconn = 5,
+			$maxconn = self::DEFAULT_CONCURRENCY_LIMIT,
 			$maxupdates = 0,
 			$maxquery = 0,
 			$ssl = '',
@@ -475,7 +475,7 @@
 
 			$ssl = strtoupper($ssl);
 			if (!$maxconn) {
-				$maxconn = 5;
+				$maxconn = self::DEFAULT_CONCURRENCY_LIMIT;
 			}
 			$host = trim($host);
 			if ($host != 'localhost' && !ip2long($host) && !preg_match(Regex::SQL_MYSQL_IP_WILDCARD, $host)) {
@@ -734,17 +734,14 @@
 					$db = $prefix . $db;
 				}
 			}
-
-			$conn = $this->_connect_root();
-			$dbsafe = $conn->escape_string($db);
-			$q = $conn->query("SELECT db FROM db WHERE db = '" . $conn->escape_string($db) . "'");
-			if ($q && $q->num_rows > 0) {
-				return true;
+			if (true === ($exists = Opcenter\Database\MySQL::databaseExists($db))) {
+				return $exists;
 			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
 				// used by db backup routine, in future the task should be
 				// removed from backup, but leave this as it is for now
 				return false;
 			}
+			$conn = $this->_connect_root();
 			$usersafe = $conn->escape_string($this->get_config('mysql', 'dbaseadmin'));
 			// double prefix, remove first prefix, then check one last time
 			if (0 === strpos($db, $prefix.$prefix)) {
@@ -824,7 +821,7 @@
 		 * @param array  $privileges
 		 * @return bool
 		 */
-		public function set_privileges($user, $host, $db, array $privileges)
+		public function set_privileges(string $user, string $host, string $db, array $privileges): bool
 		{
 			if (!$host) {
 				return error("invalid host name `$host'");
@@ -914,7 +911,7 @@
 			$ar = $conn->affected_rows;
 
 			if ($conn->error) {
-				return new MySQLError("Error when applying grants, " . $conn->error);
+				return error("Error when applying grants, " . $conn->error);
 			}
 
 			$conn->query("FLUSH PRIVILEGES;");
@@ -1259,7 +1256,7 @@
 			}
 
 			if ($mergeopts['max_user_connections'] < 1) {
-				$mergeopts['max_user_connections'] = 5;
+				$mergeopts['max_user_connections'] = self::DEFAULT_CONCURRENCY_LIMIT;
 			}
 
 			if ($mergeopts['max_questions'] < 0 || $mergeopts['max_updates'] < 0) {
@@ -1911,41 +1908,12 @@
 
 		public function _edit()
 		{
-			if (version_compare(platform_version(), '7.5', '>=')) {
+			if (platform_is('7.5')) {
 				return true;
 			}
 			$conf = $this->getAuthContext()->getAccount();
 			if ($conf->new['mysql']['enabled'] && !$conf->old['mysql']['enabled']) {
 				$this->installDatabaseService('mysql');
-			}
-
-			$conf_old = $conf->old['mysql'];
-			$conf_new = $conf->new['mysql'];
-			if ($conf_new === $conf_old) {
-				return;
-			}
-
-			$prefixold = $conf_old['dbaseprefix'];
-			$prefixnew = $conf_new['dbaseprefix'];
-			$db = MySQL::initialize();
-			if (!preg_match(Regex::SQL_PREFIX, $prefixnew)) {
-				return error("invalid database prefix `%s'", $prefixnew);
-			}
-			if ($prefixold !== $prefixnew) {
-				$maxlen = self::MYSQL_USER_FIELD_SIZE - 3;
-				if (strlen($prefixnew) > $maxlen /* prefix + _xy */) {
-					return error("database prefix max length is %d", $maxlen);
-				}
-				$len = strlen($prefixold);
-				$q = "UPDATE sql_dumps SET db_name = CONCAT('" .
-					$db->escape_string($prefixnew) . "', SUBSTR(db_name, " . ($len + 1) . ")) WHERE " .
-					"SUBSTR(db_name, 1, " . $len . ") = '" . $db->escape_string($prefixold) . "';";
-				if (!$db->query($q)) {
-					$this->add_error("sql backup rename failed");
-				}
-				$this->renameDatabase($prefixold, $prefixnew);
-				$this->renameUser($prefixold, $prefixnew);
-				// update grants and db table
 			}
 		}
 
@@ -1955,17 +1923,11 @@
 		}
 
 		public function _create_user(string $user)
-		{
-			// TODO: Implement _create_user() method.
-		}
+		{ }
 
 		public function _delete_user(string $user)
-		{
-			// TODO: Implement _delete_user() method.
-		}
+		{ }
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
-		{
-			// TODO: Implement _edit_user() method.
-		}
+		{ }
 	}

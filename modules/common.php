@@ -742,6 +742,9 @@
 				return error("invalid timezone `%s'", $zone);
 			}
 			date_default_timezone_set($zone);
+			if ($this->permission_level & PRIVILEGE_ADMIN)  {
+				return $this->config_set('system.timezone', $zone);
+			}
 			$prefs = $this->load_preferences();
 			$prefs['timezone'] = $zone;
 			// update shell prefs...

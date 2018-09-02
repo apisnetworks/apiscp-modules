@@ -226,9 +226,6 @@
 		 */
 		public function change_prefix($prefix)
 		{
-			if (platform_is('7.5')) {
-				return error("Prefix support not implemented yet in %s", PANEL_BRAND);
-			}
 			if (!IS_CLI) {
 				return $this->query('sql_change_prefix', $prefix);
 			}
@@ -236,10 +233,8 @@
 			$normalizedPrefix = $prefix . '_';
 			if (strlen($prefix) < static::MIN_PREFIX_LENGTH) {
 				return error("minimum acceptable db prefix length is `%d'", static::MIN_PREFIX_LENGTH);
-			} else {
-				if (!preg_match(Regex::SQL_PREFIX, $normalizedPrefix)) {
-					return error("invalid db prefix `%s'", $prefix);
-				}
+			} else if (!preg_match(Regex::SQL_PREFIX, $normalizedPrefix)) {
+				return error("invalid db prefix `%s'", $prefix);
 			}
 			$map = \Opcenter\Map::load('mysql.prefixmap', 'r');
 			if (array_key_exists($normalizedPrefix, $map)) {
@@ -247,6 +242,9 @@
 			}
 			$editor = new \Util_Account_Editor($this->getAuthContext()->getAccount());
 			$editor->setConfig('mysql', 'dbaseprefix', $normalizedPrefix);
+			if ($this->pgsql_enabled()) {
+				$editor->setConfig('pgsql', 'dbaseprefix', $normalizedPrefix);
+			}
 			$status = $editor->edit();
 			if (!$status) {
 				return error("failed to change database prefix");
@@ -974,6 +972,7 @@
 		{
 			$conf = $this->getAuthContext()->getAccount();
 
+			// mysql and pgsql must retain the same dbaseadmin/dbaseprefix
 			$conf_old = $conf->old['mysql'];
 			$conf_new = $conf->new['mysql'];
 			if ($conf_new === $conf_old) {
@@ -998,9 +997,16 @@
 				if (!$db->query($q)) {
 					$this->add_error("sql backup rename failed");
 				}
-				$this->renameDatabase($prefixold, $prefixnew);
-				$this->renameUser($prefixold, $prefixnew);
+				$this->renameDatabasePrefix($prefixold, $prefixnew);
+				$this->renameUserPrefix($prefixold, $prefixnew);
 				// update grants and db table
+			}
+
+			// v7.5 does this in dbaseadmin
+			if (!platform_is('7.5', '>=')) {
+				if ($conf_new['dbaseadmin'] !== $conf_old['dbaseadmin']) {
+					$this->renameUser($conf_old['dbaseadmin'], $conf_new['dbaseadmin']);
+				}
 			}
 		}
 

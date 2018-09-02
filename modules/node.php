@@ -192,10 +192,9 @@
 		 * @return array
 		 */
 		private function exec(?string $name, string $command = null, ...$args): array {
-			$ret = $this->pman_run('/bin/bash -c -- ' . escapeshellarg("nvm ${name} ${command}"),
+			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("nvm ${name} ${command}"),
 				$args,
 				[
-					'BASH_ENV' => '/etc/profile.d/nvm.sh',
 					'NVM_DIR' => $this->user_get_home(),
 					'PATH' => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin'
 				]

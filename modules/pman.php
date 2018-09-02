@@ -262,6 +262,7 @@
 				}
 				$pwd = $this->user_getpwnam($options['user']);
 				if (!$pwd) {
+					report("Failed getpwnam - " . $this->inContext() . "\n" . var_export($this->getAuthContext(), true) . "\n" . var_export($this->user_get_users(), true));
 					return error("unknown user `%s'", $options['user']);
 				}
 				$minuid = apnscpFunctionInterceptor::get_autoload_class_from_module('user')::MIN_UID;
@@ -399,7 +400,7 @@
 		{
 			$cache = Cache_Account::spawn($this->getAuthContext());
 			$all = $cache->get(self::PROC_CACHE_KEY);
-			if ($all !== false) {
+			if ($all !== false && \is_array($all)) {
 				return $all;
 			}
 
@@ -476,7 +477,7 @@
 					$stat['startutime'] = round($now - ($uptime - $stat['starttime']));
 					// drop from bytes to KB
 					$stat['vsize'] /= 1024;
-					$stat['rss'] = $stat['rss'] * MEM_PAGESIZE;
+					$stat['rss'] *= MEM_PAGESIZE;
 					$stat['rsslim'] /= 1024;
 					$stat['args'] = explode("\0", $cmdline, -1);
 					unset($stat['args'][0]);
@@ -502,8 +503,8 @@
 			// memory + cpu proc lists are balanced
 			$cgroupprocs = Cgroup_Module::CGROUP_LOCATION . '/' .
 				array_pop($controllers) . '/' . $this->cgroup_get_cgroup() . '/cgroup.procs';
-			if (version_compare(platform_version(), '6', '>=') && file_exists($cgroupprocs)) {
-				return file($cgroupprocs, FILE_SKIP_EMPTY_LINES | FILE_IGNORE_NEW_LINES);
+			if (platform_is('6') && file_exists($cgroupprocs)) {
+				return (array)file($cgroupprocs, FILE_SKIP_EMPTY_LINES | FILE_IGNORE_NEW_LINES);
 			}
 			$procpath = self::PROC_PATH;
 			$dir = opendir($procpath);
@@ -512,10 +513,8 @@
 				$path = $procpath . '/' . $file;
 				if (!is_dir($path) || $file === ".." || $file === ".") {
 					continue;
-				} else {
-					if (filegroup($path) !== $this->group_id) {
-						continue;
-					}
+				} else if (filegroup($path) !== $this->group_id) {
+					continue;
 				}
 				$procs[] = $file;
 			}

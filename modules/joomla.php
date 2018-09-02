@@ -38,21 +38,21 @@
 		const JOOMLA_MIRROR = 'http://mirror.apisnetworks.com/joomla';
 		protected $_aclList = array(
 			'min' => array(
-				'/cache',
-				'/tmp',
-				'/administrator',
-				'/logs',
-				'/media',
-				'/images',
-				'/plugins',
-				'/log'
+				'cache',
+				'tmp',
+				'administrator',
+				'logs',
+				'media',
+				'images',
+				'plugins',
+				'log'
 			),
 			'max' => array(
-				'/cache',
-				'/tmp',
-				'/administrator/cache',
-				'/logs',
-				'/log'
+				'cache',
+				'tmp',
+				'administrator/cache',
+				'logs',
+				'log'
 			)
 		);
 
@@ -111,6 +111,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Joomla');

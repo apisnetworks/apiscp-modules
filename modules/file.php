@@ -23,7 +23,7 @@
 	class File_Module extends Module_Skeleton
 	{
 		const UPLOAD_UID = WS_UID;
-		const STCACHE_ROOT = '6666cd76f96956469e7be39d750cc7d9';
+		const STCACHE_ROOT = '6666cd76f96956469e7be39d750cc7d9';  // md5("/")
 		const ACL_MODE_RECURSIVE = 'R';
 		const ACL_MODE_DEFAULT = 'd';
 		const ACL_NO_RECALC_MASK = 'n';
@@ -43,7 +43,6 @@
 			'tar.bz2' => 'bzip',
 			'tbz'     => 'bzip',
 			'tbz2'    => 'bzip'
-			/*'rar'    => 'rar'*/
 		);
 		private static $uid_mappings;
 		private static $stat_cache = array();
@@ -54,7 +53,7 @@
 			'time' => null,
 			'uids' => array()
 		); // nobody from /etc/passwd
-		private $compression_instances; // md5("/")
+		private $compression_instances;
 
 		// apply settings recursively
 		private $trans_paths = array();
@@ -2199,6 +2198,99 @@
 		}
 
 		/**
+		 * Locate files under a given path matching requirements
+		 *
+		 * Requirements:
+		 * 	- user: username
+		 *  - perm: permissions
+		 *  - mtime/ctime: modification/creation time.
+		 * 		n > 0, more than n days ago, n < 0, less than n days ago
+		 *  - name/regex: filename glob/regex match
+		 *
+		 * @param string $path
+		 * @param array  $requirements optional requirements
+		 * @param bool   $union all must match
+		 * @return array|bool false on error
+		 */
+		public function audit(string $path, array $requirements = [], bool $union = true)
+		{
+			if (!IS_CLI) {
+				return $this->query('file_audit', $path, $requirements, $union);
+			}
+			// @TODO convert to Opcenter class, nasty
+			if (!$requirements) {
+				$requirements = ['user' => Web_Module::WEB_USERNAME];
+			}
+			$recognized = [ 'user', 'perm', 'mtime', 'ctime', 'regex', 'name' ];
+			if ($bad = array_except($requirements, $recognized)) {
+				return error("Unrecognized audit options: `%s'", implode(',', $bad));
+			}
+			if (!$fspath = $this->make_shadow_path($path)) {
+				return error("unknown path `%s'", $path);
+			}
+			if (!$stat = $this->stat($path)) {
+				return error("failed to stat `%s'", $path);
+			}
+			if (!$stat['file_type'] === 'dir' || !$stat['can_execute']) {
+				return error("path `%s' is not a directory or cannot access", $path);
+			}
+			$cmdstr = 'find %(path)s';
+			$cmds = [];
+			$cmdargs = ['path' => $fspath];
+
+			if (isset($requirements['perm'])) {
+				$cmds[] = '-perm %(perm)s';
+				if ( ($idx = strspn((string)$requirements['perm'], "012345678gwox+-r")) !== \strlen((string)$requirements['perm'])) {
+					return error("Permissions must be in octal or symbolic. Invalid characters found pos %d: `%s'",
+						$idx,
+						substr((string)$requirements['perm'], $idx)
+					);
+				}
+				$cmdargs['perm'] = (string)$requirements['perm'];
+			}
+			if (isset($requirements['user'])) {
+				$cmds[] = '-user %(user)s';
+				if ($requirements['user'][0] === '&' || $requirements['user'][0] === '|') {
+					$cmdstr .= ' -o ';
+					$requirements['user'] = substr($requirements['user'], 1);
+				}
+				if (!$this->user_exists($requirements['user']) && !\in_array($this->permittedUsers(), $requirements['user'], true)) {
+					return error("Unknown user `%s'", $requirements['user']);
+				}
+				$cmdargs['user'] = $requirements['user'];
+			}
+			foreach (['ctime', 'mtime'] as $spec) {
+				if (!isset($requirements[$spec])) {
+					continue;
+				}
+				// @todo deep type conversion in SOAP
+				if ((int)$requirements[$spec] != $requirements[$spec]) {
+					return error("%s must be numeric, got `%s'", $spec, $requirements[$spec]);
+				}
+
+				$cmds[] ="-${spec} %(${spec})d";
+				$cmdargs[$spec] = $requirements[$spec];
+			}
+			if (isset($requirements['name'], $requirements['regex'])) {
+				return error("Both name and regex cannot be specified");
+			}
+			foreach(['name', 'regex'] as $spec) {
+				if (!isset($requirements[$spec])) {
+					continue;
+				}
+				$cmds[] = "-${spec} %(${spec})s";
+				$cmdargs[$spec] = $requirements[$spec];
+				break;
+			}
+
+			$ret = \Util_Process_Safe::exec($cmdstr . ' \( ' . implode($union ? ' ' : ' -o ', $cmds) . ' \) -printf "%%P\n"', $cmdargs);
+			if (!$ret['success']) {
+				return error("failed to locate files under `%s': %s", $path, $ret['stderr']);
+			}
+			return !$ret['stdout'] ? [] : explode("\n", rtrim($ret['stdout']));
+		}
+
+		/**
 		 * array report_quota (mixed)
 		 *
 		 * @param $mUIDs array of uids
@@ -2954,16 +3046,7 @@
 			if (!version_compare(platform_version(), '4.5', '>=')) {
 				return error("`%s': only available on platform 4.5+", __FUNCTION__);
 			}
-			// don't worry about caching, already done in user_get_users
-			$uuidmap = $this->user_get_users();
-			$uuidmap['apache'] = array('uid' => APACHE_UID);
-
-			if ($this->tomcat_permitted()) {
-				$tcuser = $this->tomcat_system_user();
-				$tcuid = posix_getpwnam($tcuser);
-				$uuidmap[$tcuser] = $tcuid['uid'];
-			}
-
+			$uuidmap = $this->permittedUsers();
 			$file = (array)$file;
 			$sfiles = array();
 			$prefix = $this->make_shadow_path("");
@@ -2979,11 +3062,9 @@
 					if (!$shadow) {
 						error("skipping invalid path `%s'", $tmp);
 						continue;
-					} else {
-						if (!file_exists($shadow)) {
-							error("skipping missing path `%s'", $tmp);
-							continue;
-						}
+					} else if (!file_exists($shadow)) {
+						error("skipping missing path `%s'", $tmp);
+						continue;
 					}
 
 					$f = substr($shadow, $prefixlen);
@@ -3016,21 +3097,15 @@
 					$permission = array();
 				}
 
-			} else {
-				if (!is_array($user)) {
-					$user = array($user => $permission);
-				} else {
-					if (is_array($user) && is_array($permission)) {
-						// arguments passed in map format
-						$xtra = $permission;
-						// arguments passed with implicit true assumption
-						$permission = null;
-					} else {
-						if (is_array($user)) {
-							// todo
-						}
-					}
-				}
+			} else if (!is_array($user)) {
+				$user = array($user => $permission);
+			} else if (is_array($user) && is_array($permission)) {
+				// arguments passed in map format
+				$xtra = $permission;
+				// arguments passed with implicit true assumption
+				$permission = null;
+			} else if (is_array($user)) {
+				// todo
 			}
 			if (array_key_exists(0, $xtra)) {
 				$xtra = array_fill_keys($xtra, true);
@@ -3071,41 +3146,35 @@
 
 				if (!isset($uuidmap[$u])) {
 					return error("invalid user `%s',", $u);
-				} else {
-					if (!isset($uuidmap[$u]['uid'])) {
-						return error("eep, unable to find UID for `%s'", $u);
-					}
 				}
 
 				$default = false;
 				$flag = 'm';
 				if (is_null($perms)) {
 					$flag = 'x';
-				} else {
-					if (!ctype_digit((string)$perms)) {
-						if (0 < ($pos = strspn($perms, "drwx")) && isset($perms[$pos])) {
-							// permissions provided as chars, verify it's sensible
-							return error("unknown permission mode `%s' setting for user `%s'",
-								$perms[$pos], $u
-							);
-						}
-						$tmp = 0;
-						for ($i = 0, $n = strlen($perms); $i < $n; $i++) {
-							if ($perms[$i] === 'r') {
-								$tmp |= 4;
-							} else if ($perms[$i] === 'w') {
-								$tmp |= 2;
-							} else if ($perms[$i] === 'x') {
-								$tmp |= 1;
-							} else if ($perms[$i] === 'd' && !$xtra[self::ACL_MODE_DEFAULT]) {
-								$default = true;
-							}
-						}
-						$perms = $tmp;
+				} else if (!ctype_digit((string)$perms)) {
+					if (0 < ($pos = strspn($perms, "drwx")) && isset($perms[$pos])) {
+						// permissions provided as chars, verify it's sensible
+						return error("unknown permission mode `%s' setting for user `%s'",
+							$perms[$pos], $u
+						);
 					}
+					$tmp = 0;
+					for ($i = 0, $n = strlen($perms); $i < $n; $i++) {
+						if ($perms[$i] === 'r') {
+							$tmp |= 4;
+						} else if ($perms[$i] === 'w') {
+							$tmp |= 2;
+						} else if ($perms[$i] === 'x') {
+							$tmp |= 1;
+						} else if ($perms[$i] === 'd' && !$xtra[self::ACL_MODE_DEFAULT]) {
+							$default = true;
+						}
+					}
+					$perms = $tmp;
 				}
 
-				$uid = $uuidmap[$u]['uid'];
+				$uid = $uuidmap[$u];
 				$map[] = sprintf('-%s %su:%u%s',
 					$flag,
 					($default ? 'd:' : ''),
@@ -3132,15 +3201,34 @@
 			return true;
 		}
 
+		/**
+		 * Create a map of permitted users + system id
+		 *
+		 * @return array
+		 */
+		private function permittedUsers(): array
+		{
+			// don't worry about caching, already done in user_get_users
+			$uuidmap = [
+				\Web_Module::WEB_USERNAME => posix_getpwnam(\Web_Module::WEB_USERNAME)['uid']
+			];
+
+			if ($this->tomcat_permitted()) {
+				$tcuser = $this->tomcat_system_user();
+				$uuidmap[$tcuser] = posix_getpwnam($tcuser)['uid'];
+			}
+			$users = $this->user_get_users();
+			return array_merge(array_combine(array_keys($users), array_column($users, 'uid')), $uuidmap);
+		}
+
 		private function _acl_driver(array $files, $flags, array $rights = array())
 		{
 			$shadow = $this->domain_shadow_path();
 			if ($flags[0] !== "-") {
 				return error("acl flags garbled");
-			} else {
-				if (0 !== strpos($files[0], $shadow)) {
-					return error("crit: acl path error?!!");
-				}
+			}
+			if (0 !== strpos($files[0], $shadow)) {
+				return error("crit: acl path error?!!");
 			}
 
 			$cmd = 'setfacl ' . $flags . ' ' . join(" ", $rights);
@@ -3318,12 +3406,7 @@
 			if ($newuid !== $newuser) {
 				$newuid = $this->user_get_uid_from_username($newuser);
 			}
-			$acceptableUids = [
-				$this->user_get_uid_from_username(\Web_Module::WEB_USERNAME),
-			];
-			if ($this->tomcat_permitted()) {
-				$acceptableUids[] = $this->user_get_uid_from_username($this->tomcat_system_user());
-			}
+			$acceptableUids = $this->permittedUsers();
 
 			if ($olduid < \User_Module::MIN_UID && !in_array($olduid, $acceptableUids) ) {
 				return error("user `%s' is unknown or a system user", $olduser);

@@ -166,6 +166,7 @@
 		 *          smtp     : smtp access
 		 *          cp       : CP access
 		 *          ssh      : ssh access enabled
+		 *          shell    : user shell
 		 */
 		public function add_user($user, $password, $gecos = '', $quota = 0, array $options = array())
 		{
@@ -237,6 +238,10 @@
 			} else if (!$smtp_enable && !$imap_enable) {
 				info("Email not enabled for user");
 			}
+			$shell = $options['shell'] ?? '/bin/bash';
+			if (!in_array($shell, $this->get_shells(), true)) {
+				return error("Unknown shell `%s'", $shell);
+			}
 			$instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
 			$uid = $instance->captureUid($this->site_id);
 			$ret = $instance->create($user, [
@@ -244,6 +249,7 @@
 				'gid'     => $this->group_id,
 				'gecos'   => $gecos,
 				'uid'     => $uid,
+				'shell'   => $shell
 			]);
 			if (!$ret) {
 				$instance->releaseUid($uid, $this->site_id);
@@ -287,6 +293,17 @@
 
 
 			return true;
+		}
+
+		/**
+		 * Get shells valid for account
+		 *
+		 * /bin/false blocks access via PAM controlled services
+		 *
+		 * @return array
+		 */
+		public function get_shells(): array {
+			return file($this->domain_fs_path('/etc/shells'), FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES) + ['/bin/false'];
 		}
 
 		/**
@@ -378,7 +395,8 @@
 			fclose($fp);
 			return array(
 				'users' => $users,
-				'max'   => $this->get_service_value("users", "maxusers")
+				// bc pre v7.5
+				'max'   => $this->get_service_value("users", "max", $this->get_service_value('users', 'maxusers'))
 			);
 		}
 
@@ -555,10 +573,15 @@
 			if (!$this->exists($user)) {
 				return error($user . ": user does not exist");
 			}
+			if (isset($attributes['shell']) && !in_array($attributes['shell'], $this->get_shells(), true)) {
+				return error("Unknown/invalid shell `%s'", $attributes['shell']);
+			}
 			// before changing user, if user change, grab
 			$newuser = array_get($attributes, 'username');
 			$oldpwd = $this->getpwnam($user);
-			$resp = \Opcenter\Role\User::bindTo($this->domain_fs_path())->change($user, $attributes);
+			if (!\Opcenter\Role\User::bindTo($this->domain_fs_path())->change($user, $attributes)) {
+				return false;
+			}
 
 			// user changed
 			if ($newuser && $newuser !== $user) {

@@ -21,6 +21,7 @@
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
+			'apache',
 			'users', // addon domain ownership
 		];
 
@@ -36,20 +37,20 @@
 		{
 			$this->exportedFunctions = array(
 				'*'                         => PRIVILEGE_SITE,
-				'add_shared_domain_backend' => PRIVILEGE_SERVER_EXEC | PRIVILEGE_SITE,
+				'add_domain_backend' => PRIVILEGE_SERVER_EXEC | PRIVILEGE_SITE,
 				'map_domain'                => PRIVILEGE_SERVER_EXEC,
 			);
 			parent::__construct();
 		}
 
 		/**
-		 * Post-verification add_shared_domain()
+		 * Post-verification add_domain()
 		 *
 		 * @param string $domain
 		 * @param string $path
 		 * @return bool
 		 */
-		public function add_shared_domain_backend($domain, $path)
+		public function add_domain_backend($domain, $path)
 		{
 			$parent = dirname($path);
 
@@ -313,16 +314,22 @@
 			return true;
 		}
 
+		public function remove_shared_domain(string $domain) {
+			deprecated_func('Use remove_domain');
+			return $this->remove_domain($domain);
+		}
+
 		/**
-		 * bool remove_shared_domain(string)
+		 * bool remove_domain(string)
 		 *
 		 * @param string $domain domain name to remove
+		 * @return bool
 		 */
-		public function remove_shared_domain($domain)
+		public function remove_domain($domain)
 		{
 			if (!IS_CLI) {
 				$docroot = $this->web_get_docroot($domain);
-				$status = $this->query('aliases_remove_shared_domain', $domain);
+				$status = $this->query('aliases_remove_domain', $domain);
 				if ($status && $docroot) {
 					$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
 					$meta->forget($docroot);
@@ -350,7 +357,7 @@
 				$status = $this->query('aliases_remove_alias', $alias);
 				return $status;
 			}
-			$alias = trim(strtolower($alias));
+			$alias = strtolower(trim($alias));
 			if (!preg_match(Regex::DOMAIN, $alias)) {
 				return error("Invalid domain");
 			}
@@ -370,7 +377,12 @@
 			return $this->set_config_journal('aliases', 'aliases', $aliases);
 		}
 
-		public function add_shared_domain($domain, $path)
+		public function add_shared_domain(string $domain, string $path) {
+			deprecated_func('Use add_domain');
+			return $this->add_domain($domain, $path);
+		}
+
+		public function add_domain($domain, $path)
 		{
 			$domain = preg_replace('/^www./', '', strtolower($domain));
 			$path = rtrim(str_replace('..', '.', $path), '/') . '/';
@@ -386,7 +398,7 @@
 			if (!$this->_verify($domain)) {
 				return false;
 			}
-			return $this->query('aliases_add_shared_domain_backend', $domain, $path);
+			return $this->query('aliases_add_domain_backend', $domain, $path);
 		}
 
 		/**
@@ -823,9 +835,9 @@
 			}
 			$map = $this->transformMap();
 			$path = $map[$domain];
-			$ret = $this->remove_shared_domain($domain)
+			$ret = $this->remove_domain($domain)
 				&& $this->_synchronize_changes() &&
-				$this->add_shared_domain($newdomain, $path);
+				$this->add_domain($newdomain, $path);
 			if ($ret) {
 				warn("activate configuration changes for new domain to take effect");
 			}

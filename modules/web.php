@@ -25,8 +25,7 @@
 			'ipinfo',
 			'ipinfo6',
 			'siteinfo',
-			'dns',
-			'aliases' // addon domains
+			'dns'
 		];
 
 		// primary domain document root
@@ -306,7 +305,7 @@
 				if (is_link($entry . '/html') || is_dir($entry . '/html') /* smh... */) {
 					if (!is_link($entry . '/html')) {
 						warn("subdomain `%s' doc root is directory", $subdomain);
-						$path = '/var/subdomain/' . $entry . '/html';
+						$path = Opcenter\Http\Apache::makeSubdomainPath($entry);
 					} else {
 						$path = (string)substr(File_Module::convert_relative_absolute($entry . '/html',
 							readlink($entry . '/html')),
@@ -344,6 +343,20 @@
 		}
 
 		/**
+		 * Check if hostname is a subdomain
+		 *
+		 * @param string $hostname
+		 * @return bool
+		 */
+		public function is_subdomain(string $hostname): bool
+		{
+			if (false !== strpos($hostname, '.') && !preg_match(Regex::SUBDOMAIN, $hostname)) {
+				return false;
+			}
+			return is_dir($this->domain_fs_path('/var/subdomain/' . $hostname));
+		}
+
+		/**
 		 * Check if named subdomain exists
 		 *
 		 * Fallthrough, local, and global subdomain patterns
@@ -359,7 +372,7 @@
 			if ($subdomain[0] == '*') {
 				$subdomain = substr($subdomain, 2);
 			}
-			$path = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
+			$path = $this->domain_fs_path('/var/subdomain/' . $subdomain);
 			return file_exists($path);
 		}
 
@@ -368,8 +381,8 @@
 			if ($subdomain[0] == '*') {
 				$subdomain = substr($subdomain, 2);
 			}
-			return file_exists($this->domain_fs_path() . '/var/subdomain/' . $subdomain . '/html') &&
-				is_executable($this->domain_fs_path() . '/var/subdomain/' . $subdomain . '/html');
+			return file_exists($this->domain_fs_path('/var/subdomain/' . $subdomain . '/html')) &&
+				is_executable($this->domain_fs_path('/var/subdomain/' . $subdomain . '/html'));
 		}
 
 		/**
@@ -468,15 +481,13 @@
 				!preg_match(Regex::DOMAIN, $subdomain)
 			) {
 				return error($subdomain . ": invalid subdomain");
-			} else {
-				if ($this->subdomain_exists($subdomain)) {
-					return error($subdomain . ": subdomain exists");
-				} else {
-					if ($docroot[0] != '/' && $docroot[0] != '.') {
-						return error("invalid path `%s', subdomain path must " .
-							"be relative or absolute", $docroot);
-					}
-				}
+			}
+			if ($this->subdomain_exists($subdomain)) {
+				return error($subdomain . ": subdomain exists");
+			}
+			if ($docroot[0] != '/' && $docroot[0] != '.') {
+				return error("invalid path `%s', subdomain path must " .
+					"be relative or absolute", $docroot);
 			}
 			/**
 			 * This is particularly nasty because add_subdomain can provide
@@ -535,6 +546,10 @@
 			}
 
 			foreach ($recs_to_add as $record) {
+				if (!$this->dns_zone_exists($record['domain'])) {
+					warn("DNS zone `%s' does not exist, skipping", $record['domain']);
+					continue;
+				}
 				if (!$this->dns_record_exists($record['domain'], $record['subdomain'], 'A')) {
 					$ret = $this->dns_add_record($record['domain'],
 						$record['subdomain'],
@@ -690,7 +705,7 @@
 		{
 			$ret = true;
 			foreach ($this->list_subdomains() as $subdomain => $dir) {
-				if (!preg_match('!^/home/' . preg_quote($user) . '(/|$)!', (string)$dir)) {
+				if (!preg_match('!^/home/' . preg_quote($user, '!') . '(/|$)!', (string)$dir)) {
 					continue;
 				}
 				$ret &= $this->web_remove_subdomain($subdomain);
@@ -997,7 +1012,7 @@
 			if (!isset($domain_lookup[$domain])) {
 				return $split;
 			}
-			$split['subdomain'] = $subdomain;
+			$split['subdomain'] = (string)substr($host, 0, $offset) . $subdomain;
 			$split['domain'] = $domain;
 			return $split;
 		}
@@ -1171,20 +1186,20 @@
 			$lines = explode("\n", $dav_config);
 			$i = 0;
 			$found = false;
-			while ($i < sizeof($lines)) {
+			while ($i < count($lines)) {
 				$line = $lines[$i];
 				if (preg_match('!' . $this->domain_fs_path() . $location . '"?/?(?:>|\s)!', $line)) {
 					$found = true;
 					do {
 						unset($lines[$i]);
 						$i++;
-					} while (false === stripos($lines[$i], '</Directory>') && ($i < sizeof($lines)));
+					} while (false === stripos($lines[$i], '</Directory>') && ($i < count($lines)));
 					unset($lines[$i]);
 					break;
 				}
 				$i++;
 			}
-			file_put_contents($file, join("\n", $lines));
+			file_put_contents($file, implode("\n", $lines));
 			return $found;
 
 		}
@@ -1204,7 +1219,7 @@
 					$inside = 1;
 					$dav_locations[$idx] = array('path' => $match[1], 'provider' => 'dav');
 
-				} else if ($inside && preg_match('/Dav\s+([^\s]+)/i', $line, $match)) {
+				} else if ($inside && preg_match('/Dav\s+([\S]+)/i', $line, $match)) {
 					$match[1] = strtolower($match[1]);
 					$dav_locations[$idx]['provider'] = ($match[1] == 'on' ? 'dav' : $match[1]);
 

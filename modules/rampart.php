@@ -20,7 +20,8 @@
 
 class Rampart_Module extends Module_Skeleton {
 	const FAIL2BAN_CACHE_KEY = 'f2b';
-	const FAIL2BAN_IPT_PREFIX = 'f2b-';
+	const FAIL2BAN_IPT_PREFIX = RAMPART_PREFIX;
+	const FAIL2BAN_DRIVER = RAMPART_DRIVER;
 
 	protected $confMapping;
 

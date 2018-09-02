@@ -25,8 +25,6 @@
 		const PG_TEMP_PASSWORD = '23f!eoj3';
 		const PGSQL_DATADIR = '/var/lib/pgsql';
 
-		const PER_DATABASE_CONNECTION_LIMIT = 20;
-
 		/* @ignore */
 		const MASTER_USER = 'root';
 
@@ -287,7 +285,7 @@
 		/**
 		 * bool add_user(string, string[, int])
 		 */
-		public function add_user($user, $password, $maxconn = 5)
+		public function add_user($user, $password, $maxconn = self::DEFAULT_CONCURRENCY_LIMIT)
 		{
 			if (!$user) {
 				return error("no username specified");
@@ -305,7 +303,7 @@
 			}
 
 			if ($maxconn < 0) {
-				$maxconn = 5;
+				$maxconn = self::PER_DATABASE_CONNECTION_LIMIT;
 			}
 			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
@@ -402,11 +400,12 @@
 				return $this->query('pgsql_add_extension', $db, $extension);
 			}
 
-			if (version_compare(platform_version(), '6', '<')) {
+			if (!platform_is('6')) {
 				return error("%s only available on v6+ platforms", __FUNCTION__);
 			}
+
 			$extensions = $this->_getPermittedExtensions();
-			if (!in_array($extension, $extensions)) {
+			if (!in_array($extension, $extensions, true)) {
 				return error("extension `%s' unrecognized or disallowed usage", $extension);
 			}
 
@@ -555,7 +554,7 @@
 				$user = $prefix . $user;
 			}
 			if (is_int($maxconn) && ($maxconn < 1)) {
-				$maxconn = 5;
+				$maxconn = self::DEFAULT_CONCURRENCY_LIMIT;
 			}
 			if (!$password && !$maxconn) {
 				return warn("no action taken for `$user'");
@@ -1100,28 +1099,11 @@
 			if (platform_is('7.5')) {
 				return true;
 			}
+
 			$conf = $this->getAuthContext()->getAccount();
 
 			if ($conf->new['pgsql']['enabled'] && !$conf->old['pgsql']['enabled']) {
 				parent::installDatabaseService('pgsql');
-			}
-
-
-			$conf_old = $conf->old['mysql'];
-			$conf_new = $conf->new['mysql'];
-			if ($conf_new === $conf_old) {
-				return;
-			}
-
-			$prefixold = $conf_old['dbaseprefix'];
-			$prefixnew = $conf_new['dbaseprefix'];
-			$db = MySQL::initialize();
-			if (!preg_match(Regex::SQL_PREFIX, $prefixnew)) {
-				return error("invalid database prefix `%s'", $prefixnew);
-			}
-
-			if ($conf_old['dbaseadmin'] != $conf_new['dbaseadmin']) {
-
 			}
 		}
 

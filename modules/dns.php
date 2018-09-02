@@ -41,6 +41,9 @@
 		// netmask of allowable IP addresses
 		const HOSTS_FILE = '/etc/hosts';
 		// standard hosts file location
+
+		/** @var array quick lookup */
+		protected static $zoneExistsCache = [];
 		/**
 		 * @var string TSIG key
 		 * @ignore
@@ -256,6 +259,27 @@
 		}
 
 		/**
+		 * DNS zone exists
+		 *
+		 * @param string $zone
+		 * @return bool
+		 */
+		public function zone_exists(string $zone): bool
+		{
+			if (!$this->configured()) {
+				return false;
+			}
+			if (!$this->owned_zone($zone)) {
+				return false;
+			}
+			if (!isset(self::$zoneExistsCache[$zone])) {
+				self::$zoneExistsCache[$zone] = (null === $this->zoneAxfr($zone));
+			}
+
+			return self::$zoneExistsCache[$zone];
+		}
+
+		/**
 		 * Export zone configuration in BIND-friendly notation
 		 *
 		 * @param string|null $zone
@@ -310,6 +334,15 @@
 			}
 			$format .= implode("\n", $buffer);
 			return $format;
+		}
+
+		/**
+		 * Get permitted records for DNS provider
+		 *
+		 * @return array
+		 */
+		public function permitted_records(): array {
+			return static::$permitted_records;
 		}
 
 		/**
@@ -1070,12 +1103,33 @@
 				return true;
 			}
 
-			if ($this->query('dns_add_zone_backend', $domain, $ip)) {
-				foreach ($this->provisioning_records($domain) as $record) {
-					if (!$this->add_record($domain, $record['name'], $record['rr'], $record['parameter'],
-						$record['ttl'])) {
-						warn("Failed to add DNS record `%s' on `%s' (rr: %s)", $domain, $record['name'], $record['rr']);
-					}
+			if (!$this->query('dns_add_zone_backend', $domain, $ip)) {
+				return false;
+			}
+
+			// verify zone present; this is often async
+			$data = null;
+			for ($i = 0; $i < 10; $i++) {
+				if (null !== ($data = $this->zoneAxfr($domain))) {
+					break;
+				}
+				sleep(1);
+			}
+			if ($data !== null) {
+				self::$zoneExistsCache[$domain] = true;
+			} else {
+				warn("%s master not reporting authoritative for zone `%s' - continuing to add DNS records",
+					ucwords($this->get_provider()),
+					$domain
+				);
+			}
+			foreach ($this->provisioning_records($domain) as $record) {
+				if ($this->record_exists($domain, $record['name'], $record['rr'], $record['parameter'])) {
+					continue;
+				}
+				if (!$this->add_record($domain, $record['name'], $record['rr'], $record['parameter'],
+					$record['ttl'])) {
+					warn("Failed to add DNS record `%s' on `%s' (rr: %s)", $domain, $record['name'], $record['rr']);
 				}
 			}
 			return true;
@@ -1142,7 +1196,10 @@
 			{
 				return warn("Bypassing DNS removal. DNS UUID for `%s' is `%s'. Server UUID is `%s'", $domain, $record, $this->uuid());
 			}
-			return $this->query('dns_remove_zone_backend', $domain);
+			if ($ret = $this->query('dns_remove_zone_backend', $domain)) {
+				self::$zoneExistsCache[$domain] = null;
+			}
+			return $ret;
 		}
 
 		/**
@@ -1611,7 +1668,7 @@
 		public function _delete()
 		{
 			if (!$this->configured()) {
-				return warn("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
+				return info("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
 			}
 			if (!$this->get_service_value('ipinfo', 'namebased')) {
 				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
@@ -1636,7 +1693,7 @@
 		public function _create()
 		{
 			if (!$this->configured()) {
-				return warn("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
+				return info("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
 			}
 			$ipinfo = $this->getAuthContext()->conf('ipinfo');
 			$siteinfo = $this->getAuthContext()->conf('siteinfo');
@@ -1659,7 +1716,7 @@
 		public function _edit()
 		{
 			if (!$this->configured()) {
-				return warn("DNS not configured for `%s', skipping edit hook", $this->domain);
+				return info("DNS not configured for `%s', skipping edit hook", $this->domain);
 			}
 			$conf_old = $this->getAuthContext()->conf('ipinfo', 'old');
 			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');

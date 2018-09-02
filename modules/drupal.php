@@ -31,7 +31,7 @@
 		const DEFAULT_VERSION_LOCK = 'major';
 
 		protected $_aclList = array(
-			'max' => array('/sites/*/files')
+			'max' => array('sites/*/files')
 		);
 
 		/**
@@ -54,6 +54,9 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
+			if (!$this->mysql_enabled()) {
+				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
+			}
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('failed to install Drupal');
