@@ -63,7 +63,7 @@ declare(strict_types=1);
 	     * @return array
 	     */
         public function get_limits(): array {
-        	$limits = $this->get_service_value('cgroup');
+        	$limits = $this->getServiceValue('cgroup');
         	if (!$limits['enabled']) {
         		return [];
 	        }
@@ -72,7 +72,7 @@ declare(strict_types=1);
 
         public function enabled(): bool
         {
-        	return (bool)$this->get_service_value('cgroup', 'enabled');
+        	return (bool)$this->getServiceValue('cgroup', 'enabled');
         }
 
         /**
@@ -110,7 +110,7 @@ declare(strict_types=1);
 		    return $this->_fillUsage(
 			    \Opcenter\System\Cgroup::pid_usage($this->site),
 			    [
-			    	'max' => $this->get_service_value('cgroup', 'proclimit', $maxprocs)
+			    	'max' => $this->getServiceValue('cgroup', 'proclimit', $maxprocs)
 			    ]
 		    );
 	    }
@@ -126,8 +126,8 @@ declare(strict_types=1);
 	        return $this->_fillUsage(
 		        \Opcenter\System\Cgroup::cpu_usage($this->site),
 		        [
-			        'limit'    => $this->get_service_value('cgroup', 'cpu', $maxcpu),
-			        'maxprocs' => $this->get_service_value('cgroup', 'proclimit', $maxprocs)
+			        'limit'    => $this->getServiceValue('cgroup', 'cpu', $maxcpu),
+			        'maxprocs' => $this->getServiceValue('cgroup', 'proclimit', $maxprocs)
 		        ]
             );
         }
@@ -142,7 +142,7 @@ declare(strict_types=1);
         private function _fillUsage(array $usage, array $defaults): array {
 	        foreach ($defaults as $k => $v) {
 		        if (null === $usage[$k]) {
-			        $usage[$k] = $this->get_service_value('cgroup', $v, $v);
+			        $usage[$k] = $this->getServiceValue('cgroup', $v, $v);
 		        }
 	        }
 	        return $usage;

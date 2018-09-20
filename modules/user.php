@@ -62,7 +62,7 @@
 			if (!IS_CLI) {
 				return $this->query('user_change_quota', $user, $diskquota, $filequota);
 			}
-			if ($user == $this->get_service_value('siteinfo', 'admin_user')) {
+			if ($user == $this->getServiceValue('siteinfo', 'admin_user')) {
 				return error("cannot set quota for administrator");
 			}
 
@@ -72,7 +72,7 @@
 			if (floatval($diskquota) != $diskquota || $diskquota < 0) {
 				return error($diskquota . ": invalid disk quota");
 			}
-			if ($diskquota > ($lim_quota = $this->get_service_value('diskquota', 'quota'))) {
+			if ($diskquota > ($lim_quota = $this->getServiceValue('diskquota', 'quota'))) {
 				warn($diskquota . ": quota exceeds site limit (" . $lim_quota . "), defaulting to unlimited");
 				$quota = 0;
 			}
@@ -193,8 +193,8 @@
 			if (!$this->auth_password_permitted($password, $user)) {
 				return error("weak password disallowed");
 			}
-			$quotamax = $this->get_service_value('diskquota', 'quota');
-			$units = $this->get_service_value('diskquota', 'units');
+			$quotamax = $this->getServiceValue('diskquota', 'quota');
+			$units = $this->getServiceValue('diskquota', 'units');
 			if (!isset($options['password']) || $options['password'] != 'crypted') {
 				$password = $this->auth_crypt($password);
 			}
@@ -215,7 +215,7 @@
 			$ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
 			$cp_enable = isset($options['cp']) && $options['cp'] != 0;
 			$dav_enable = isset($options['dav']) && $options['dav'] != 0;
-			$ssh_enable = $this->get_service_value('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
+			$ssh_enable = $this->getServiceValue('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
 
 			if ($this->auth_is_demo()) {
 				$blacklist = ['imap', 'smtp', 'dav', 'ssh', 'ftp'];
@@ -396,7 +396,7 @@
 			return array(
 				'users' => $users,
 				// bc pre v7.5
-				'max'   => $this->get_service_value("users", "max", $this->get_service_value('users', 'maxusers'))
+				'max'   => $this->getServiceValue("users", "max", $this->getServiceValue('users', 'maxusers'))
 			);
 		}
 
@@ -409,7 +409,7 @@
 			$users = $this->get_users();
 			if (!isset($users[$user])) {
 				return error("user `%s' not found", $user);
-			} else if ($user == $this->get_service_value('siteinfo', 'admin_user')) {
+			} else if ($user == $this->getServiceValue('siteinfo', 'admin_user')) {
 				return error("cannot delete primary user");
 			}
 
@@ -496,7 +496,7 @@
 			$newuser = strtolower($newuser);
 			// flush getpwnam cache
 			$this->flush();
-			$admin = $this->get_service_value('siteinfo', 'admin_user');
+			$admin = $this->getServiceValue('siteinfo', 'admin_user');
 			if (!$this->exists($user)) {
 				return error("invalid user specified `%s'", $user);
 			} else if ($this->exists($newuser)) {
@@ -710,7 +710,7 @@
 			$quota_rep = Util_Process::exec('quota -w -v -u ' . $uid_list, array('mute_stderr' => true));
 			preg_match_all(Regex::QUOTA_USRGRP, $quota_rep['output'], $quotas, PREG_SET_ORDER);
 			$quota_stat = array_combine($users, array_fill(0, sizeof($users), null));
-			$max = round($this->get_config('diskquota', 'quota') * 1024);
+			$max = round($this->getConfig('diskquota', 'quota') * 1024);
 			foreach ($quotas as $quota) {
 				$uid = $quota['uid'];
 				$user = $uids[$uid];

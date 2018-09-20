@@ -100,7 +100,7 @@
 		 */
 		public function get_provider(): string
 		{
-			return $this->get_service_value('mail', 'provider', 'builtin');
+			return $this->getServiceValue('mail', 'provider', 'builtin');
 		}
 
 
@@ -234,7 +234,7 @@
 			}
 			if ($which) {
 				$which = platform_is('7.5') ? 'mail' : 'sendmail';
-				return (bool)$this->get_service_value($which, 'enabled');
+				return (bool)$this->getServiceValue($which, 'enabled');
 			}
 			return $this->enabled('smtp') && $this->enabled('imap');
 		}
@@ -891,6 +891,11 @@
 				return warn("DNS is not configured for `%s' - unable to remove MX records automatically", $domain);
 			}
 
+			if (!$this->dns_zone_exists($domain)) {
+				// zone removed
+				return true;
+			}
+
 			if (null === $keepdns) {
 				// do an intelligent lookup to see if MX is default
 				$split = $this->web_split_host($domain);
@@ -929,16 +934,10 @@
 			if (!$keepdns) {
 				$split = $this->web_split_host($domain);
 				$mailsub = rtrim('mail.' . $split['subdomain'], '.');
-				$records = [
-					[$mailsub, 'A'],
-					[$split['subdomain'], 'MX'],
-					['_autodiscover._tcp', 'SRV'],
-					['autoconfig', 'CNAME'],
-					['autodiscover', 'CNAME']
-				];
+				$records = $this->get_records($domain);
 				foreach ($records as $r) {
-					if ($this->dns_record_exists($split['domain'], $r[0], $r[1])) {
-						$this->dns_remove_record($split['domain'], $r[0], $r[1]);
+					if ($this->dns_record_exists($split['domain'], $r['name'], $r['rr'], $r['parameter'])) {
+						$this->dns_remove_record($split['domain'], $r['name'], $r['rr'], $r['parameter']);
 					}
 				}
 			}

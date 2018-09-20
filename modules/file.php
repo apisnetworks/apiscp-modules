@@ -44,15 +44,10 @@
 			'tbz'     => 'bzip',
 			'tbz2'    => 'bzip'
 		);
-		private static $uid_mappings;
 		private static $stat_cache = array();
 		// assume all operations exist on shadow/
 		// if user is admin, bypass costly stat checks
 		private static $acl_cache = array();
-		private $quota_cache = array(
-			'time' => null,
-			'uids' => array()
-		); // nobody from /etc/passwd
 		private $compression_instances;
 
 		// apply settings recursively

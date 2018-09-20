@@ -79,6 +79,6 @@
 		 */
 		public function enabled() {
 			return $this->configured() &&
-				($this->permission_level&PRIVILEGE_ADMIN || !$this->get_service_value('billing', 'parent_invoice'));
+				($this->permission_level&PRIVILEGE_ADMIN || !$this->getServiceValue('billing', 'parent_invoice'));
 		}
 	}

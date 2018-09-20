@@ -332,7 +332,7 @@
 
 			if (!count($matches)) {
 				return $ret['success'] ?:
-					error("letsencrypt failed, exit code: %d, stdout: %s, stderr: %s",
+					error('letsencrypt failed, exit code: %d, stdout: %s, stderr: %s',
 						$ret['return'], $ret['stdout'], $ret['stderr']
 					);
 			}

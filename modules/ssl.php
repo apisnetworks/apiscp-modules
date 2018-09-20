@@ -306,7 +306,7 @@
 		}
 
 		public function enabled(): bool {
-			return (bool)$this->get_service_value(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled');
+			return (bool)$this->getServiceValue(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled');
 		}
 
 		/**

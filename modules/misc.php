@@ -90,7 +90,7 @@
 
 		public function toggle_procfs()
 		{
-			if (!$this->get_service_value('ssh', 'enabled')) {
+			if (!$this->getServiceValue('ssh', 'enabled')) {
 				return error("procfs requires ssh");
 			}
 			if ($this->is_mounted('procfs')) {

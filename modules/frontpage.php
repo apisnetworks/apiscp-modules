@@ -42,8 +42,8 @@
 				return true;
 			}
 
-			$paths = (array)$this->get_config('frontpage', 'paths');
-			$domains = (array)$this->get_config('frontpage', 'domains');
+			$paths = (array)$this->getConfig('frontpage', 'paths');
+			$domains = (array)$this->getConfig('frontpage', 'domains');
 
 			Util_Process_Safe::exec('/usr/local/frontpage/currentversion/bin/owsadm.exe ' .
 				'-o uninstall -p 80 -m www.%s',
@@ -73,9 +73,9 @@
 				unlink($link);
 			}
 
-			$this->set_config('frontpage', 'enabled', count($domains) > 0);
-			$this->set_config('frontpage', 'paths', $paths);
-			$this->set_config('frontpage', 'domains', $domains);
+			$this->setConfig('frontpage', 'enabled', count($domains) > 0);
+			$this->setConfig('frontpage', 'paths', $paths);
+			$this->setConfig('frontpage', 'domains', $domains);
 			return $status['success'];
 		}
 
@@ -87,12 +87,12 @@
 		public function enabled($domain = null)
 		{
 			if (!$domain) {
-				return $this->get_service_value('frontpage', 'enabled');
+				return $this->getServiceValue('frontpage', 'enabled');
 			}
 			if (!$domain) {
 				$domain = $this->domain;
 			}
-			return in_array($domain, (array)$this->get_service_value('frontpage', 'domains'));
+			return in_array($domain, (array)$this->getServiceValue('frontpage', 'domains'));
 
 		}
 
@@ -120,8 +120,8 @@
 				return true;
 			}
 
-			$paths = (array)$this->get_config('frontpage', 'paths');
-			$domains = (array)$this->get_config('frontpage', 'domains');
+			$paths = (array)$this->getConfig('frontpage', 'paths');
+			$domains = (array)$this->getConfig('frontpage', 'domains');
 			$status = Util_Process_Safe::exec('/usr/local/sbin/enable_fp.sh %s %s',
 				$domain,
 				$path
@@ -131,15 +131,15 @@
 			$domains[] = $domain;
 			$paths[] = $path;
 
-			$this->set_config('frontpage', 'enabled', count($domains) > 0);
-			$this->set_config('frontpage', 'paths', $paths);
-			$this->set_config('frontpage', 'domains', $domains);
+			$this->setConfig('frontpage', 'enabled', count($domains) > 0);
+			$this->setConfig('frontpage', 'paths', $paths);
+			$this->setConfig('frontpage', 'domains', $domains);
 			return $status['success'];
 		}
 
 		public function get_active_domains()
 		{
-			return (array)$this->get_config('frontpage', 'domains');
+			return (array)$this->getConfig('frontpage', 'domains');
 		}
 
 		public function _reset(Util_Account_Editor &$editor = null)

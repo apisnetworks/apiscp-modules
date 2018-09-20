@@ -58,7 +58,7 @@
 		{
 			$key = $this->_getKey();
 
-			return (bool)$this->get_service_value($key, 'enabled');
+			return (bool)$this->getServiceValue($key, 'enabled');
 		}
 
 		/**
@@ -72,7 +72,7 @@
 			if (version_compare($version, '4.5', '>=')) {
 				// helios, apollo/aleph
 				$key = $this->_getKey();
-				return (bool)$this->get_service_value($key, 'permit');
+				return (bool)$this->getServiceValue($key, 'permit');
 			}
 			// older platforms with PostgreSQL enabled imply permit
 			return (bool)$this->sql_enabled('pgsql');

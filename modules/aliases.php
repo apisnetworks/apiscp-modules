@@ -285,7 +285,7 @@
 			if ($this->shared_domain_hosted($domain)) {
 				return error("domain `$domain' is hosted by another account");
 			}
-			if ($domain === $this->get_config('siteinfo', 'domain')) {
+			if ($domain === $this->getConfig('siteinfo', 'domain')) {
 				return error("cannot modify primary domain");
 			}
 
@@ -362,7 +362,7 @@
 				return error("Invalid domain");
 			}
 
-			$aliases = (array)$this->get_service_value('aliases', 'aliases');
+			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
 
 			$key = array_search($alias, $aliases);
 			if ($key === false) {
@@ -371,10 +371,10 @@
 
 			unset($aliases[$key]);
 			if (!$aliases && version_compare(platform_version(), '7.5', '<')) {
-				$this->set_config_journal('aliases', 'enabled', 0);
+				$this->setConfigJournal('aliases', 'enabled', 0);
 			}
 
-			return $this->set_config_journal('aliases', 'aliases', $aliases);
+			return $this->setConfigJournal('aliases', 'aliases', $aliases);
 		}
 
 		public function add_shared_domain(string $domain, string $path) {
@@ -391,7 +391,7 @@
 				return error($domain . ": invalid domain");
 			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $path)) {
 				return error($path . ": invalid path");
-			} else if ($domain == $this->get_service_value('siteinfo', 'domain')) {
+			} else if ($domain === $this->getServiceValue('siteinfo', 'domain')) {
 				return error("Primary domain may not be replicated as a shared domain");
 			}
 
@@ -409,7 +409,7 @@
 		 */
 		public function shared_domain_exists($domain)
 		{
-			return $domain == $this->get_config('siteinfo', 'domain') ||
+			return $domain == $this->getConfig('siteinfo', 'domain') ||
 				array_key_exists($domain, $this->list_shared_domains());
 		}
 
@@ -471,9 +471,9 @@
 		 */
 		public function list_unsynchronized_domains()
 		{
-			$active = parent::get_active_services('aliases');
+			$active = parent::getActiveServices('aliases');
 			$active = $active['aliases'];
-			$pending = (array)parent::get_new_services('aliases');
+			$pending = (array)parent::getNewServices('aliases');
 			if ($pending) {
 				$pending = $pending['aliases'];
 			}
@@ -495,9 +495,9 @@
 			$time = $cache->get('aliases.sync');
 			$aliases = array_keys($this->list_shared_domains());
 			if (version_compare(platform_version(), '7.5', '<')) {
-				$this->set_config_journal('aliases', 'enabled', intval(count($aliases) > 0));
+				$this->setConfigJournal('aliases', 'enabled', intval(count($aliases) > 0));
 			}
-			$this->set_config_journal('aliases', 'aliases', $aliases);
+			$this->setConfigJournal('aliases', 'aliases', $aliases);
 			return $this->_synchronize_changes() && ($cache->set('aliases.sync', $time) || true);
 		}
 
@@ -508,7 +508,7 @@
 		 */
 		public function list_aliases()
 		{
-			$values = $this->get_service_value('aliases', 'aliases');
+			$values = $this->getServiceValue('aliases', 'aliases');
 			return (array)$values;
 		}
 
@@ -613,15 +613,15 @@
 				return error($alias . ": invalid domain");
 			}
 
-			$aliases = (array)$this->get_service_value('aliases', 'aliases');
+			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
 			$aliases[] = $alias;
-			$limit = $this->get_service_value('aliases','max', null);
+			$limit = $this->getServiceValue('aliases','max', null);
 			if (null !== $limit && count($aliases)+1 > $limit) {
 				return error("account has reached max amount of addon domains, `%d'", $limit);
 			}
 
-			return $this->set_config_journal('aliases', 'enabled', 1) &&
-				$this->set_config_journal('aliases', 'aliases', $aliases);
+			return $this->setConfigJournal('aliases', 'enabled', 1) &&
+				$this->setConfigJournal('aliases', 'aliases', $aliases);
 		}
 
 		protected function _verify($domain)

@@ -73,7 +73,7 @@
 			}
 			$conn = $this->_connect_root();
 			$prefix = $this->get_prefix();
-			if ($user !== $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user !== $this->getServiceValue('mysql', 'dbaseadmin') &&
 				0 !== strpos($user, $prefix)
 			) {
 				$user = $prefix . $user;
@@ -86,7 +86,7 @@
 
 		public function get_prefix()
 		{
-			return $this->get_service_value('mysql', 'dbaseprefix');
+			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 		/**
@@ -128,7 +128,7 @@
 				}
 			}
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_config('mysql', 'dbaseadmin') &&
+			if ($user != $this->getConfig('mysql', 'dbaseadmin') &&
 				substr($user, 0, strlen($prefix)) != $prefix
 			) {
 				$user = $prefix . $user;
@@ -407,7 +407,7 @@
 		 */
 		public function list_users()
 		{
-			$prefix = str_replace('_', '\_', $this->get_service_value('mysql', 'dbaseprefix'));
+			$prefix = str_replace('_', '\_', $this->getServiceValue('mysql', 'dbaseprefix'));
 			$conn = new mysqli("localhost", self::MASTER_USER, $this->_get_elevated_password());
 			$conn->select_db("mysql");
 			$q = $conn->query("SELECT host,
@@ -468,7 +468,7 @@
 			if (!$user) {
 				return error("no username specified");
 			}
-			$dbaseadmin = $this->get_config('mysql', 'dbaseadmin');
+			$dbaseadmin = $this->getConfig('mysql', 'dbaseadmin');
 			if ($user === $dbaseadmin && !IS_SOAP) {
 				return error("cannot name user after primary account user, `%s'", $dbaseadmin);
 			}
@@ -496,7 +496,7 @@
 			}
 			$conn = $this->_connect_root();
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_config('mysql', 'dbaseadmin') && 0 !== strpos($user, $prefix)) {
+			if ($user != $this->getConfig('mysql', 'dbaseadmin') && 0 !== strpos($user, $prefix)) {
 				// add the prefix if prefix is not provided, this is to workaround cases where user
 				// is equal to prefixprefixuser
 				$user = $prefix . $user;
@@ -742,12 +742,12 @@
 				return false;
 			}
 			$conn = $this->_connect_root();
-			$usersafe = $conn->escape_string($this->get_config('mysql', 'dbaseadmin'));
+			$usersafe = $conn->escape_string($this->getConfig('mysql', 'dbaseadmin'));
 			// double prefix, remove first prefix, then check one last time
 			if (0 === strpos($db, $prefix.$prefix)) {
 				$db = (string)substr($db, strlen($prefix));
-				$dbsafe = $conn->escape_string($db);
 			}
+			$dbsafe = $conn->escape_string($db);
 			$q = $conn->query("SELECT db FROM db WHERE db = '" . $dbsafe . "' AND user = '" . $usersafe . "'");
 			return $q && $q->num_rows > 0;
 		}
@@ -829,7 +829,7 @@
 
 			$privileges = array_change_key_case($privileges);
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				strncmp($user, $prefix, strlen($prefix))
 			) {
 				$user = $prefix . $user;
@@ -940,7 +940,7 @@
 		public function revoke_privileges($user, $host, $db)
 		{
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				strncmp($user, $prefix, strlen($prefix))
 			) {
 				$user = $prefix . $user;
@@ -982,7 +982,7 @@
 		public function get_privileges($user, $host, $db)
 		{
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				strncmp($user, $prefix, strlen($prefix))
 			) {
 				$user = $prefix . $user;
@@ -1204,7 +1204,7 @@
 		public function edit_user(string $user, string $host, array $opts): bool
 		{
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				0 !== strpos($user, $prefix))
 			{
 				$user = $prefix . $user;
@@ -1391,7 +1391,7 @@
 				$mode = 'drop';
 			}
 
-			$prefix = $this->get_service_value('mysql', 'dbaseprefix');
+			$prefix = $this->getServiceValue('mysql', 'dbaseprefix');
 			if (strncmp($db, $prefix, strlen($prefix))) {
 				$db = $prefix . $db;
 			}
@@ -1556,7 +1556,7 @@
 			 * make sure the DB is accessed by the correct user
 			 * otherwise the DB will be relocated under the caller's fs
 			 */
-			$prefix = $this->get_service_value('mysql', 'dbaseadmin');
+			$prefix = $this->getServiceValue('mysql', 'dbaseadmin');
 			if (strncmp($db, $prefix, strlen($prefix))) {
 				return true;
 			}

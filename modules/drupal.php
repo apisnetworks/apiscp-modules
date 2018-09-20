@@ -147,7 +147,7 @@
 			if (isset($opts['email']) && !preg_match(Regex::EMAIL, $opts['email'])) {
 				return error("invalid email address `%s' specified", $opts['email']);
 			}
-			$opts['email'] = $this->get_config('siteinfo', 'email');
+			$opts['email'] = $this->getConfig('siteinfo', 'email');
 
 
 			if (isset($opts['site-email']) && !preg_match(Regex::EMAIL, $opts['site-email'])) {

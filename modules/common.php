@@ -65,7 +65,7 @@
 		 */
 		public function service_exists($mSrvcType)
 		{
-			return is_null(parent::get_service_value($mSrvcType, "enabled"))
+			return is_null(parent::getServiceValue($mSrvcType, "enabled"))
 				? false : true;
 
 		}
@@ -87,7 +87,7 @@
 		 */
 		public function service_enabled($mSrvcType)
 		{
-			$srvcVal = parent::get_service_value($mSrvcType, "enabled");
+			$srvcVal = parent::getServiceValue($mSrvcType, "enabled");
 			if ($srvcVal instanceof Exception) {
 				return $srvcVal;
 			}
@@ -157,7 +157,7 @@
 		 */
 		public function get_admin_email()
 		{
-			return $this->get_service_value('siteinfo', 'email');
+			return $this->getServiceValue('siteinfo', 'email');
 		}
 
 		/**
@@ -180,13 +180,13 @@
 			/**
 			 * @todo filter PRIVILEGE_USER requests?
 			 */
-			$srvcVal = parent::get_service_value($mSrvcType, $mSrvcName, $default);
+			$srvcVal = parent::getServiceValue($mSrvcType, $mSrvcName, $default);
 			return $srvcVal;
 		}
 
 		public function get_admin_username()
 		{
-			return $this->get_service_value('siteinfo', 'admin_user');
+			return $this->getServiceValue('siteinfo', 'admin_user');
 		}
 
 		/**
@@ -277,7 +277,7 @@
 				}
 			}
 			$qused = $quota['qused'];
-			$qhard = $this->get_service_value('diskquota', 'enabled') ? $quota['qhard'] : 0;
+			$qhard = $this->getServiceValue('diskquota', 'enabled') ? $quota['qhard'] : 0;
 			return array(
 				'used'  => $qused,
 				'total' => $qhard
@@ -354,7 +354,7 @@
 		 */
 		public function get_web_server_name()
 		{
-			return $this->get_service_value("apache", "webserver");
+			return $this->getServiceValue("apache", "webserver");
 		}
 
 		/**
@@ -366,7 +366,7 @@
 		 */
 		public function get_ftp_server_name()
 		{
-			return $this->get_service_value("proftpd", "ftpserver");
+			return $this->getServiceValue("proftpd", "ftpserver");
 		}
 
 		/**
@@ -378,7 +378,7 @@
 		 */
 		public function get_mail_server_name()
 		{
-			return $this->get_service_value("sendmail", "mailserver");
+			return $this->getServiceValue("sendmail", "mailserver");
 		}
 
 		/**
@@ -531,9 +531,9 @@
 		 */
 		public function get_ip_address()
 		{
-			return ($this->get_service_value("ipinfo", "namebased") == 1) ?
-				$this->get_service_value("ipinfo", "nbaddrs") :
-				$this->get_service_value("ipinfo", "ipaddrs");
+			return ($this->getServiceValue("ipinfo", "namebased") == 1) ?
+				$this->getServiceValue("ipinfo", "nbaddrs") :
+				$this->getServiceValue("ipinfo", "ipaddrs");
 		}
 
 		// {{{ get_ip_address()

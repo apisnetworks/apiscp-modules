@@ -74,7 +74,7 @@
 		public function enable_svn()
 		{
 			if (!$this->check_for_shell()) {
-				return new PermissionError("Pre-req SSH not satisfied");
+				return error("Pre-req SSH not satisfied");
 			}
 			return $this->query('verco_enable_svn_backend');
 		}
@@ -288,7 +288,7 @@
 		public function enable_cvs()
 		{
 			if (!$this->check_for_shell()) {
-				return new PermissionError("Pre-req SSH not satisfied");
+				return error("Pre-req SSH not satisfied");
 			}
 			return $this->query('verco_enable_cvs_backend');
 		}
@@ -338,7 +338,7 @@
 		public function install_trac()
 		{
 			if (!$this->check_for_shell()) {
-				return new PermissionError("Pre-requisite SSH not satisfied");
+				return error("Pre-requisite SSH not satisfied");
 			}
 			if (!IS_CLI) {
 				return $this->query('verco_install_trac');
@@ -411,7 +411,7 @@
 
 		private function check_for_shell()
 		{
-			return $this->get_service_value('ssh', 'enabled');
+			return $this->getServiceValue('ssh', 'enabled');
 		}
 
 

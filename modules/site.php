@@ -133,8 +133,8 @@
 					}
 					$bw_rs = $bw_rs->fetch_object();
 					// @BUG account has no bandwidth enddate
-					if ($bw_rs && !$bw_rs->begindate && $this->get_service_value('bandwidth', 'enabled')) {
-						$ret = $this->_autofix_bandwidth($site_id, $this->get_service_value('bandwidth', 'rollover'));
+					if ($bw_rs && !$bw_rs->begindate && $this->getServiceValue('bandwidth', 'enabled')) {
+						$ret = $this->_autofix_bandwidth($site_id, $this->getServiceValue('bandwidth', 'rollover'));
 						if (!$ret) {
 							return error("failed to autofix bandwidth for site `%d'", $this->site_id);
 						}
@@ -184,7 +184,7 @@
 		 */
 		public function get_bandwidth_rollover()
 		{
-			$rollover = (int)$this->get_service_value('bandwidth', 'rollover');
+			$rollover = (int)$this->getServiceValue('bandwidth', 'rollover');
 			$localtime = localtime(time(), true);
 			$today = date('j');
 			$month = ($rollover < $today ? ($localtime['tm_mon'] + 1) : $localtime['tm_mon']);
@@ -207,11 +207,11 @@
 			if (!preg_match(Regex::EMAIL, $email)) {
 				return error("Invalid e-mail address, " . $email);
 			}
-			$oldemail = $this->get_config('siteinfo', 'email');
+			$oldemail = $this->getConfig('siteinfo', 'email');
 			$pgdb = \PostgreSQL::initialize();
 			$pgdb->query("UPDATE siteinfo SET email = '" . $email . "' WHERE site_id = '" . $this->site_id . "';");
 			// no need to trigger a costly account config rebuild
-			$this->set_config('siteinfo', 'email', $email);
+			$this->setConfig('siteinfo', 'email', $email);
 
 			$ret = $pgdb->affected_rows() > 0;
 			if (!$ret) {
@@ -226,7 +226,7 @@
 
 		public function get_admin_email()
 		{
-			return $this->get_config('siteinfo', 'email');
+			return $this->getConfig('siteinfo', 'email');
 		}
 
 
@@ -254,9 +254,9 @@
 		 */
 		public function ip_address()
 		{
-			$addr = $this->get_service_value('ipinfo', 'namebased') ?
-				$this->get_service_value('ipinfo', 'nbaddrs') :
-				$this->get_service_value('ipinfo', 'ipaddrs');
+			$addr = $this->getServiceValue('ipinfo', 'namebased') ?
+				$this->getServiceValue('ipinfo', 'nbaddrs') :
+				$this->getServiceValue('ipinfo', 'ipaddrs');
 
 			return is_array($addr) ? array_pop($addr) : $addr;
 		}
@@ -335,12 +335,12 @@
 		 */
 		public function get_port_range()
 		{
-			if (!$this->get_service_value('ssh', 'enabled')) {
+			if (!$this->getServiceValue('ssh', 'enabled')) {
 				return array();
 			}
 
 			return \Opcenter\Terminal::formatPortRange(
-				$this->get_service_value('ssh', 'port_index')
+				$this->getServiceValue('ssh', 'port_index')
 			);
 		}
 
@@ -459,7 +459,7 @@
 		public function amnesty_active()
 		{
 			$time = isset($_SERVER['REQUEST_TIME']) ? $_SERVER['REQUEST_TIME'] : time();
-			$amnesty = $this->get_service_value('diskquota', 'amnesty');
+			$amnesty = $this->getServiceValue('diskquota', 'amnesty');
 			return ($time - $amnesty) <= self::AMNESTY_DURATION;
 		}
 
@@ -484,7 +484,7 @@
 
 		public function _create()
 		{
-			$conf = $this->get_service_value('siteinfo');
+			$conf = $this->getServiceValue('siteinfo');
 			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
 			if (!$db->exists($conf['domain'])) {
 				// @TODO remove once Opcenter is done

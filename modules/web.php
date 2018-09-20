@@ -247,7 +247,7 @@
 		public function list_domains()
 		{
 			return array_merge(
-				array($this->get_config('siteinfo', 'domain') => self::MAIN_DOC_ROOT),
+				array($this->getConfig('siteinfo', 'domain') => self::MAIN_DOC_ROOT),
 				$this->aliases_list_shared_domains());
 		}
 
@@ -947,7 +947,7 @@
 				'user'   => null
 			);
 
-			if ($domain === $this->get_config('siteinfo', 'domain')) {
+			if ($domain === $this->getConfig('siteinfo', 'domain')) {
 				$path = self::MAIN_DOC_ROOT;
 			} else {
 				$domains = $this->aliases_list_shared_domains();
@@ -972,7 +972,7 @@
 		 */
 		public function domain_exists($domain)
 		{
-			return $domain == $this->get_config('siteinfo', 'domain') ||
+			return $domain == $this->getConfig('siteinfo', 'domain') ||
 				array_key_exists($domain, $this->aliases_list_shared_domains());
 
 		}
@@ -1052,7 +1052,7 @@
 		public function get_hostname_from_docroot(string $docroot): ?string {
 			$docroot = rtrim($docroot, '/');
 			if ($docroot === static::MAIN_DOC_ROOT) {
-				return $this->get_service_value('siteinfo', 'domain');
+				return $this->getServiceValue('siteinfo', 'domain');
 			}
 			$aliases = $this->aliases_list_shared_domains();
 			if (false !== ($domain = array_search($docroot, $aliases, true))) {

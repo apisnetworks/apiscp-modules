@@ -26,7 +26,8 @@ class Rampart_Module extends Module_Skeleton {
 	protected $confMapping;
 
 	protected $exportedFunctions = [
-		'*' => PRIVILEGE_ADMIN|PRIVILEGE_SITE
+		'*' => PRIVILEGE_ADMIN|PRIVILEGE_SITE,
+		'ban' => PRIVILEGE_ADMIN
 	];
 
 	/**
@@ -53,7 +54,11 @@ class Rampart_Module extends Module_Skeleton {
 	 * @return array
 	 */
 	public function get_jails(): array {
-		return \Opcenter\Net\Fail2ban::getJails();
+		static $jails;
+		if ($jails === null) {
+			$jails = \Opcenter\Net\Fail2ban::getJails();
+		}
+		return $jails;
 	}
 
 	/**
@@ -67,18 +72,37 @@ class Rampart_Module extends Module_Skeleton {
 		if ($jail) {
 			$jail = static::FAIL2BAN_IPT_PREFIX . $jail;
 		}
-		$matches = \Opcenter\Net\Firewall::getEntriesFromChain($jail);
+		$matches = (new \Opcenter\Net\Firewall)->getEntriesFromChain($jail);
 		if ($jail) {
 			$matches = [$jail => $matches];
 		}
 		foreach ($matches as $chain => $records) {
 			foreach ($records as $record) {
-				if ($record['source'] === $ip && ($record['target'] === 'REJECT' || $record['target'] === 'DROP')) {
+				if ($record->getHost() === $ip && $record->isBlocked()) {
 					$banned[$chain] = 1;
 				}
 			}
 		}
 		return $banned;
+	}
+
+	/**
+	 * Ban an IP address
+	 *
+	 * @param string $ip
+	 * @param string $jail
+	 * @return bool
+	 */
+	public function ban(string $ip, string $jail): bool
+	{
+		if (!IS_CLI) {
+			return $this->query('rampart_ban', $ip, $jail);
+		}
+		if (!in_array($jail, $this->get_jails(), true)) {
+			return error("Unknown jail `%s'", $jail);
+		}
+		$ret = \Util_Process_Safe::exec('fail2ban-client set %s banip %s', $jail, $ip);
+		return $ret['success'];
 	}
 
 	/**
@@ -99,7 +123,11 @@ class Rampart_Module extends Module_Skeleton {
 			return false;
 		}
 		foreach (array_keys($this->getMatches($ip, $jail)) as $chain) {
-			$jail = $this->chain2Jail($chain);
+			if (!$jail = $this->chain2Jail($chain)) {
+				warn("Address blocked in `%s' but not recognized Rampart jail - cannot unban %s", $chain, $ip);
+				continue;
+			}
+
 			$ret = \Util_Process_Safe::exec('fail2ban-client set %s unbanip %s', $jail, $ip);
 			if ($ret['success']) {
 				info("Unbanned `%s' from jail `%s'", $ip, $jail);

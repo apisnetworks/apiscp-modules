@@ -190,7 +190,7 @@
 		}
 
 		public function enabled(): bool {
-			return (bool)$this->get_service_value('bandwidth', 'enabled');
+			return (bool)$this->getServiceValue('bandwidth', 'enabled');
 		}
 
 		public function _delete()

@@ -68,7 +68,7 @@
 				return $this->query('crontab_list_jobs', $user);
 			}
 
-			if (!$this->get_service_value("ssh", "enabled")) {
+			if (!$this->getServiceValue("ssh", "enabled")) {
 				return error("cronjob requires ssh");
 			} else if (!$this->enabled()) {
 				return error("cron daemon is not running");
@@ -136,7 +136,7 @@
 				return $this->query('crontab_enabled');
 			}
 
-			if (!$this->get_service_value("ssh", "enabled")) {
+			if (!$this->getServiceValue("ssh", "enabled")) {
 				return false;
 			}
 			$pidfile = $this->domain_fs_path() . self::CRON_PID;
@@ -599,7 +599,7 @@
 			if (file_exists($oldspool)) {
 				rename($oldspool, $newspool);
 			}
-			if (!$this->get_service_value('ssh', 'enabled')) {
+			if (!$this->getServiceValue('ssh', 'enabled')) {
 				return true;
 			} else if (!$this->user_permitted($userold)) {
 				return true;
@@ -662,7 +662,7 @@
 
 		public function restart()
 		{
-			if (!$this->get_service_value('ssh', 'enabled')) {
+			if (!$this->getServiceValue('ssh', 'enabled')) {
 				return error("crond not enabled for account");
 			}
 			if ($this->enabled()) {
@@ -689,7 +689,7 @@
 			if (!IS_CLI) {
 				return $this->query("crontab_toggle_status", (int)$status);
 			}
-			if (!$this->get_service_value("ssh", "enabled")) {
+			if (!$this->getServiceValue("ssh", "enabled")) {
 				return error("prerequisite ssh not satisfied");
 			} else {
 				if ($status != -1 && $status != 0 && $status != 1) {

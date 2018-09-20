@@ -80,11 +80,11 @@
 		public function _delete()
 		{
 			$conf = $this->getAuthContext()->getAccount()->cur;
-			if (!$this->get_service_value('ipinfo', 'namebased')) {
-				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
+			if (!$this->getServiceValue('ipinfo', 'namebased')) {
+				$ips = (array)$this->getServiceValue('ipinfo', 'ipaddrs');
 				// pass the domain to verify the PTR isn't detached incorrectly
 				// from another domain that has recycled it
-				$domain = $this->get_service_value('siteinfo', 'domain');
+				$domain = $this->getServiceValue('siteinfo', 'domain');
 				foreach ($ips as $ip) {
 					$this->__deleteIP($ip, $domain);
 				}

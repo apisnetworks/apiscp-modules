@@ -72,7 +72,7 @@
 		public function get_prefix()
 		{
 			// for now
-			return $this->get_service_value('mysql', 'dbaseprefix');
+			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 
@@ -81,7 +81,7 @@
 		{
 			$db = \PostgreSQL::initialize();
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				0 !== strpos($user, $prefix)
 			) {
 				$user = $prefix . $user;
@@ -123,7 +123,7 @@
 				}
 			}
 			$prefix = $this->get_prefix();
-			if ($user != $this->get_config('mysql', 'dbaseadmin') && strncmp($user, $prefix, strlen($prefix))) {
+			if ($user != $this->getConfig('mysql', 'dbaseadmin') && strncmp($user, $prefix, strlen($prefix))) {
 				$user = $prefix . $user;
 			}
 			$tblspace = $this->get_tablespace();
@@ -153,7 +153,7 @@
 		 */
 		public function get_tablespace(): ?string
 		{
-			return $this->get_service_value(
+			return $this->getServiceValue(
 				'pgsql',
 				'tablespace',
 				\Opcenter\Database\PostgreSQL::getTablespaceFromUser($this->username)
@@ -291,7 +291,7 @@
 				return error("no username specified");
 			}
 			$prefix = str_replace('-', '', $this->get_prefix());
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				0 !== strpos($user, $prefix))
 			{
 				$user = $prefix . $user;
@@ -548,7 +548,7 @@
 		public function edit_user($user, $password, $maxconn = null)
 		{
 			$prefix = str_replace('-', '', $this->get_prefix());
-			if ($user != $this->get_service_value('mysql', 'dbaseadmin') &&
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
 				strncmp($user, $prefix, strlen($prefix))
 			) {
 				$user = $prefix . $user;

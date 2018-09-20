@@ -49,7 +49,7 @@
 				return error("account exists - api key `%s'", $key['key']);
 			}
 			if (!$email) {
-				$email = $this->get_config('siteinfo', 'email');
+				$email = $this->getConfig('siteinfo', 'email');
 			} else {
 				if (!preg_match(Regex::EMAIL, $email)) {
 					return error("invalid email address provided `%s'", $email);

@@ -69,7 +69,7 @@
 
 		public function enabled()
 		{
-			$check = (bool)$this->get_service_value('ssh', 'enabled');
+			$check = (bool)$this->getServiceValue('ssh', 'enabled');
 			if ($this->permission_level & PRIVILEGE_USER) {
 				$check = $check && $this->user_enabled($this->username);
 			}
@@ -78,7 +78,7 @@
 
 		public function user_enabled($user)
 		{
-			if (!$this->get_config('ssh', 'enabled')) {
+			if (!$this->getConfig('ssh', 'enabled')) {
 				return warn("ssh not enabled on account");
 			}
 

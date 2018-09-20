@@ -89,7 +89,7 @@
 
 		public function get_prefix()
 		{
-			return $this->get_service_value('mysql', 'dbaseprefix');
+			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 		/**
@@ -236,8 +236,7 @@
 			} else if (!preg_match(Regex::SQL_PREFIX, $normalizedPrefix)) {
 				return error("invalid db prefix `%s'", $prefix);
 			}
-			$map = \Opcenter\Map::load('mysql.prefixmap', 'r');
-			if (array_key_exists($normalizedPrefix, $map)) {
+			if (\Opcenter\Map::load('mysql.prefixmap', 'r')->exists($normalizedPrefix)) {
 				return error("prefix `%s' already in use", $prefix);
 			}
 			$editor = new \Util_Account_Editor($this->getAuthContext()->getAccount());

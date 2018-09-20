@@ -99,7 +99,7 @@
 			if (!$this->mysql_enabled()) {
 				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
 			}
-			if ($this->cgroup_enabled() && ($memory = $this->get_config('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
+			if ($this->cgroup_enabled() && ($memory = $this->getConfig('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
 				return error("Ghost requires at least 1024 MB memory, `%s' MB provided for account", $memory);
 			}
 			// Ghost needs ~500 MB free to install
@@ -881,7 +881,7 @@
 			if (!$this->file_delete($approot .'/current') || !$this->file_symlink($link, $approot . '/current')) {
 				return false;
 			}
-			report(var_export($this->file_stat($approot), true));
+			report(var_export($this->file_stat($approot), true), var_export($this->file_stat($approot .'/current'), true));
 			return $this->file_chown_symlink($approot . '/current', $this->file_stat($approot)['owner']);
 		}
 	}

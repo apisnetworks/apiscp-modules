@@ -131,11 +131,11 @@
 					return $ret;
 				}
 				if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-					if ($this->get_service_value(self::getAuthService(), self::PWOVERRIDE_KEY)) {
+					if ($this->getServiceValue(self::getAuthService(), self::PWOVERRIDE_KEY)) {
 						return true;
 					}
 					// admin password changed
-					$email = $this->common_get_email() ?? $this->get_config('siteinfo', 'email');
+					$email = $this->common_get_email() ?? $this->getConfig('siteinfo', 'email');
 				} else if ($this->permission_level & PRIVILEGE_ADMIN) {
 					$email = $this->common_get_email();
 				}
@@ -479,7 +479,7 @@
 					parent::sendNotice(
 						'domain',
 						[
-							'email' => $this->get_config('siteinfo', 'email'),
+							'email' => $this->getConfig('siteinfo', 'email'),
 							'ip' => Auth::client_ip()
 						]
 					);
@@ -608,7 +608,7 @@
 			if (version_compare(platform_version(), '7.5', '<')) {
 				// handled by Opcenter\Service\Validators\Siteinfo\AdminUser::reconfigure
 				$procs = \Opcenter\Process::matchUser(
-					$this->get_service_value('siteinfo', 'admin')
+					$this->getServiceValue('siteinfo', 'admin')
 				);
 				foreach ($procs as $proc) {
 					\Opcenter\Process::kill($proc, SIGTERM);

@@ -70,10 +70,10 @@
 			$list = strtolower(trim($list));
 
 			if (!$domain) {
-				$domain = $this->get_service_value('siteinfo', 'domain');
+				$domain = $this->getServiceValue('siteinfo', 'domain');
 			}
 			if (!$email) {
-				$email = trim($this->get_service_value('siteinfo', 'email'));
+				$email = trim($this->getServiceValue('siteinfo', 'email'));
 			}
 
 			$email = strtolower($email);
@@ -407,7 +407,7 @@
 			if (preg_match('/^\s*resend_host\s*=[ \t]*([^\s]+)/m', file_get_contents($file), $domain)) {
 				$domain = $domain[1];
 			} else {
-				$domain = $this->get_service_value('siteinfo', 'domain');
+				$domain = $this->getServiceValue('siteinfo', 'domain');
 			}
 			return $domain;
 		}

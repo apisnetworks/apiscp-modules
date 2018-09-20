@@ -163,7 +163,7 @@
 
 		public function test_account_metadata()
 		{
-			return $this->get_service_value('sendmail', 'mailserver');
+			return $this->getServiceValue('sendmail', 'mailserver');
 		}
 	}
 

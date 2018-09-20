@@ -35,7 +35,7 @@ class Config_Module extends Module_Skeleton {
 		if (!IS_CLI) {
 			return $this->query('config_set', $name, ...$val);
 		}
-		$c = \Opcenter\Admin\Settings\Setting::load($name);
+		$c = \Opcenter\Admin\Settings\Setting::className($name);
 		if (!$c) {
 			return error("Unknown admin setting `%s'", $name);
 		}
@@ -81,7 +81,7 @@ class Config_Module extends Module_Skeleton {
 
 	public function info(string $name): ?array
 	{
-		$c = \Opcenter\Admin\Settings\Setting::load($name);
+		$c = \Opcenter\Admin\Settings\Setting::className($name);
 		if (!$c) {
 			return null;
 		}
@@ -105,7 +105,7 @@ class Config_Module extends Module_Skeleton {
 		if (!IS_CLI) {
 			return $this->query('config_get', $name);
 		}
-		$c = \Opcenter\Admin\Settings\Setting::load($name);
+		$c = \Opcenter\Admin\Settings\Setting::className($name);
 		if (!$c) {
 			return error("Unknown admin setting `%s'", $name);
 		}

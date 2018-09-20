@@ -71,7 +71,7 @@
 		 */
 		public function get_hosting_subscription()
 		{
-			return $this->get_config('billing', 'invoice');
+			return $this->getConfig('billing', 'invoice');
 		}
 
 		/**
@@ -84,12 +84,12 @@
 			if ($this->permission_level & (PRIVILEGE_ADMIN|PRIVILEGE_RESELLER)) {
 				return null;
 			}
-			$invoice = $this->get_config('billing', 'invoice');
+			$invoice = $this->getConfig('billing', 'invoice');
 			if ($invoice) {
 				return $invoice;
 			}
-			if ($this->get_config('billing', 'parent_invoice')) {
-				return $this->get_config('billing', 'parent_invoice');
+			if ($this->getConfig('billing', 'parent_invoice')) {
+				return $this->getConfig('billing', 'parent_invoice');
 			}
 			return null;
 		}
@@ -145,7 +145,7 @@
 			if (!$invoice) {
 				return false;
 			}
-			$addons = (array)$this->get_config('billing', 'addons');
+			$addons = (array)$this->getConfig('billing', 'addons');
 			if (!$addons) {
 				return $invoice;
 			}

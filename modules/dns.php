@@ -19,6 +19,8 @@
 	 */
 	class Dns_Module extends Module_Support_Dns
 	{
+		use NamespaceUtilitiesTrait;
+
 		const DEPENDENCY_MAP = [
 			'siteinfo'
 		];
@@ -140,7 +142,7 @@
 		 */
 		public function get_provider(): string
 		{
-			return $this->get_service_value('dns', 'provider', 'builtin');
+			return $this->getServiceValue('dns', 'provider', 'builtin');
 		}
 
 		/**
@@ -273,7 +275,7 @@
 				return false;
 			}
 			if (!isset(self::$zoneExistsCache[$zone])) {
-				self::$zoneExistsCache[$zone] = (null === $this->zoneAxfr($zone));
+				self::$zoneExistsCache[$zone] = (null !== $this->zoneAxfr($zone));
 			}
 
 			return self::$zoneExistsCache[$zone];
@@ -993,7 +995,7 @@
 				return false;
 			}
 
-			$newdata = new \Opcenter\Dns\Record($zone, array_merge([
+			$newdata = static::createRecord($zone, array_merge([
 				'name'      => $subdomain,
 				'rr'        => $rr,
 				'ttl'       => null,
@@ -1012,7 +1014,7 @@
 				return error('Target record `' . $newdata['name'] . "' exists");
 			}
 
-			$old = new \Opcenter\Dns\Record($zone, [
+			$old = static::createRecord($zone, [
 				'name' => $subdomain,
 				'rr' => $rr,
 				'parameter' => $parameter
@@ -1123,6 +1125,7 @@
 					$domain
 				);
 			}
+
 			foreach ($this->provisioning_records($domain) as $record) {
 				if ($this->record_exists($domain, $record['name'], $record['rr'], $record['parameter'])) {
 					continue;
@@ -1210,7 +1213,7 @@
 		 */
 		public function remove_zone_backend(string $domain): bool
 		{
-			return warn("cannot remove zone - DNS provider `%s' not configured fully", $this->get_service_value('dns','provider','builtin'));
+			return warn("cannot remove zone - DNS provider `%s' not configured fully", $this->getServiceValue('dns','provider','builtin'));
 		}
 
 		/**
@@ -1605,18 +1608,19 @@
 		public function provisioning_records(string $zone): array
 		{
 			$myip = $this->site_ip_address();
+
 			$records = [
-				new \Opcenter\Dns\Record($zone, ['name' => '', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
-				new \Opcenter\Dns\Record($zone, ['name' => 'www', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
-				new \Opcenter\Dns\Record($zone, ['name' => 'ftp', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+				static::createRecord($zone, ['name' => '', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+				static::createRecord($zone, ['name' => 'www', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+				static::createRecord($zone, ['name' => 'ftp', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
 			];
 
-			if ( ($this->email_enabled() && $this->get_service_value('mail', 'provider') !== 'builtin' ) || $this->email_transport_exists($zone)) {
+			if ( ($this->email_enabled() && $this->getServiceValue('mail', 'provider') !== 'builtin' ) || $this->email_transport_exists($zone)) {
 				$records = array_merge($records, $this->email_get_records($zone));
 			}
 
 			if ($this->uuid()) {
-				$records[] = new \Opcenter\Dns\Record($zone, [
+				$records[] = static::createRecord($zone, [
 					'name'      => static::UUID_RECORD,
 					'ttl'       => static::DNS_TTL,
 					'rr'        => 'txt',
@@ -1670,11 +1674,11 @@
 			if (!$this->configured()) {
 				return info("DNS not configured for `%s', bypassing DNS hooks", $this->domain);
 			}
-			if (!$this->get_service_value('ipinfo', 'namebased')) {
-				$ips = (array)$this->get_service_value('ipinfo', 'ipaddrs');
+			if (!$this->getServiceValue('ipinfo', 'namebased')) {
+				$ips = (array)$this->getServiceValue('ipinfo', 'ipaddrs');
 				// pass the domain to verify the PTR isn't detached incorrectly
 				// from another domain that has recycled it
-				$domain = $this->get_service_value('siteinfo', 'domain');
+				$domain = $this->getServiceValue('siteinfo', 'domain');
 				foreach ($ips as $ip) {
 					$this->__deleteIP($ip, $domain);
 				}
@@ -1795,6 +1799,21 @@
 			}
 
 			return;
+		}
+
+		/**
+		 * Create a record using appropriate driver
+		 *
+		 * @param string $zone
+		 * @param array  $data
+		 * @return mixed
+		 */
+		protected static function createRecord(string $zone, array $data = []) {
+			$cls = static::getNamespace() . '\\Record';
+			if (!class_exists($cls)) {
+				$cls = \Opcenter\Dns\Record::class;
+			}
+			return new $cls($zone, $data);
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

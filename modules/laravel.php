@@ -411,7 +411,7 @@
 		 */
 		public function update(string $hostname, string $path = '', string $version = null): bool
 		{
-			$docroot = $this->getAppRoot($hostname, $path);
+			$docroot = $this->getDocumentRoot($hostname, $path);
 			if (!$docroot) {
 				return error('update failed');
 			}
