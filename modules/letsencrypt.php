@@ -82,6 +82,12 @@
 			return $this->supported() && $this->ssl_permitted();
 		}
 
+		/**
+		 * Renew Let's Encrypt SSL
+		 *
+		 * @param bool $verifyip perform IP verification prior to issuance
+		 * @return bool
+		 */
 		public function renew(bool $verifyip = true)
 		{
 			if ($this->auth_is_inactive()) {
@@ -162,7 +168,7 @@
 		 *
 		 * @param array|string $cnames   list of hosts
 		 * @param bool         $verifyip verify IP matches account before issuing
-		 * @param boool        $strict   loss of any hostname from certificate causes operation to fail
+		 * @param bool         $strict   loss of any hostname from certificate causes operation to fail
 		 * @return bool
 		 */
 		public function request($cnames, bool $verifyip = true, bool $strict = false)
@@ -440,9 +446,8 @@
 				if ($this->requestReal($cns, self::SYSCERT_NAME)) {
 					$this->installSystemCertificate();
 				}
-			} else if (!is_debug()) {
-				$this->renewExpiringCertificates();
 			}
+			$this->renewExpiringCertificates();
 		}
 
 		private function _register($email = null)

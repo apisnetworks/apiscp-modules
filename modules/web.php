@@ -418,6 +418,7 @@
 			);
 
 			$fs_location = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
+
 			if (!strpos($subdomain, ".")) {
 				$type = 'global';
 			} else if (!array_key_exists($subdomain, $this->list_domains())) {
@@ -438,10 +439,11 @@
 				return $info;
 			}
 			// case when <subdomain>/html is directory instead of symlink
-			if (is_link($link)) {
-				$path = File_Module::convert_relative_absolute($link, readlink($link));
-			} else {
+			if (!is_link($link)) {
 				$path = $link;
+			} else {
+				clearstatcache(true, $link);
+				$path = File_Module::convert_relative_absolute($link, readlink($link));
 			}
 			$info['path'] = $this->file_canonicalize_site($path);
 
@@ -871,7 +873,7 @@
 		 */
 		public function normalize_path(string $hostname, string $path = ''): ?string
 		{
-			if (isset($this->pathCache[$hostname][$path])) {
+			if (!IS_CLI && isset($this->pathCache[$hostname][$path])) {
 				return $this->pathCache[$hostname][$path];
 			}
 			$prefix = $this->domain_fs_path();

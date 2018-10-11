@@ -80,7 +80,7 @@
 				return false;
 			}
 
-			if (!parent::checkVersion($opts)) {
+			if (!$this->checkVersion($opts)) {
 				return false;
 			}
 
@@ -110,68 +110,73 @@
 				]
 			);
 			if (!$ret['success']) {
-				return error("failed to download laravel/laravel package: %s",
-					coalesce($ret['stderr'], $ret['stdout'])
+				$this->file_delete($docroot, true);
+				return error("failed to download laravel/laravel package: %s %s",
+					$ret['stderr'], $ret['stdout']
 				);
 			}
+
 			if (null === ($docroot = $this->remapPublic($hostname, $path))) {
-				// it's more reasonable to fail at this stage, but let's try to complete
+				$this->file_delete($this->getDocumentRoot($hostname, $path), true);
 				return error("Failed to remap Laravel to public/, manually remap from `%s' - Laravel setup is incomplete!",
 					$docroot);
 			}
+
+			$oldex = \Error_Reporter::exception_upgrade();
 			$approot = $this->getAppRoot($hostname, $path);
-			$this->_execComposer($approot, 'composer config name %(hostname)s', ['hostname' => $hostname]);
-			$docroot = $this->getDocumentRoot($hostname, $path);
+			try {
+				$this->_execComposer($approot, 'composer config name %(hostname)s', ['hostname' => $hostname]);
+				$docroot = $this->getDocumentRoot($hostname, $path);
 
-			// ensure it's reachable
-			$this->_fixCache($approot);
+				// ensure it's reachable
+				$this->_fixCache($approot);
 
-			$db = $this->_suggestDB($hostname);
-			if (!$db) {
-				return false;
-			}
+				$db = $this->_suggestDB($hostname);
+				if (!$db) {
+					return false;
+				}
 
-			$dbuser = $this->_suggestUser($db);
-			if (!$dbuser) {
-				return false;
-			}
-			$dbpass = $this->suggestPassword();
-			$credentials = array(
-				'dbname'     => $db,
-				'dbuser'     => $dbuser,
-				'dbpassword' => $dbpass
-			);
+				$dbuser = $this->_suggestUser($db);
+				if (!$dbuser) {
+					return false;
+				}
+				$dbpass = $this->suggestPassword();
+				$credentials = array(
+					'db'     => $db,
+					'user'     => $dbuser,
+					'password' => $dbpass
+				);
 
-			if (!$this->sql_create_mysql_database($db)) {
-				return error("failed to create suggested db `%s'", $db);
-			}
-			if (!$this->sql_add_mysql_user($dbuser, 'localhost', $dbpass)) {
-				$this->sql_delete_mysql_database($db);
-				return error("failed to create suggested user `%s'", $dbuser);
-			}
-			if (!$this->sql_set_mysql_privileges($dbuser, 'localhost', $db,
-				array('read' => true, 'write' => true)))
-			{
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				$this->sql_delete_mysql_database($db);
-				return error("failed to set privileges on db `%s' for user `%s'", $db, $dbuser);
-			}
+				if (!$this->setupDatabase($credentials, 'mysql')) {
+					return error("Failed to create database");
+				}
 
-			if ($this->sql_add_mysql_backup($db, 'zip', 5, 2)) {
-				info("added database backup task for `%s'", $db);
-			}
+				$fqdn = $this->web_normalize_hostname($hostname);
+				$args['uri'] = rtrim($fqdn . '/' . $path, '/');
+				$args['proto'] = empty($opts['ssl']) ? 'http://' : 'https://';
 
-			$fqdn = $this->web_normalize_hostname($hostname);
-			$args['uri'] = rtrim($fqdn . '/' . $path, '/');
-			$args['proto'] = empty($opts['ssl']) ? 'http://' : 'https://';
-			if (!$this->setConfiguration($approot, $docroot, array_merge($credentials, $args))) {
-				info('removing temporary files');
-				return false;
+				if (!$this->setConfiguration($approot, $docroot, array_merge([
+					'dbname'     => $credentials['db'],
+					'dbuser'     => $credentials['user'],
+					'dbpassword' => $credentials['password'],
+					'dbhost'     => 'localhost'
+				], $args))) {
+					return error("failed to set .env configuration");
+				}
+			} catch (\apnscpException $e) {
+				$this->remapPublic($hostname, $path, '');
 				$this->file_delete($approot, true);
-				$this->sql_delete_mysql_database($db);
-				$this->sql_delete_mysql_user($dbuser, 'localhost');
-				return error("failed to set .env configuration");
+				if (isset($credentials['db']) && $this->mysql_database_exists($credentials['db'])) {
+					$this->mysql_delete_database($credentials['db']);
+				}
+				if (isset($credentials['user']) && $this->mysql_user_exists($credentials['user'], 'localhost')) {
+					$this->mysql_delete_user($credentials['user'], 'localhost');
+				}
+				return error("Failed to install Laravel: %s", $e->getMessage());
+			} finally {
+				\Error_Reporter::exception_upgrade($oldex);
 			}
+
 
 			$commands = [
 				'key:generate',
@@ -625,6 +630,29 @@
 		public function install_theme(string $hostname, string $path = '', string $theme, string $version = null): bool
 		{
 			return parent::install_theme($hostname, $path, $theme, $version);
+		}
+
+		protected function checkVersion(array &$options): bool
+		{
+			if (!parent::checkVersion($options)) {
+				return false;
+			}
+			$phpversion = $this->php_version();
+
+			$cap = null;
+			if (version_compare($phpversion, '5.6.4', '<')) {
+				$cap = '5.3';
+			} else if (version_compare($phpversion, '7.0.0', '<')) {
+				$cap = '5.4';
+			} else if (version_compare($phpversion, '7.1.3', '<')) {
+				$cap = '5.5';
+			}
+
+			if ($cap && version_compare($options['version'], $cap, '>=')) {
+				info("PHP version `%s' detected, capping Laravel to %s", $phpversion, $cap);
+				$options['version'] = $cap;
+			}
+			return true;
 		}
 
 		public function change_admin(string $hostname, string $path = '', array $fields): bool

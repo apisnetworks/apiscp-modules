@@ -81,6 +81,16 @@
 			// ghost config url <newurl>
 		}
 
+		public function restart(string $hostname, string $path): bool
+		{
+			if (!$approot = $this->getAppRoot($hostname, $path)) {
+				return false;
+			}
+
+			return \Module\Support\Webapps\Passenger::instantiateContexted($this->getAuthContext(),
+				[$approot, 'nodejs'])->restart();
+		}
+
 		public function get_configuration($field)
 		{
 
@@ -99,13 +109,12 @@
 			if (!$this->mysql_enabled()) {
 				return error("MySQL must be enabled to install %s", ucwords($this->getInternalName()));
 			}
-			if ($this->cgroup_enabled() && ($memory = $this->getConfig('cgroup', 'memory', \Opcenter\System\Memory::stats()['memtotal']/1024)) < 1024) {
-				return error("Ghost requires at least 1024 MB memory, `%s' MB provided for account", $memory);
+			$available = null;
+			if (!$this->hasMemoryAllowance(1024, $available)) {
+				return error("Ghost requires at least 1024 MB memory, `%s' MB provided for account", $available);
 			}
-			// Ghost needs ~500 MB free to install
-			$quota = $this->site_get_account_quota();
-			if ($quota['qhard'] - $quota['qused'] < 500*1024) {
-				return error("Ghost requires ~500 MB free. Only %.2f MB free.", ($quota['qhard']-$quota['qused'])/1024);
+			if (!$this->hasStorageAllowance(500, $available)) {
+				return error("Ghost requires ~500 MB free. Only %.2f MB free.", $available);
 			}
 			if (!platform_is('6.5')) {
 				return error('Ghost requires at least a v6.5 platform. Current platform version %s', platform_version());
@@ -330,8 +339,12 @@
 		 */
 		private function linkConfiguration(string $approot, string $appenv = 'production'): bool
 		{
-			if ($this->file_exists($approot . "/current/config.${appenv}.json")) {
-				return true;
+			$stat = $this->file_stat($approot . "/current/config.${appenv}.json");
+			if ($stat) {
+				if ($stat['link']) {
+					return true;
+				}
+				$this->file_delete($approot . "/current/config.${appenv}.json");
 			}
 			return $this->file_symlink($approot . "/config.${appenv}.json", $approot . "/current/config.${appenv}.json") ||
 				warn("failed to link configuration ${approot}/config.${appenv}.json to current/");
@@ -465,6 +478,9 @@
 		 */
 		public function valid(string $hostname, string $path = ''): bool
 		{
+			if (!IS_CLI) {
+				return $this->query('ghost_valid', $hostname, $path);
+			}
 			if ($hostname[0] === '/') {
 				if (! ($path = realpath($this->domain_fs_path($hostname))) ) {
 					return false;
@@ -476,6 +492,9 @@
 					return false;
 				}
 				$approot = $this->domain_fs_path($approot);
+			}
+			if (is_link($approot . '/current') && readlink($approot .'/current')[0] === '/') {
+				$this->fixSymlink($this->file_unmake_path($approot));
 			}
 			return file_exists($approot . '/current/core/server/lib/ghost-version.js');
 		}
@@ -683,14 +702,21 @@
 			$ret = $this->_exec($approot, $cmd, $args);
 			$this->fixSymlink($approot);
 			$this->file_touch("${approot}/tmp/restart.txt");
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
-				'version' => $this->get_version($hostname, $path),
-				'failed'  => !$ret['success']
-			]);
+
 			if (!$ret['success']) {
+				parent::setInfo($this->getDocumentRoot($hostname, $path), [
+					'version' => $this->get_version($hostname, $path),
+					'failed'  => true
+				]);
 				return error("failed to update Ghost: %s", coalesce($ret['stderr'], $ret['stdout']));
 			}
-			return $this->migrate($approot) && ($this->kill($hostname, $path) || true);
+
+			$ret = $this->migrate($approot) && ($this->kill($hostname, $path) || true);
+			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+				'version' => $this->get_version($hostname, $path),
+				'failed'  => !$ret
+			]);
+			return $ret;
 		}
 
 		/**
@@ -881,7 +907,7 @@
 			if (!$this->file_delete($approot .'/current') || !$this->file_symlink($link, $approot . '/current')) {
 				return false;
 			}
-			report(var_export($this->file_stat($approot), true), var_export($this->file_stat($approot .'/current'), true));
+
 			return $this->file_chown_symlink($approot . '/current', $this->file_stat($approot)['owner']);
 		}
 	}

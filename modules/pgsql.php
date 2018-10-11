@@ -76,9 +76,17 @@
 		}
 
 
-
-		public function user_exists($user)
+		/**
+		 * Verify if PostgreSQL user exists
+		 *
+		 * @param        $user username
+		 * @param string $host unused
+		 * @return bool
+		 * @throws PostgreSQLError
+		 */
+		public function user_exists($user, $host = 'localhost')
 		{
+
 			$db = \PostgreSQL::initialize();
 			$prefix = $this->get_prefix();
 			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
@@ -384,6 +392,7 @@
 		 */
 		public function prep_tablespace()
 		{
+
 			if (\Opcenter\Database\PostgreSQL::getTablespaceFromUser($this->username)) {
 				return true;
 			}
@@ -409,12 +418,17 @@
 				return error("extension `%s' unrecognized or disallowed usage", $extension);
 			}
 
+			$prefix = $this->get_prefix();
+			if (0 !== strpos($db, $prefix)) {
+				$db = $prefix . $db;
+			}
+
 			$dbs = $this->list_databases();
-			if (!in_array($db, $dbs)) {
+			if (!in_array($db, $dbs, true)) {
 				return error("database `%s' unknown", $db);
 			}
 
-			$cmd = "CREATE EXTENSION IF NOT EXISTS " . $extension;
+			$cmd = "CREATE EXTENSION IF NOT EXISTS " . $extension . " WITH SCHEMA public";
 			$proc = Util_Process_Safe::exec('psql -c %s %s', $cmd, $db);
 			if (!$proc['success']) {
 				return error("extension creation failed - %s", $proc['stderr']);
@@ -445,6 +459,69 @@
 				$dbs[] = $row->datname;
 			}
 			return $dbs;
+		}
+
+		/**
+		 * Set database owner
+		 *
+		 * @param string $db
+		 * @param string $owner
+		 * @return bool
+		 */
+		public function set_owner(string $db, string $owner): bool
+		{
+			$pgdb = \PostgreSQL::initialize();
+
+			$db = $pgdb->escape_string($this->canonicalize($db));
+			$users = $this->list_users();
+
+			if (!isset($users[$owner])) {
+				$tmp = $this->canonicalize($owner);
+				if (!isset($users[$tmp])) {
+					return error("Unknown pgsql user `%s'", $owner);
+				}
+				$owner = $tmp;
+			}
+			$dbs = $this->list_databases();
+			if (!in_array($db, $dbs, true)) {
+				return error("Unknown database `%s'", $db);
+			}
+
+			$q = "ALTER DATABASE " . pg_escape_identifier($db) . " OWNER TO " . pg_escape_identifier($owner);
+			if (false === $pgdb->query($q)) {
+				return error("Failed to change owner to `%s'", $owner);
+			}
+
+			return true;
+		}
+
+		/**
+		 * Assign privileges for database to user
+		 *
+		 * @param string $user
+		 * @param string $host
+		 * @param string $db
+		 * @param array  $privileges
+		 * @return bool
+		 */
+		public function set_privileges(string $user, string $host, string $db, array $privileges): bool {
+
+		}
+
+		/**
+		 * Append prefix if necessary
+		 *
+		 * @param string $name
+		 * @return string
+		 */
+		private function canonicalize(string $name): string
+		{
+			$prefix = $this->get_prefix();
+			if (0 !== strpos($name, $prefix)) {
+				$name = $prefix . $name;
+			}
+
+			return $name;
 		}
 
 		/**
@@ -504,12 +581,12 @@
 		public function delete_database($db)
 		{
 			$pgdb = \PostgreSQL::initialize();
-			$db = $pgdb->escape_string($db);
 			$prefix = $this->get_prefix();
 			if (0 !== strpos($db, $prefix)) {
 				$db = $prefix . $db;
 			}
-			if (!\Opcenter\Database\PostgreSQL::databaseExists($db, $this->username)) {
+			$db = $pgdb->escape_string($db);
+			if (!in_array($db, $this->list_databases())) {
 				return error("Unknown database `%s'", $db);
 			}
 			$resp = \Opcenter\Database\PostgreSQL::dropDatabase($db);
@@ -637,7 +714,11 @@
 			if (!$this->enabled()) {
 				return error("PostgreSQL service not enabled for account.");
 			}
-			$prefix = $this->get_prefix();
+			// meta is corrupted, let's bail
+			if (!$prefix = $this->get_prefix()) {
+				return [];
+			}
+
 			$pgdb = \PostgreSQL::initialize();
 			$q = $pgdb->query("SELECT rolname, rolpassword, rolconnlimit FROM pg_authid WHERE rolname = '"
 				. $this->username . "' OR rolname LIKE '" . str_replace(array("-", "_"), array("", '\_'),
@@ -924,7 +1005,7 @@
 			}
 
 			$fsizelimit = Util_Ulimit::get('fsize');
-			if ($this->get_database_size('pgsql', $db) > $fsizelimit / self::DB_BIN2TXT_MULT) {
+			if ($this->get_database_size($db) > $fsizelimit / self::DB_BIN2TXT_MULT) {
 				// make sure ulimit accommodates the db dump
 				Util_Ulimit::set('fsize', 'unlimited');
 			} else {

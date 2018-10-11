@@ -1301,6 +1301,7 @@
 						#fwrite(STDERR, "Copy $file to $newfile\n");
 						copy($file, $newfile) && chown($newfile, $this->user_id) &&
 						chgrp($newfile, $this->group_id) and $files_copied &= 1;
+						clearstatcache(true, $newfile);
 						continue;
 					} else {
 						if (!$recursive) {
@@ -1452,6 +1453,11 @@
 				$link = '';
 				$exdir = $this->make_path($wcfile, $link);
 
+				if ($link) {
+					// do not follow symlinks
+					$exdir = $link;
+				}
+
 				if (!$exdir) {
 					continue;
 				} else if ($depth > 1 || \Util_PHP::is_link($exdir)) {
@@ -1537,6 +1543,7 @@
 							continue;
 						}
 					}
+
 					if ((($is_link || !$is_dir) && !unlink($rmpath)) ||
 						($is_dir === true && !rmdir($rmpath))
 					) {

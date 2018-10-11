@@ -29,6 +29,7 @@
 		const MAILBOX_DISABLED = 'd';
 		const MAILBOX_ENABLED = 'e';
 		const MAILBOX_SINGLE = '1';
+		const MAILBOX_DESTINATION = 'destination';
 
 		const VACATION_PREFKEY = 'mail.vacapref';
 		// webmail installations
@@ -112,8 +113,8 @@
 		/**
 		 * Retrieve mailbox delivery maps from system
 		 *
-		 * @param $filter  string optional filter, possible values: forward, local, special, single, enabled, disabled
-		 * @param $address string supplementary argument to 'single', restrict address to %expr%
+		 * @param $filter  string optional filter, possible values: forward, local, special, single, enabled, disabled, destination
+		 * @param $address string supplementary argument to 'single', restrict address to %expr%. Mandatory for destination filter type
 		 * @param $domain  string optionally restrict to all addresses matching domain
 		 *
 		 * @return array
@@ -142,7 +143,8 @@
 					self::MAILBOX_SPECIAL,
 					self::MAILBOX_DISABLED,
 					self::MAILBOX_ENABLED,
-					self::MAILBOX_SINGLE
+					self::MAILBOX_SINGLE,
+					self::MAILBOX_DESTINATION
 				))
 			) {
 				return error("invalid filter specification `%s'", $filter);
@@ -160,9 +162,12 @@
 				$filter_clause = 'enabled = 1::bit';
 			} else if ($filter == self::MAILBOX_DISABLED) {
 				$filter_clause = 'enabled = 0::bit';
+			} else if ($filter == self::MAILBOX_DESTINATION) {
+				$filter_clause = 'COALESCE(uids."user",alias_destination) = ' . pg_escape_literal($address);
 			}
 
-			if (null !== $address) {
+			if (null !== $address && $filter !== self::MAILBOX_DESTINATION) {
+				// @TODO nasty
 				$filter_clause .= ' AND email_lookup.user = \'' . pg_escape_string(strtolower($address)) . '\'';
 			}
 			if ($domain) {
@@ -765,6 +770,9 @@
 			} else if (null === $user) {
 				$user = $this->getAuthContext();
 			} else {
+				if (!$this->user_exists($user)) {
+					return false;
+				}
 				$user = \Auth::context($user, $this->site);
 			}
 
@@ -1216,23 +1224,18 @@
 		{
 			// flush Dovecot auth cache to acknowledge pwdb changes
 			$this->_reload('adduser');
-
 			if (!$pwd = $this->user_getpwnam($user)) {
 				return false;
 			}
-			if (!platform_is('7.5')) {
-				return true;
-			}
-
 			// older platforms do this implicitly
 			// @TODO when surrogate user drops hook, drop this
 			if (!Opcenter\Provisioning\Mail::createUser($this->site_id, $pwd['uid'], $user)) {
 				return error("failed to create mail lookup for `%s' on `site%d'", $user, $this->site_id);
 			}
-
 			if (!$pwd['home']) {
 				return false;
 			}
+
 			// use imap as a marker for email creation
 			$svc = 'imap';
 			if ((new Util_Pam($this->getAuthContext()))->check($user, $svc)) {
@@ -1245,13 +1248,19 @@
 
 			$path = $this->domain_fs_path() . DIRECTORY_SEPARATOR . $pwd['home'] .
 				DIRECTORY_SEPARATOR . self::MAILDIR_HOME;
-			if (!file_exists($path)) {
-				// no maildir, maybe intentional?
-				return true;
+			if (!is_dir($path)) {
+				Opcenter\Filesystem::mkdir($path, $pwd['uid'], $this->group_id, 0700, false);
+				\Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($this->file_unmake_path($path), $pwd['uid'], $pwd['gid']);
+				file_put_contents($path . '/subscriptions', 'INBOX', FILE_APPEND);
 			}
-			$spamdir = $path . DIRECTORY_SEPARATOR . '.Spam';
-			if (!file_exists($spamdir)) {
-				$this->create_maildir('Spam');
+
+
+			foreach (['Spam', 'Trash', 'Sent'] as $folder) {
+				$dir = $path . DIRECTORY_SEPARATOR . ".${folder}";
+				if (!is_dir($dir)) {
+					$this->create_maildir_backend($user, $folder);
+				}
+
 			}
 			return true;
 		}
@@ -1260,7 +1269,7 @@
 		{
 			if ($why == "letsencrypt") {
 				// update ssl certs
-				Util_Process::exec('/sbin/service dovecot reload');
+				Util_Process::exec('/sbin/service dovecot restart');
 				// restart necessary to load new cert
 				Util_Process::exec('/sbin/service postfix restart');
 			} else if ($why == "adduser") {
@@ -1459,7 +1468,11 @@
 
 		public function _delete_user(string $user)
 		{
-			$user = $this->user_getpwnam($user);
+			$pwd = $this->user_getpwnam($user);
+			foreach ($this->list_mailboxes(self::MAILBOX_DESTINATION, $user) as $mailbox) {
+				$this->delete_mailbox($mailbox['user'], $mailbox['domain']);
+			}
+			\Opcenter\Provisioning\Mail::deleteUser($this->site_id, $pwd['uid']);
 		}
 
 		public function user_enabled($user, $svc = null)

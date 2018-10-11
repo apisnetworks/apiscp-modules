@@ -22,6 +22,7 @@
 	{
 
 		const APP_NAME = 'WordPress';
+		const ASSET_SKIPLIST = '.wp-update-skip';
 
 		// primary domain document root
 		const WP_CLI = '/usr/share/pear/wp-cli.phar';
@@ -684,8 +685,18 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
+			$flags = [];
+			if ($lock = $this->getVersionLock($docroot)) {
+				if ($lock === 'major') {
+					$flags[] = '--minor';
+				} else if ($lock === 'minor') {
+					$flags[] = '--patch';
+				}
+			}
+			$skiplist = $this->getSkiplist($docroot, 'plugin');
 			if (!$plugins) {
-				$ret = $this->_exec($docroot, 'plugin update --all');
+				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
+				$ret = $this->_exec($docroot, 'plugin update --all ' . implode(' ', $flags));
 				if (!$ret['success']) {
 					return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 				}
@@ -694,6 +705,9 @@
 			$status = 1;
 			foreach ($plugins as $plugin)  {
 				$name = $plugin['name'] ?? $plugin;
+				if (isset($skiplist[$name])) {
+					continue;
+				}
 				$version = null;
 				$cmd = 'plugin update %(name)s';
 				$args = [
@@ -703,6 +717,7 @@
 					$cmd .= ' --version=%(version)s';
 					$args['version'] = $plugin['version'];
 				}
+				$cmd .= ' '. implode(' ', $flags);
 				$ret = $this->_exec($docroot, $cmd, $args);
 				if (!$ret['success']) {
 					error("failed to update plugin `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));
@@ -710,6 +725,38 @@
 				$status &= $ret['success'];
 			}
 			return (bool)$status;
+		}
+
+		/**
+		 * Get update protection list
+		 *
+		 * @param string $docroot
+		 * @param string $type
+		 * @return array
+		 */
+		public function getSkiplist(string $docroot, string $type) {
+			$skipfile = $this->domain_fs_path($docroot . '/' . self::ASSET_SKIPLIST);
+			$skiplist = [];
+			if ($type && $type !== 'plugin' && $type !== 'theme') {
+				error("Unrecognized skiplist type `%s'", $type);
+				return [];
+			}
+			if (!file_exists($skipfile)) {
+				return $skiplist;
+			}
+
+			$skiplist = (array)file($skipfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+			
+			return array_flip(array_filter(array_map(function ($line) use ($type) {
+				if (false !== ($pos = strpos($line, ':'))) {
+					if (strpos($line, $type . ':') === 0) {
+						return substr($line, $pos+1);
+					}
+				} else {
+					return $line;
+				}
+				return;
+			}, $skiplist)));
 		}
 
 		/**
@@ -726,8 +773,18 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
+			$flags = [];
+			if ($lock = $this->getVersionLock($docroot)) {
+				if ($lock === 'major') {
+					$flags[] = '--minor';
+				} else if ($lock === 'minor') {
+					$flags[] = '--patch';
+				}
+			}
+			$skiplist = $this->getSkiplist($docroot, 'theme');
 			if (!$themes) {
-				$ret = $this->_exec($docroot, 'theme update --all');
+				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
+				$ret = $this->_exec($docroot, 'theme update --all ' . implode(' ', $flags));
 				if (!$ret['success']) {
 					return error("theme update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 				}
@@ -738,7 +795,11 @@
 			$status = 1;
 			foreach ($themes as $theme) {
 				$name = $theme['name'] ?? $theme;
+				if (isset($skiplist[$name])) {
+					continue;
+				}
 				$version = null;
+
 				$cmd = 'theme update %(name)s';
 				$args = [
 					'name' => $name
@@ -747,6 +808,7 @@
 					$cmd .= ' --version=%(version)s';
 					$args['version'] = $theme['version'];
 				}
+				$cmd .= ' ' . implode(' ', $flags);
 				$ret = $this->_exec($docroot, $cmd, $args);
 				if (!$ret['success']) {
 					error("failed to update theme `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));

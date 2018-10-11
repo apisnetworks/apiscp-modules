@@ -407,7 +407,12 @@
 		 */
 		public function list_users()
 		{
-			$prefix = str_replace('_', '\_', $this->getServiceValue('mysql', 'dbaseprefix'));
+			// meta is corrupted, let's bail
+			if (!$prefix = $this->getServiceValue('mysql', 'dbaseprefix')) {
+				return [];
+			}
+
+			$prefix = str_replace('_', '\_', $prefix);
 			$conn = new mysqli("localhost", self::MASTER_USER, $this->_get_elevated_password());
 			$conn->select_db("mysql");
 			$q = $conn->query("SELECT host,
@@ -1472,7 +1477,7 @@
 			}
 
 			$fsizelimit = Util_Ulimit::get('fsize');
-			if ($this->get_database_size('mysql', $db) > $fsizelimit / self::DB_BIN2TXT_MULT) {
+			if ($this->get_database_size($db) > $fsizelimit / self::DB_BIN2TXT_MULT) {
 				// make sure ulimit accommodates the db dump
 				Util_Ulimit::set('fsize', 'unlimited');
 			} else {

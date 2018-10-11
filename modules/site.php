@@ -333,9 +333,9 @@
 		 *
 		 * @return array
 		 */
-		public function get_port_range()
+		public function get_port_range(): array
 		{
-			if (!$this->getServiceValue('ssh', 'enabled')) {
+			if (!$this->getServiceValue('ssh', 'enabled') || !SSH_USER_DAEMONS) {
 				return array();
 			}
 

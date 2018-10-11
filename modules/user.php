@@ -215,7 +215,7 @@
 			$ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
 			$cp_enable = isset($options['cp']) && $options['cp'] != 0;
 			$dav_enable = isset($options['dav']) && $options['dav'] != 0;
-			$ssh_enable = $this->getServiceValue('ssh', 'enabled') && isset($options['smtp']) && $options['ssh'] != 0;
+			$ssh_enable = $this->getServiceValue('ssh', 'enabled') && isset($options['smtp'], $options['ssh']) && $options['ssh'] != 0;
 
 			if ($this->auth_is_demo()) {
 				$blacklist = ['imap', 'smtp', 'dav', 'ssh', 'ftp'];

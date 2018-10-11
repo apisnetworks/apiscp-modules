@@ -78,7 +78,7 @@
 				$user = $this->username;
 			} else if (!$user) {
 				$user = $this->username;
-			} else if (!$this->_valid_user($user)) {
+			} else if (!$this->validUser($user)) {
 				return error("`%s': unknown or system user", $user);
 			}
 
@@ -120,6 +120,27 @@
 		}
 
 		/**
+		 * Find crons that match a command
+		 *
+		 * @param string      $command
+		 * @param string|null $user
+		 * @return array
+		 */
+		public function filter_by_command(string $command, string $user = null): array {
+			if (!$jobs = $this->list_jobs($user)) {
+				return [];
+			}
+			$matches = [];
+			foreach ($jobs as $j) {
+				if (false === strpos($j['cmd'], $command)) {
+					continue;
+				}
+				$matches[] = $j;
+			}
+			return $matches;
+		}
+
+		/**
 		 * Check if scheduled task service is enabled
 		 *
 		 * Returns true if the cron daemon is running within the environment,
@@ -147,6 +168,16 @@
 			return \Opcenter\Process::pidMatches($pid, 'crond');
 		}
 
+		/**
+		 * Service is permitted
+		 *
+		 * @return bool
+		 */
+		public function permitted(): bool
+		{
+			return $this->ssh_enabled() && $this->getServiceValue('crontab', 'permit');
+		}
+
 		public function user_permitted($user = null)
 		{
 			if (!IS_CLI) {
@@ -164,17 +195,17 @@
 				return true;
 			}
 			$fp = fopen($file, 'r');
-			$found = true;
+			$permitted = true;
 			while (false !== ($line = fgets($fp))) {
 				$line = trim($line);
 				if ($line == $user) {
-					$found = false;
+					$permitted = false;
 					break;
 				}
 			}
 			fclose($fp);
 
-			return $found;
+			return $permitted;
 		}
 
 		/**
@@ -207,7 +238,7 @@
 				if (!$user) {
 					$user = $this->username;
 				} else {
-					if (!$this->_valid_user($user)) {
+					if (!$this->validUser($user)) {
 						return error("`%s': unknown or system user", $user);
 					}
 				}
@@ -255,7 +286,7 @@
 				if (!$user) {
 					$user = $this->username;
 				} else {
-					if (!$this->_valid_user($user)) {
+					if (!$this->validUser($user)) {
 						return error("`%s': unknown or system user", $user);
 					}
 				}
@@ -337,14 +368,10 @@
 
 			if ($this->permission_level & PRIVILEGE_USER) {
 				$user = $this->username;
-			} else {
-				if (!$user) {
-					$user = $this->username;
-				} else {
-					if (!$this->_valid_user($user)) {
-						return error("`%s': unknown or system user", $user);
-					}
-				}
+			} else if (!$user) {
+				$user = $this->username;
+			} else if (!$this->validUser($user)) {
+				return error("`%s': unknown or system user", $user);
 			}
 
 			if (!$this->user_permitted($user)) {
@@ -365,9 +392,37 @@
 			}
 
 			// Make sure this isn't a duplicate
-			if (false === ($jobs = $this->list_jobs($user))) {
-				return false;
+			if ($this->exists($min, $hour, $dom, $month, $dow, $cmd, $user)) {
+				return error("duplicate job already scheduled: `%s'", $cmd);
 			}
+			// list_jobs() won't include
+			$contents = rtrim($this->_getCronContents($user));
+			$contents .= "\n" . $min . " " . $hour . " " . $dom . " " . $month . " " . $dow . " " . $cmd . "\n";
+			return $this->_setCronContents($contents, $user);
+		}
+
+		/**
+		 * Cronjob exists
+		 *
+		 * @param      $min
+		 * @param      $hour
+		 * @param      $dom
+		 * @param      $month
+		 * @param      $dow
+		 * @param      $cmd
+		 * @param null $user
+		 * @return bool
+		 */
+		public function exists($min, $hour, $dom, $month, $dow, $cmd, $user = null): bool
+		{
+			if ($this->permission_level & PRIVILEGE_USER) {
+				$user = $this->username;
+			}
+
+			if (false === ($jobs = $this->list_jobs($user))) {
+				return error("Failed to get jobs for user `%s'", $user);
+			}
+
 			foreach ($jobs as $j) {
 				if ($j['minute'] == $min &&
 					$j['hour'] == $hour &&
@@ -376,17 +431,13 @@
 					$j['day_of_week'] == $dow &&
 					$j['cmd'] == $cmd
 				) {
-					return error("duplicate job already scheduled: `%s'", $cmd);
-				} else {
-					if ($j['cmd'] == $cmd) {
-						warn("similar job scheduled: `%s'", $cmd);
-					}
+					return true;
+				}
+				if ($j['cmd'] == $cmd) {
+					warn("similar job scheduled: `%s'", $cmd);
 				}
 			}
-			// list_jobs() won't include
-			$contents = rtrim($this->_getCronContents($user));
-			$contents .= "\n" . $min . " " . $hour . " " . $dom . " " . $month . " " . $dow . " " . $cmd . "\n";
-			return $this->_setCronContents($contents, $user);
+			return false;
 		}
 
 		/**
@@ -461,7 +512,7 @@
 				if (!$user) {
 					$user = $this->username;
 				} else {
-					if (!$this->_valid_user($user)) {
+					if (!$this->validUser($user)) {
 						return error("`%s': unknown or system user", $user);
 					}
 				}
@@ -691,10 +742,8 @@
 			}
 			if (!$this->getServiceValue("ssh", "enabled")) {
 				return error("prerequisite ssh not satisfied");
-			} else {
-				if ($status != -1 && $status != 0 && $status != 1) {
-					return error("%s: invalid args passed to %s", $status, __FUNCTION__);
-				}
+			} else if ($status != -1 && $status != 0 && $status != 1) {
+				return error("%s: invalid args passed to %s", $status, __FUNCTION__);
 			}
 			$pid_file = $this->domain_fs_path() . self::CRON_PID;
 			$kill_cmd = '/bin/kill -%s `cat ' . $pid_file . '`';
@@ -779,7 +828,7 @@
 			return true;
 		}
 
-		private function _valid_user($user)
+		private function validUser($user)
 		{
 			$uid = $this->user_get_uid_from_username($user);
 			return $uid && $uid > User_Module::MIN_UID;

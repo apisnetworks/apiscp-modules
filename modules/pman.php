@@ -246,8 +246,9 @@
 				$env = $_ENV;
 			}
 
+			// always force
+			$env['BASH_ENV'] = '/dev/null';
 			$proc = new Util_Process_Sudo();
-
 			if ($env) {
 				$proc->setEnvironment($env);
 			}

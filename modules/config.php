@@ -32,7 +32,7 @@ class Config_Module extends Module_Skeleton {
 	 */
 	public function set(string $name, ...$val): bool
 	{
-		if (!IS_CLI) {
+		if (!is_debug() && !IS_CLI) {
 			return $this->query('config_set', $name, ...$val);
 		}
 		$c = \Opcenter\Admin\Settings\Setting::className($name);
@@ -102,7 +102,7 @@ class Config_Module extends Module_Skeleton {
 	 */
 	public function get(string $name)
 	{
-		if (!IS_CLI) {
+		if (!is_debug() && !IS_CLI) {
 			return $this->query('config_get', $name);
 		}
 		$c = \Opcenter\Admin\Settings\Setting::className($name);

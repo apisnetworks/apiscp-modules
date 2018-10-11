@@ -34,22 +34,32 @@
 		 * Execute Ruby within the scope of a version
 		 *
 		 * @param null|string $version
+		 * @param string      $pwd
 		 * @param string      $command
 		 * @param array       $args optional command arguments
 		 * @return array process output from pman_run
 		 */
-		public function do(?string $version, string $command, ...$args): array
+		public function do(?string $version, ?string $pwd = '~', string $command, ...$args): array
 		{
 			if ($version === 'lts') {
 				$version = $this->get_lts();
 			}
-			return $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("rbenv exec ${command}"),
-				$args,
-				[
-					'RBENV_VERSION' => $version
-				]
-			);
+			$args[0]['_RUBY_PWD'] = $pwd ?? '~';
 
+			if (!isset($args[1])) {
+				$args[1] = [];
+			}
+			if ($version) {
+				$args[1] += [
+					'RBENV_VERSION' => $version
+				];
+			}
+
+			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg('cd %(_RUBY_PWD)s' .' && rbenv exec ' . $command), ...$args);
+			if (!$ret['success']) {
+				// no job control warning
+				error(coalesce($ret['stdout'], $ret['stderr']));
+			}
 			return $ret;
 		}
 
@@ -84,6 +94,9 @@
 		 */
 		public function make_default(string $version, string $path = '~'): bool
 		{
+			if ($version === 'lts') {
+				$version = $this->get_lts();
+			}
 			$path .= '/.ruby-version';
 
 			return $this->file_put_file_contents($path, $version, true);
@@ -225,6 +238,7 @@
 			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("rbenv ${name} ${command}"),
 				$args,
 				[
+					'BASH_ENV' => '/dev/null'
 				]
 			);
 

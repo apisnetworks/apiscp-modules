@@ -156,7 +156,7 @@
 			$ret = $this->exec('ls');
 			if (!$ret['success']) {
 				if ($ret['return'] !== 3) {
-					error('failed to query nodes - is nvm installed?');
+					error('failed to query nodes - is nvm installed? error: %s', $ret['error']);
 				}
 				return [];
 			}
@@ -195,8 +195,8 @@
 			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("nvm ${name} ${command}"),
 				$args,
 				[
-					'NVM_DIR' => $this->user_get_home(),
-					'PATH' => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin'
+					'PATH' => '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin' . PATH_SEPARATOR . '~/node_modules/.bin',
+					'BASH_ENV' => '/dev/null'
 				]
 			);
 			return $ret;
