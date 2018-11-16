@@ -249,7 +249,7 @@
 		public function _reload($what = null)
 		{
 			if ($what === "letsencrypt") {
-				Util_Process_Fork::exec('/sbin/service vsftpd restart');
+				Util_Process::exec('/sbin/service vsftpd restart');
 			}
 			return true;
 		}
@@ -358,4 +358,5 @@
 		public function _create_user(string $user)
 		{
 		}
+
 	}

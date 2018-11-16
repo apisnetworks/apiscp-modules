@@ -47,7 +47,7 @@
 		public function kill($pid)
 		{
 			// SIGKILL isn't defined in ISAPI?
-			return $this->signal($pid, 9);
+			return $this->signal($pid, SIGKILL);
 		}
 
 		/**
@@ -57,7 +57,7 @@
 		 * @param int $signal
 		 * @return bool
 		 */
-		public function signal($pid, $signal = 9)
+		public function signal($pid, $signal = SIGKILL)
 		{
 			if (!IS_CLI) {
 				return $this->query('pman_signal', $pid, $signal);
@@ -247,7 +247,7 @@
 			}
 
 			// always force
-			$env['BASH_ENV'] = '/dev/null';
+			$env['BASH_ENV'] = null;
 			$proc = new Util_Process_Sudo();
 			if ($env) {
 				$proc->setEnvironment($env);

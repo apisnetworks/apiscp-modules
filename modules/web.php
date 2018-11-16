@@ -1019,6 +1019,13 @@
 			return $split;
 		}
 
+		/**
+		 * Get document root from hostname
+		 *
+		 * @param        $hostname
+		 * @param string $path
+		 * @return bool|string
+		 */
 		public function get_docroot($hostname, $path = '')
 		{
 			$domains = $this->list_domains();
@@ -1043,7 +1050,7 @@
 			}
 			if (false !== strpos($hostname, '.')) {
 				$host = $this->split_host($hostname);
-				if ($host['subdomain']) {
+				if ($host['subdomain'] && $this->subdomain_exists($host['subdomain'])) {
 					return $this->get_docroot($host['subdomain']);
 				}
 

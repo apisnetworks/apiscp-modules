@@ -29,6 +29,12 @@
 		const VERSION_CHECK_URL = 'https://api.github.com/repos/discourse/discourse/tags?per_page=1000';
 		const DISCOURSE_REPO = 'https://github.com/discourse/discourse.git';
 
+		public function __construct()
+		{
+			parent::__construct();
+			$this->exportedFunctions['restart'] = PRIVILEGE_SITE|PRIVILEGE_USER;
+		}
+
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
 		{
 			return error('not supported');
@@ -288,7 +294,18 @@
 
 			$passenger = \Module\Support\Webapps\Passenger::instantiateContexted($context, [$approot, 'ruby']);
 			$passenger->createLayout();
-			$passenger->setMode('standalone');
+			$passenger->setEngine('standalone');
+			// avoid excessive mutex locking in Passenger
+			$passenger->setProcessConcurrency(0);
+			$passenger->setMaxPoolSize(3);
+			$passenger->setMinInstances(3);
+			$passenger->setEnvironment([
+				'RUBY_GLOBAL_METHOD_CACHE_SIZE' => 131072,
+				'LD_PRELOAD'                    => '/usr/lib64/libjemalloc.so.1',
+				'RUBY_GC_HEAP_GROWTH_MAX_SLOTS' => 40000,
+				'RUBY_GC_HEAP_INIT_SLOTS'       => 400000,
+				'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR' => 1.5
+			]);
 			$config = $approot . '/config/discourse.conf';
 			$wrapper->file_copy($approot . '/config/discourse_defaults.conf', $config);
 
@@ -335,7 +352,7 @@
 				$this->migrate($approot, 'production');
 				$this->launchSidekiq($approot, 'production');
 				$this->assetsCompile($approot, 'production');
-				$this->file_put_file_contents($approot . '/Passengerfile.json', $passenger->getConfiguration());
+				$this->file_put_file_contents($approot . '/Passengerfile.json', $passenger->getExecutableConfiguration());
 				$passenger->start();
 			} catch (\apnscpException $e) {
 				dlog($e->getBacktrace());
@@ -355,7 +372,7 @@
 			$username = $this->user_getpwnam($opts['user'] ?? $this->username)['gecos'] ?: $this->username;
 			info("setting displayed name to `%s'", $username);
 
-			if ($passenger->getMode() !== 'apache') {
+			if ($passenger->getEngine() !== 'apache') {
 				$command = $passenger->getExecutable();
 				$args = [
 					'@reboot',
@@ -387,12 +404,12 @@
 			if (array_get($opts, 'notify', true)) {
 				\Lararia\Bootstrapper::minstrap();
 				\Illuminate\Support\Facades\Mail::to($opts['email'])->
-				send((new \Module\Support\Webapps\Mailer('install.discourse', [
-					'email'    => $opts['email'],
-					'uri'      => rtrim($fqdn . '/' . $path, '/'),
-					'proto'    => empty($opts['ssl']) ? 'http://' : 'https://',
-					'appname'  => static::APP_NAME
-				]))->setAppName(static::APP_NAME));
+					send((new \Module\Support\Webapps\Mailer('install.discourse', [
+						'email'    => $opts['email'],
+						'uri'      => rtrim($fqdn . '/' . $path, '/'),
+						'proto'    => empty($opts['ssl']) ? 'http://' : 'https://',
+						'appname'  => static::APP_NAME
+					]))->setAppName(static::APP_NAME));
 			}
 
 			if (!$opts['squash']) {
@@ -445,8 +462,8 @@
 			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($docroot, $context);
 			$passenger = \Module\Support\Webapps\Passenger::instantiateContexted($context, [$approot, 'ruby']);
 			$passenger->createLayout();
-			$passenger->setMode('standalone');
-			$command = $passenger->getConfiguration();
+			$passenger->setEngine('standalone');
+			$command = $passenger->getExecutableConfiguration();
 			//
 			echo $command, "\n";
 			dd($passenger->getExecutable(), $passenger->getDirectives());
@@ -967,19 +984,25 @@
 			if ($this->git_valid($approot)) {
 				$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
 				$wrapper->git_fetch($approot);
+				$wrapper->git_fetch($approot, ['tags' => null]);
 				$ret = $wrapper->git_checkout($approot, "v${version}");
 				if ($ret) {
-					$wrapper->ruby_do('lts', $approot, 'bundle update -j' . min(4, (int)NPROC + 1));
+					// use default Ruby wrapper
+					$wrapper->ruby_do('', $approot, 'bundle install -j' . min(4, (int)NPROC + 1));
 					if (!$this->assetsCompile($approot)) {
 						warn("Failed to compile assets");
 					}
+					$this->migrate($approot);
 				}
-				$wrapper->file_touch("${approot}/tmp/restart.txt");
 			} else {
 				$ret = error("Cannot upgrade Discourse - not a valid git repository");
+
+			}
+			if (!$version !== ($newver = $wrapper->get_version($hostname, $path))) {
+				report("Upgrade failed, reported version `%s' is not requested version `%s'", $newver, $version);
 			}
 			parent::setInfo($this->getDocumentRoot($hostname, $path), [
-				'version' => $this->get_version($hostname, $path),
+				'version' => $newver,
 				'failed'  => !$ret
 			]);
 
@@ -987,7 +1010,7 @@
 				return error("failed to update Discourse");
 			}
 
-			return $this->migrate($approot) && $this->restart($hostname, $path);
+			return $wrapper->discourse_restart($hostname, $path);
 		}
 
 		/**

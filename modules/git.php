@@ -61,7 +61,7 @@
 		}
 
 		/**
-		 * Fetch tags for repository
+		 * List tags for repository
 		 *
 		 * @param string $path
 		 * @return array|null
@@ -96,10 +96,18 @@
 		 * Download objects and refs from another repository
 		 *
 		 * @param string $path
+		 * @param array  $opts
 		 * @return bool
 		 */
-		public function fetch(string $path): bool {
-			$ret = $this->pman_run("cd %(path)s && git fetch", ['path' => $path]);
+		public function fetch(string $path, array $opts = []): bool {
+			$opts = implode(' ', array_key_map(function ($k, $v) {
+				$k = (isset($k[1]) ? '--' : '-') . escapeshellarg($k);
+				if (null === $v) {
+					return $k;
+				}
+				return $k . '=' . escapeshellarg($v);
+			}, $opts));
+			$ret = $this->pman_run("cd %(path)s && git fetch " . $opts, ['path' => $path]);
 			return $ret['success'] ?: error("Failed to fetch: %s", $ret['stderr']);
 
 		}

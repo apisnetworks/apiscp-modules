@@ -20,7 +20,7 @@
 	class Ruby_Module extends Module_Skeleton
 	{
 		const LTS = '2.4.4';
-		public $exportedFunctions = array('*' => PRIVILEGE_SITE);
+		public $exportedFunctions = array('*' => PRIVILEGE_SITE|PRIVILEGE_USER);
 
 		public function __construct()
 		{

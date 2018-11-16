@@ -1,5 +1,4 @@
-<?php
-	declare(strict_types=1);
+<?php declare(strict_types=1);
 	/**
 	 *  +------------------------------------------------------------+
 	 *  | apnscp                                                     |
@@ -44,10 +43,10 @@
 			'tbz'     => 'bzip',
 			'tbz2'    => 'bzip'
 		);
-		private static $stat_cache = array();
+		private $stat_cache = array();
 		// assume all operations exist on shadow/
 		// if user is admin, bypass costly stat checks
-		private static $acl_cache = array();
+		private $acl_cache = array();
 		private $compression_instances;
 
 		// apply settings recursively
@@ -597,13 +596,13 @@
 							($stat_details['gid'] == APACHE_UID)) ||
 						$this->permission_level & PRIVILEGE_USER && $stat_details['uid'] == $this->user_id,
 
-					'can_chgrp' => $this->permission_level & PRIVILEGE_ADMIN
+					'can_chgrp' => (bool)($this->permission_level & PRIVILEGE_ADMIN)
 				);
 				$stats[$enthash] = $vstat;
 			}
 			closedir($dh);
 			Error_Reporter::unmute_warning();
-			self::$stat_cache[$siteid][$dirhash] = $stats;
+			$this->stat_cache[$siteid][$dirhash] = $stats;
 			// special case root fs for accounts
 
 			$cachekey = $this->_getCacheKey($file);
@@ -620,7 +619,7 @@
 					$newpath = str_replace('/fst', '/shadow', $pathbase);
 					var_dump(`ls -la $pathbase ; ls -la $newpath`);
 					var_dump("EMER: Missed hash!?!!!@", $vpathbase, $filename, $dirhash, $filehash,
-						self::$stat_cache[$siteid][$dirhash]);
+						$this->stat_cache[$siteid][$dirhash]);
 					die();
 				}
 				$data = "ASKED: $filehash ($filename)" . "\r\n\r\n" . var_export($stats, true);
@@ -697,21 +696,21 @@
 			$apcu_key = "acl:" . $cache_key;
 			$acl_dir = $path;
 
-			if (!isset(self::$acl_cache[$cache_key])) {
+			if (!isset($this->acl_cache[$cache_key])) {
 				$acl_dir = dirname($path);
 				$cache = \Cache_Account::spawn($this->getAuthContext());
 				$entry = $cache->get($apcu_key);
 
 				if (false !== $entry) {
-					self::$acl_cache = array_merge_recursive(self::$acl_cache,
+					$this->acl_cache = array_merge_recursive($this->acl_cache,
 						[$cache_key => $entry]);
 					return $entry[basename($path)] ?? [];
 				}
 			}
 
 			// acl updates only happen through one command
-			if (isset(self::$acl_cache[$cache_key])) {
-				return self::$acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
+			if (isset($this->acl_cache[$cache_key])) {
+				return $this->acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
 			}
 
 			if (!is_readable($path)) {
@@ -794,8 +793,8 @@
 			}
 			$cache = \Cache_Account::spawn($this->getAuthContext());
 			$cache->set($apcu_key, $acl_cache, 60);
-			self::$acl_cache = array_merge(self::$acl_cache, $acl_cache);
-			return self::$acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
+			$this->acl_cache = array_merge($this->acl_cache, $acl_cache);
+			return $this->acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
 		}
 
 		/**
@@ -1056,8 +1055,8 @@
 			$dirhash = md5($dir);
 			$filehash = md5($filename);
 			$siteid = $this->site_id;
-			if (isset(self::$stat_cache[$siteid][$dirhash][$filehash])) {
-				return self::$stat_cache[$siteid][$dirhash][$filehash];
+			if (isset($this->stat_cache[$siteid][$dirhash][$filehash])) {
+				return $this->stat_cache[$siteid][$dirhash][$filehash];
 			}
 			$cache = $this->cached;
 			$cachekey = $this->_getCacheKey($file);
@@ -1065,7 +1064,7 @@
 			// direct file stat
 
 			if ($stat) {
-				self::$stat_cache[$siteid][$dirhash] = $stat;
+				$this->stat_cache[$siteid][$dirhash] = $stat;
 				if (isset($stat[$filehash])) {
 					return $stat[$filehash];
 				}
@@ -1227,7 +1226,6 @@
 			$files_copied = -1; // number of files copied
 			for ($i = 0, $nsource = sizeof($source); $i < $nsource; $i++) {
 				$link = '';
-
 				$src_path = $optimized ? $this->make_shadow_path($source[$i], $link) :
 					$this->make_path($source[$i], $link);
 
@@ -1237,15 +1235,14 @@
 
 				if ($link) {
 					$files = (array)$link;
+				} else if ($src_path === $dest_path) {
+					warn("source directory `" .
+						$this->unmake_path($src_path) . "' and destination are same");
+					continue;
 				} else {
-					if ($src_path === $dest_path) {
-						warn("source directory `" .
-							$this->unmake_path($src_path) . "' and destination are same");
-						continue;
-					} else {
-						$files = glob($src_path, GLOB_NOSORT);
-					}
+					$files = glob($src_path, GLOB_NOSORT);
 				}
+
 				for ($j = 0, $nfiles = sizeof($files); $j < $nfiles; $j++) {
 					$file = $files[$j];
 					if (!file_exists($file)) {
@@ -1254,10 +1251,17 @@
 
 					if ($optimized) {
 						$local_file = $this->unmake_shadow_path($file);
+						$perms = fileperms($file);
+						// assume if g/o lack read (4) then it's protected
+						if (!($perms & ~0x3FFDB) && fileowner($file) < \User_Module::MIN_UID) {
+							$files_copied = 0;
+							error("cannot read `$local_file'");
+							continue;
+						}
 						// create a stat array with bare minimums
 						$fstat = array(
 							'file_type'   => filetype($file),
-							'permissions' => fileperms($file)
+							'permissions' => $perms
 						);
 					} else {
 						$local_file = $this->unmake_path($file);
@@ -1266,7 +1270,6 @@
 						if ($fstat instanceof Exception) {
 							return $fstat;
 						}
-
 						if (!$fstat['can_read']) {
 							$files_copied = 0;
 							error("cannot read `$local_file'");
@@ -1323,10 +1326,11 @@
 							}
 						}
 						//print "Dir - ".$dest_path." -- ".$newdest." -- ".$mkdir."\n";
-						if ($mkdir && !$this->create_directory($newdest,
-								$fstat['permissions'], false)
-						) {
-							continue;
+						if ($mkdir) {
+							if (!$this->create_directory($newdest, $fstat['permissions'], false)) {
+								continue;
+							}
+							$files_copied &= 1;
 						}
 						//fwrite(STDERR, "Enumerating dir $local_file to $newdest\n");
 						$subreq = $this->copy(
@@ -1344,7 +1348,7 @@
 					}
 				}
 			}
-			return $files_copied;
+			return (bool)$files_copied;
 		}
 
 		/**
@@ -1408,7 +1412,7 @@
 				}
 				$this->trans_paths[$this->site_id][$f] = null;
 				clearstatcache(true, $path . '/' . $f);
-				self::$stat_cache[$siteid][$hash] = null;
+				$this->stat_cache[$siteid][$hash] = null;
 				$this->cached->delete('s:' . $hash);
 				$purged[$hash] = 1;
 			}
@@ -3195,9 +3199,7 @@
 			$cache = \Cache_Account::spawn($this->getAuthContext());
 			foreach (array_unique(array_map('dirname', $file)) as $dir) {
 				$key = $this->site_id . '|' . $dir;
-				if (isset(self::$acl_cache[$key])) {
-					unset(self::$acl_cache[$key]);
-				}
+				unset($this->acl_cache[$key]);
 				$cache->delete('acl:' . $key);
 			}
 			return true;
@@ -3478,7 +3480,7 @@
 			parent::_resetModule();
 			// reset cache to use new user id
 			$this->__wakeup();
-			self::$stat_cache = null;
+			//$this->stat_cache = $this->acl_cache = null;
 
 		}
 

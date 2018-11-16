@@ -263,7 +263,7 @@
 		 * @param string $newdomain
 		 * @param string $newdestination
 		 * @param string|null $newtype
-		 * @return bool|void
+		 * @return bool
 		 */
 		public function modify_mailbox(
 			string $olduser,
@@ -272,7 +272,7 @@
 			string $newdomain = '',
 			string $newdestination = '',
 			string $newtype = null
-		) {
+		): bool {
 			$args = array(
 				'olduser',
 				'olddomain',
@@ -376,6 +376,14 @@
 			return $pgdb->num_rows() > 0;
 		}
 
+		/**
+		 * Get mailbox type
+		 *
+		 * @param $user
+		 * @param $domain
+		 * @return bool|null|string
+		 * @throws PostgreSQLError
+		 */
 		public function mailbox_type($user, $domain)
 		{
 			$user = strtolower($user);

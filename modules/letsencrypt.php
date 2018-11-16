@@ -434,20 +434,24 @@
 			if (!$this->_registered() && !$this->_register()) {
 				return error("failed to register with Let's Encrypt");
 			}
-			if (!$this->certificateIssued(self::SYSCERT_NAME)) {
-				// make a dummy cert that has already expired to bootstrap
-				$cns = array(SERVER_NAME);
-				if (SERVER_NAME !== ($name = gethostname())) {
-					$cns[] = $name;
-				}
-				if (defined('LETSENCRYPT_ADDITIONAL_CERTS')) {
-					$cns = array_merge($cns, preg_split('/[, ]+/', constant('LETSENCRYPT_ADDITIONAL_CERTS')));
-				}
-				if ($this->requestReal($cns, self::SYSCERT_NAME)) {
-					$this->installSystemCertificate();
-				}
-			}
+
 			$this->renewExpiringCertificates();
+
+			if (!$this->systemNeedsIssuance()) {
+				return;
+			}
+
+			// issue system certificate on bootstrap or hostname change
+			$cns = [SERVER_NAME];
+			if (SERVER_NAME !== ($name = gethostname())) {
+				$cns[] = $name;
+			}
+			if (LETSENCRYPT_ADDITIONAL_CERTS) {
+				$cns = array_merge($cns, LETSENCRYPT_ADDITIONAL_CERTS);
+			}
+			if ($this->requestReal($cns, self::SYSCERT_NAME)) {
+				$this->installSystemCertificate();
+			}
 		}
 
 		private function _register($email = null)
@@ -472,9 +476,8 @@
 
 		private function _registered()
 		{
-			$key = $this->canonicalizeServer($this->activeServer) . '.pem';
+			$key = str_replace(['/'], '.', $this->activeServer) . '.pem';
 			$storageDir = $this->acmeDataDirectory();
-
 			return file_exists($storageDir . '/accounts/' . $key);
 		}
 

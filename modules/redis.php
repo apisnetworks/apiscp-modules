@@ -26,7 +26,8 @@
 
 		public function __construct()
 		{
-			if (!$this->ssh_enabled() || !SSH_USER_DAEMONS) {
+			parent::__construct();
+			if ($this->permission_level && (!SSH_USER_DAEMONS || !$this->ssh_enabled())) {
 				$this->exportedFunctions = ['*' => PRIVILEGE_NONE];
 			}
 		}
@@ -114,8 +115,8 @@
 			$prefs->unlock($this->getApnscpFunctionInterceptor());
 			$prefs[self::PREF_KEY] = $data;
 			unset($prefs);
-			if (!$this->crontab_add_job('@reboot', null, null, null, null, 'redis-cli ' . $cfgfile)) {
-				return warn("Failed to create redis-cli job for reboot");
+			if (!$this->crontab_add_job('@reboot', null, null, null, null, 'redis-server ' . $cfgfile)) {
+				return warn("Failed to create redis-server job for reboot");
 			}
 			return true;
 		}
@@ -162,7 +163,7 @@
 			foreach ($files as $f) {
 				$this->file_delete($f, true);
 			}
-			$this->crontab_delete_job('@reboot', null, null, null, null, 'redis-cli ' . $cfgfile);
+			$this->crontab_delete_job('@reboot', null, null, null, null, 'redis-server ' . $cfgfile);
 			return true;
 		}
 

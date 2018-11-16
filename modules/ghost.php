@@ -216,7 +216,8 @@
 			}
 
 			$wrapper = empty($opts['user']) ? $this : \apnscpFunctionInterceptor::factory(Auth::context($opts['user'], $this->site));
-			$wrapper->node_make_default('lts/*', $docroot);
+			$nodever = $wrapper->node_lts_version();
+			$wrapper->node_make_default($nodever, $docroot);
 
 			$autogenpw = false;
 			if (!isset($opts['password'])) {
@@ -633,6 +634,7 @@
 			}
 			$approot = $this->getAppRoot($hostname, $path);
 			$path = $this->domain_fs_path() . $approot . '/current/package.json';
+			clearstatcache(true, \dirname($path));
 			if (!file_exists($path)) {
 				warn('missing package.json from Ghost root - cannot detect version');
 				return null;
@@ -687,8 +689,8 @@
 					[],
 					['user' => $this->getDocrootUser($approot)]
 				);
-				if (!$this->validateNode('lts', $this->getDocrootUser($approot)) ||
-					!$this->_exec($approot, 'ghost update --local -D --no-restart --no-color --v%d', [\Opcenter\Versioning::asMajor($oldversion)]))
+				// @TODO update LTS?
+				if (!$this->_exec($approot, 'ghost update --local -D --no-restart --no-color --v%d', [\Opcenter\Versioning::asMajor($oldversion)]))
 				{
 					return error("Failed to prep for major version upgrade");
 				}
@@ -712,6 +714,10 @@
 			}
 
 			$ret = $this->migrate($approot) && ($this->kill($hostname, $path) || true);
+
+			if (!$version !== ($newver = $this->get_version($hostname, $path))) {
+				report("Upgrade failed, reported version `%s' is not requested version `%s'", $newver, $version);
+			}
 			parent::setInfo($this->getDocumentRoot($hostname, $path), [
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret

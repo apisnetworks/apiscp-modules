@@ -279,7 +279,7 @@
 				$this->web_purge();
 				return $ret;
 			}
-			if (!$this->shared_domain_exists($domain)) {
+			if (!$this->domain_exists($domain)) {
 				return error("domain `$domain' is not attached to account");
 			}
 			if ($this->shared_domain_hosted($domain)) {
@@ -401,15 +401,21 @@
 			return $this->query('aliases_add_domain_backend', $domain, $path);
 		}
 
+		public function shared_domain_exists($domain): bool
+		{
+			deprecated_func('use domain_exists');
+			return $this->domain_exists($domain);
+		}
+
 		/**
 		 * Verify domain hosted on account
 		 *
 		 * @param string $domain
 		 * @return bool
 		 */
-		public function shared_domain_exists($domain)
+		public function domain_exists($domain): bool
 		{
-			return $domain == $this->getConfig('siteinfo', 'domain') ||
+			return $domain === $this->getConfig('siteinfo', 'domain') ||
 				array_key_exists($domain, $this->list_shared_domains());
 		}
 
@@ -626,7 +632,7 @@
 
 		protected function _verify($domain)
 		{
-			if ($this->shared_domain_exists($domain)) {
+			if ($this->domain_exists($domain)) {
 				return error("domain `$domain' exists");
 			}
 

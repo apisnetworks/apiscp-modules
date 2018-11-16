@@ -27,7 +27,7 @@
 		const FROM_NO_REPLY_ADDRESS = CRM_FROM_NO_REPLY_ADDRESS;
 		const MAX_SMS_LENGTH = 150;
 		// lowercase list of ticket subject priorities that cannot change
-		const COPY_ADMIN = CRM_FROM_ADDRESS;
+		const COPY_ADMIN = CRM_COPY_ADMIN;
 
 		const TICKET_STCLOSE = 'close';
 		const TICKET_STAPPEND = 'append';

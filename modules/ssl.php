@@ -681,12 +681,10 @@
 			if ($this->permission_level & PRIVILEGE_SITE) {
 				$file = $this->domain_fs_path() . self::CRT_PATH .
 					'/' . $name . '.crt';
+			} else if ($name[0] != '/') {
+				$file = self::CRT_PATH . $name . '.crt';
 			} else {
-				if ($name[0] != '/') {
-					$file = self::CRT_PATH . $name . '.crt';
-				} else {
-					$file = $name . '.crt';
-				}
+				$file = $name . '.crt';
 			}
 
 			if (!file_exists($file)) {
@@ -768,14 +766,10 @@
 				$methods = openssl_get_md_methods();
 				if (in_array('sha512', $methods)) {
 					$digestalg = 'sha512';
-				} else {
-					if (in_array('sha256', $methods)) {
-						$digestalg = 'sha256';
-					} else {
-						if (!in_array('sha1', $methods)) {
-							return error("no suitable digest method found for privkey generation");
-						}
-					}
+				} else if (in_array('sha256', $methods)) {
+					$digestalg = 'sha256';
+				} else if (!in_array('sha1', $methods)) {
+					return error("no suitable digest method found for privkey generation");
 				}
 			}
 
@@ -805,6 +799,7 @@
 		 * @param string $org      optional organization
 		 * @param string $orgunit  optional organizational unit (company section)
 		 * @param string $email    contact e-mail
+		 * @param array  $san	    x509 subject alternate names
 		 * @return string certificate signing request
 		 */
 		public function generate_csr(
@@ -815,7 +810,8 @@
 			$locality = '',
 			$org = '',
 			$orgunit = '',
-			$email = ''
+			$email = '',
+			$san = []
 		) {
 			$sinfo = array(
 				'countryName'            => strtoupper((string)$country),
@@ -829,7 +825,7 @@
 			if (!preg_match(Regex::DOMAIN_WC, $host)) {
 				return error("invalid hostname `%s'", $host);
 			} else if ($sinfo['countryName'] && (!ctype_alpha($sinfo['countryName']) ||
-					strlen($sinfo['countryName']) != 2))
+					strlen($sinfo['countryName']) !== 2))
 			{
 				return error("invalid 2-character country `%s'",
 					$sinfo['countryName']);
@@ -849,14 +845,28 @@
 				}
 			}
 			$privkey = trim($privkey);
-			if (!openssl_get_privatekey($privkey)) {
+			if (!$privkey = openssl_pkey_get_private($privkey)) {
 				return error("could not get key structure " .
 					"from private key");
 			}
 
-			$cnf = array();
+			$extensions = [];
+			if ($san) {
+				foreach ($san as $s) {
+					if (0 !== strpos($s, '*.') && !preg_match(Regex::DOMAIN, $s)) {
+						return error("Invalid domain `%s'", $s);
+					}
+				}
+				$extensions['subjectAltName'] = implode(', ', array_key_map(function ($k, $v) {
+					return 'DNS.' . ($k + 1) . ': ' . $v;
+				}, array_values($san)));
+			}
+
+			$cnf = array('digest_alg' => 'sha256', 'req_extensions' => $extensions);
+
 			$res = openssl_pkey_get_private($privkey);
 			$csr = openssl_csr_new($sinfo, $res, $cnf);
+
 			if (!$csr) {
 				return error($this->_getError());
 			}
@@ -1060,11 +1070,12 @@
 		 * @param resource|string $certificate
 		 * @return array
 		 */
-		public function get_alternative_names($certificate)
+		public function get_alternative_names($certificate): ?array
 		{
 			$certificate = $this->parse_certificate($certificate);
 			if (!is_array($certificate)) {
-				return error("invalid certificate");
+				error("invalid certificate");
+				return null;
 			}
 			$commonname = $certificate['subject']['CN'];
 			$extensions = array($commonname);

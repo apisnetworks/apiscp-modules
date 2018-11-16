@@ -1,5 +1,4 @@
-<?php
-	declare(strict_types=1);
+<?php declare(strict_types=1);
 	/**
 	 *  +------------------------------------------------------------+
 	 *  | apnscp                                                     |
@@ -195,6 +194,16 @@
 				}, $ini)) . "\n";
 			$prefs = \Preferences::factory($this->getAuthContext())->unlock($this->getApnscpFunctionInterceptor());
 			$prefs['email'] = $email;
+			if (platform_is('7.5')) {
+				$cfg = new \Opcenter\Admin\Bootstrapper\Config();
+				// only update if set
+				if ($cfg['apnscp_admin_email']) {
+					$cfg['apnscp_admin_email'] = $email;
+					\Opcenter\Admin\Bootstrapper::run('apnscp/create-admin', 'software/etckeeper');
+				}
+				unset($cfg);
+
+			}
 			return (bool)file_put_contents($this->getAdminConfigFile(), $data);
 		}
 

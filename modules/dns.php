@@ -30,17 +30,22 @@
 		protected const HAS_ORIGIN_MARKER = false;
 		/** primary nameserver */
 		const MASTER_NAMESERVER = DNS_INTERNAL_MASTER;
-		const AUTHORITATIVE_NAMESERVER = DNS_AUTHORITATIVE_NS;
-		const RECURSIVE_NAMESERVER = DNS_RECURSIVE_NS;
+		/**
+		 * @var array 1 or more authoritative nameservers
+		 */
+		const AUTHORITATIVE_NAMESERVERS = DNS_AUTHORITATIVE_NS;
+		/**
+		 * @var array 1 or more recursive nameservers
+		 */
+		const RECURSIVE_NAMESERVERS = DNS_RECURSIVE_NS;
 		const UUID_RECORD = '_apnscp_uuid';
 
-		const DYNDNS_TTL = 300;
 		// default DNS TTL for records modified via update()
+		const DYNDNS_TTL = 300;
+
 		// @var int default DNS TTL
 		const DNS_TTL = DNS_DEFAULT_TTL;
-		// default DNS TTL for records
-		const IP_ALLOCATION_BLOCK = DNS_ALLOCATION_CIDR;
-		// netmask of allowable IP addresses
+
 		const HOSTS_FILE = '/etc/hosts';
 		// standard hosts file location
 
@@ -390,7 +395,7 @@
 				return error("unknown rr record type `%s'", $rr);
 			}
 			if (!$nameservers) {
-				$nameservers = array(static::RECURSIVE_NAMESERVER);
+				$nameservers = static::RECURSIVE_NAMESERVERS;
 			}
 			$resolvers = [];
 			foreach ($nameservers as $ns) {
@@ -559,7 +564,7 @@
 		 *
 		 * Useful when doing cross-server transfers to ensure the domain to add
 		 * is part of the account, which will allow the domain to be added via
-		 * the aliases_add_shared_domain @{see Aliases_Module::add_shared_domain}
+		 * the aliases_add_domain @{see Aliases_Module::add_domain}
 		 *
 		 * Implementation details are available on github.com/apisnetworks/apnscp-modules
 		 *
@@ -611,10 +616,7 @@
 		 */
 		public function get_hosting_nameservers(string $domain = null): array
 		{
-			if (null === static::$nameservers) {
-				static::$nameservers = preg_split('/[,\s]+/', DNS_HOSTING_NS, -1, PREG_SPLIT_NO_EMPTY);
-			}
-			return (array)static::$nameservers;
+			return DNS_HOSTING_NS;
 		}
 
 		/**
@@ -638,7 +640,7 @@
 		 */
 		public function get_authns_from_host($host): ?array
 		{
-			$nameservers = [static::RECURSIVE_NAMESERVER];
+			$nameservers = static::RECURSIVE_NAMESERVERS;
 			$authns = silence(function () use ($host, $nameservers) {
 				return dns_get_record($host, static::record2const('ns'), $nameservers);
 			});
@@ -753,11 +755,14 @@
 		 */
 		public function check_zone(string $zone, array $recs = []): bool
 		{
+			if (empty(static::AUTHORITATIVE_NAMESERVERS)) {
+				return warn('No authoritative nameservers set - cannot check zone');
+			}
 			$tmpfile = tempnam('/tmp', 'f');
 			Util_Process_Safe::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
 				'%s @%s %s > %s',
 				self::$dns_key,
-				static::AUTHORITATIVE_NAMESERVER,
+				array_random(static::AUTHORITATIVE_NAMESERVERS),
 				$zone,
 				$tmpfile,
 				array('mute_stderr' => true)
@@ -1053,7 +1058,7 @@
 		 */
 		public function record_exists(string $zone, string $subdomain, string $rr = 'ANY', string $parameter = null): bool
 		{
-			if (!static::AUTHORITATIVE_NAMESERVER) {
+			if (!static::AUTHORITATIVE_NAMESERVERS) {
 				warn("no authoritative nameserver configured - can't verify record `%s'",
 					ltrim($subdomain . '.' . $zone, '.')
 				);
@@ -1069,7 +1074,7 @@
 				return error("unknown RR class `%s'", $rr);
 			}
 			$status = Util_Process::exec('dig +time=3 +tcp +short @%s %s %s',
-				static::AUTHORITATIVE_NAMESERVER,
+				array_random(static::AUTHORITATIVE_NAMESERVERS),
 				escapeshellarg($record),
 				array_key_exists($rr, static::$rec_2_const) ? $rr : 'ANY'
 			);
@@ -1495,6 +1500,11 @@
 		 */
 		protected function get_zone_data(string $domain): ?array
 		{
+			if (!$this->owned_zone($domain)) {
+				error("Domain `%s' not owned by account", $domain);
+				return null;
+			}
+
 			if (null === ($data = $this->zoneAxfr($domain))) {
 				return $data;
 			}

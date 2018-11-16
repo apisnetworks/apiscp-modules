@@ -95,22 +95,23 @@ class Config_Module extends Module_Skeleton {
 	}
 
 	/**
-	 * Set server var
+	 * Get server var
 	 *
 	 * @param string $name
-	 * @return bool
+	 * @param array  $val optional subselection
+	 * @return mixed
 	 */
-	public function get(string $name)
+	public function get(string $name, ...$val)
 	{
 		if (!is_debug() && !IS_CLI) {
-			return $this->query('config_get', $name);
+			return $this->query('config_get', $name, ...$val);
 		}
 		$c = \Opcenter\Admin\Settings\Setting::className($name);
 		if (!$c) {
 			return error("Unknown admin setting `%s'", $name);
 		}
 
-		return (new $c)->get();
+		return (new $c)->get(...$val);
 	}
 
 	public function _housekeeping()

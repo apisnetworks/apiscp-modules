@@ -31,7 +31,7 @@
 		 * that possess the same uid/gid as the main user
 		 * majordomo, ftp, and mail
 		 */
-		protected static $uid_mappings = array();
+		protected $uid_mappings = array();
 
 		protected $exportedFunctions = [
 			'*'                     => PRIVILEGE_SITE,
@@ -466,13 +466,13 @@
 			if (!$ret) {
 				return false;
 			}
+			$instance->releaseUid($uid, $this->site_id);
 			$this->flush();
 			\apnscpSession::invalidate_by_user($this->site_id, $user);
-			$instance->releaseUid($uid, $this->site_id);
 			$key = $this->site . '.' . $user;
 
-			if (array_has(self::$uid_mappings, $key)) {
-				array_forget(self::$uid_mappings, $key);
+			if (array_has($this->uid_mappings, $key)) {
+				array_forget($this->uid_mappings, $key);
 			}
 
 			return $ret;
@@ -683,10 +683,8 @@
 			$single = !is_array($users);
 			if (!$users || ($this->permission_level & PRIVILEGE_USER)) {
 				$users = array($this->username);
-			} else {
-				if (!is_array($users)) {
-					$users = array($users);
-				}
+			} else if (!is_array($users)) {
+				$users = array($users);
 			}
 			$do_apache = $this->permission_level & PRIVILEGE_SITE &&
 				in_array('apache', $users);
@@ -710,7 +708,8 @@
 			$quota_rep = Util_Process::exec('quota -w -v -u ' . $uid_list, array('mute_stderr' => true));
 			preg_match_all(Regex::QUOTA_USRGRP, $quota_rep['output'], $quotas, PREG_SET_ORDER);
 			$quota_stat = array_combine($users, array_fill(0, sizeof($users), null));
-			$max = round($this->getConfig('diskquota', 'quota') * 1024);
+			$max = $this->getServiceValue('diskquota','enabled') ?
+				round($this->getConfig('diskquota', 'quota') * 1024) : 0;
 			foreach ($quotas as $quota) {
 				$uid = $quota['uid'];
 				$user = $uids[$uid];
@@ -792,11 +791,11 @@
 				return posix_getpwuid($uid)['name'] ?? $uid;
 			}
 			$site = $this->site_id;
-			if (!isset(self::$uid_mappings[$site])) {
-				self::$uid_mappings[$site] = array();
+			if (!isset($this->uid_mappings[$site])) {
+				$this->uid_mappings[$site] = array();
 			} else {
-				if (isset(self::$uid_mappings[$site][$uid])) {
-					return self::$uid_mappings[$site][$uid];
+				if (isset($this->uid_mappings[$site][$uid])) {
+					return $this->uid_mappings[$site][$uid];
 				}
 			}
 			if (!($fp = fopen($this->domain_fs_path() . '/etc/passwd', 'r'))) {
@@ -804,16 +803,16 @@
 			}
 			while (false !== ($line = fgets($fp))) {
 				$line = explode(':', $line);
-				if (!isset($line[2]) || !is_numeric($line[2]) || isset(self::$uid_mappings[$site][$line[2]])) {
+				if (!isset($line[2]) || !is_numeric($line[2]) || isset($this->uid_mappings[$site][$line[2]])) {
 					continue;
 				}
-				self::$uid_mappings[$site][$line[2]] = $line[0];
+				$this->uid_mappings[$site][$line[2]] = $line[0];
 			}
 			fclose($fp);
-			if (!isset(self::$uid_mappings[$site][$uid])) {
+			if (!isset($this->uid_mappings[$site][$uid])) {
 				return false;
 			}
-			return self::$uid_mappings[$site][$uid];
+			return $this->uid_mappings[$site][$uid];
 		}
 
 		/**
@@ -959,9 +958,9 @@
 			}
 			// @XXX -o is a Redhat-specific param to override duplicate gid
 			return (new \Opcenter\Role\Group($this->domain_fs_path()))->create($group, [
-				'force' => true,
+				'force'    => true,
 				'duplicate' => true,
-				'gid' => $this->group_id
+				'gid'      => $this->group_id
 			]);
 		}
 

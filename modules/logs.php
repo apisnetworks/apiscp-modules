@@ -60,7 +60,11 @@
 				if ($file == '.' || $file == '..') {
 					continue;
 				}
-				$size += (filesize($this->domain_fs_path() . '/var/log/httpd/' . $file) / 1024);
+				$path = $this->domain_fs_path() . '/var/log/httpd/' . $file;
+				if (!$this->file_exists($path)) {
+					continue;
+				}
+				$size += filesize($path) / 1024;
 			}
 			closedir($dh);
 			return (int)$size;

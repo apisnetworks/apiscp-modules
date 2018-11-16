@@ -80,13 +80,46 @@
 		/**
 		 * Assign Node version to directory
 		 *
+		 * Resolves symbolic names to version number
+		 *
 		 * @param string $version
 		 * @param string $path
 		 * @return bool
 		 */
 		public function make_default(string $version, string $path = '~'): bool {
 			$path .= '/.nvmrc';
-			return $this->file_put_file_contents($path , $version, true);
+			if ($version === 'lts') {
+				$version = 'lts/*';
+			}
+			return $this->file_put_file_contents($path , $this->resolveVersion($version), true);
+		}
+
+		/**
+		 * Resolve Node alias to version number
+		 *
+		 * @param string $version
+		 * @return null|string
+		 */
+		protected function resolveVersion(string $version): ?string
+		{
+			if ($version === 'lts') {
+				$version = 'lts/*';
+			}
+			$ret = $this->exec('ls', '%s', $version);
+			if ($ret['success']) {
+				return rtrim(preg_replace('/^\S+\s+|\bv(?=\d)|\s+\*$/', '', $ret['output']));
+			}
+			return null;
+		}
+
+		/**
+		 * Get installed LTS version for account
+		 *
+		 * @param string $alias Node release alias (argon, boron, carbon, dubnium, etc)
+		 * @return null|string
+		 */
+		public function lts_version(string $alias = '*'): ?string {
+			return $this->resolveVersion('lts/' . $alias);
 		}
 
 

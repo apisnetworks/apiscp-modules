@@ -444,18 +444,16 @@
 
 		public function user_enabled($user, $svc = 'cp')
 		{
-			if (!in_array($svc, $this->_pam_services())) {
+			if (!in_array($svc, $this->_pam_services(), true)) {
 				return error("unknown service `$svc'");
 			}
 			// admin is always permitted to CP
 			if ($svc == "cp" && ($this->permission_level & PRIVILEGE_SITE) &&
-				$user == $this->username
+				$user === $this->username
 			) {
 				return true;
-			} else {
-				if ($this->permission_level & (PRIVILEGE_ADMIN | PRIVILEGE_RESELLER)) {
-					return true;
-				}
+			} else if ($this->permission_level & (PRIVILEGE_ADMIN | PRIVILEGE_RESELLER)) {
+				return true;
 			}
 			return (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
@@ -507,7 +505,7 @@
 				return error("`%s': cannot add domain - hosted on another " .
 					"account elsewhere", $domain);
 			}
-			if ($this->aliases_shared_domain_exists($domain)) {
+			if ($this->aliases_domain_exists($domain)) {
 				return error("`%s': domain already hosted on account - " .
 					"remove before adding", $domain);
 			}
@@ -1083,6 +1081,12 @@
 		public function _housekeeping() {
 			// convert domain map over to TokyoCabinet
 			$this->rebuildMap();
+			// check if we need reissue
+			if (\Opcenter\License::get()->needsReissue()) {
+				info("Attempting to renew apnscp license");
+				\Opcenter\License::get()->reissue();
+			}
+
 		}
 
 		public function _create_user(string $user)
