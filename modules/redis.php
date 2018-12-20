@@ -22,12 +22,12 @@
 	class Redis_Module extends Module_Skeleton
 	{
 		const PREF_KEY = 'redis';
-		protected $exportedFunctions = ['*' => PRIVILEGE_SITE|PRIVILEGE_USER];
+		protected $exportedFunctions = ['*' => PRIVILEGE_SITE | PRIVILEGE_USER];
 
 		public function __construct()
 		{
 			parent::__construct();
-			if ($this->permission_level && (!SSH_USER_DAEMONS || !$this->ssh_enabled())) {
+			if ($this->permission_level & (PRIVILEGE_USER | PRIVILEGE_SITE) && (!SSH_USER_DAEMONS || !$this->ssh_enabled())) {
 				$this->exportedFunctions = ['*' => PRIVILEGE_NONE];
 			}
 		}
@@ -91,7 +91,7 @@
 				unset($map['bind'], $map['port']);
 			}
 			$options['daemonize'] = $options['daemonize'] ?? 'yes';
-			$options['pidfile'] = $options['dir'] .'/redis.pid';
+			$options['pidfile'] = $options['dir'] . '/redis.pid';
 
 			foreach ($options as $k => $v) {
 				$map[$k] = $v;
@@ -107,10 +107,10 @@
 			$prefs = \Preferences::factory($this->getAuthContext());
 			$data = array_get($prefs, self::PREF_KEY, []);
 			$data[$nickname] = [
-				'port' => $options['port'] ?? null,
-				'bind' => $options['bind'] ?? null,
+				'port'       => $options['port'] ?? null,
+				'bind'       => $options['bind'] ?? null,
 				'unixsocket' => $options['unixsocket'] ?? null,
-				'type' => isset($options['unixsocket']) ? 'unix' : 'tcp',
+				'type'       => isset($options['unixsocket']) ? 'unix' : 'tcp',
 			];
 			$prefs->unlock($this->getApnscpFunctionInterceptor());
 			$prefs[self::PREF_KEY] = $data;
@@ -118,6 +118,7 @@
 			if (!$this->crontab_add_job('@reboot', null, null, null, null, 'redis-server ' . $cfgfile)) {
 				return warn("Failed to create redis-server job for reboot");
 			}
+
 			return true;
 		}
 
@@ -131,7 +132,19 @@
 		{
 			$prefs = \Preferences::factory($this->getAuthContext());
 			$pdata = array_get($prefs, self::PREF_KEY, []);
+
 			return isset($pdata[$nickname]);
+		}
+
+		/**
+		 * Get configuration file from Redis file
+		 *
+		 * @param string $nickname
+		 * @return array
+		 */
+		protected function getRedisConfiguration(string $nickname): string
+		{
+			return $this->user_get_home() . '/.redis/' . $nickname . '.conf';
 		}
 
 		public function delete(string $nickname): bool
@@ -164,66 +177,8 @@
 				$this->file_delete($f, true);
 			}
 			$this->crontab_delete_job('@reboot', null, null, null, null, 'redis-server ' . $cfgfile);
+
 			return true;
-		}
-
-		/**
-		 * Get configuration from instance
-		 *
-		 * @param string $nickname
-		 * @return array|null
-		 */
-		public function config(string $nickname): ?array {
-			if (!IS_CLI) {
-				return $this->query('redis_config', $nickname);
-			}
-			$fstcfg = $this->domain_fs_path($this->getRedisConfiguration($nickname));
-			if (!file_exists($fstcfg)) {
-				warn("Redis configuration for `%s' missing", $nickname);
-				return null;
-			}
-			return \Opcenter\Map::load($fstcfg, 'r', 'textfile')->fetchAll();
-		}
-
-		/**
-		 * Get all known instances
-		 *
-		 * @return array
-		 */
-		public function list(): array {
-			if ($this->permission_level & PRIVILEGE_SITE) {
-				$users = array_keys($this->user_get_users());
-			} else {
-				$users = [$this->username];
-
-			}
-			$instances = [];
-			foreach ($users as $user) {
-				$prefs = \Preferences::factory(Auth::context($user, $this->site));
-				if (!$config = array_get($prefs, static::PREF_KEY, [])) {
-					continue;
-				}
-				$instances += $config;
-			}
-			return $instances;
-		}
-
-
-		/**
-		 * Start Redis instance
-		 *
-		 * @param string $name
-		 * @return bool
-		 */
-		public function start(string $name): bool
-		{
-			if (!$this->exists($name)) {
-				return error("Unknown redis instance `%s'", $name);
-			} else if ($pid = $this->running($name)) {
-				return warn("Redis instance `%s' already running with PID `%s'", $name, $pid);
-			}
-			$file = $this->getRedisConfiguration($name);
-			return $this->pman_run('redis-server %s', $file)['success'] ?? false;
 		}
 
 		/**
@@ -244,9 +199,30 @@
 				return null;
 			}
 			$pid = (int)$this->file_get_file_contents($pid);
+
 			return \Opcenter\Process::pidMatches($pid, 'redis-server') ? $pid : null;
 		}
 
+		/**
+		 * Get configuration from instance
+		 *
+		 * @param string $nickname
+		 * @return array|null
+		 */
+		public function config(string $nickname): ?array
+		{
+			if (!IS_CLI) {
+				return $this->query('redis_config', $nickname);
+			}
+			$fstcfg = $this->domain_fs_path($this->getRedisConfiguration($nickname));
+			if (!file_exists($fstcfg)) {
+				warn("Redis configuration for `%s' missing", $nickname);
+
+				return null;
+			}
+
+			return \Opcenter\Map::load($fstcfg, 'r', 'textfile')->fetchAll();
+		}
 
 		/**
 		 * Stop Redis instance
@@ -272,12 +248,45 @@
 		}
 
 		/**
-		 * Get configuration file from Redis file
+		 * Get all known instances
 		 *
-		 * @param string $nickname
 		 * @return array
 		 */
-		protected function getRedisConfiguration(string $nickname): string {
-			return $this->user_get_home() . '/.redis/' . $nickname . '.conf';
+		public function list(): array
+		{
+			if ($this->permission_level & PRIVILEGE_SITE) {
+				$users = array_keys($this->user_get_users());
+			} else {
+				$users = [$this->username];
+
+			}
+			$instances = [];
+			foreach ($users as $user) {
+				$prefs = \Preferences::factory(Auth::context($user, $this->site));
+				if (!$config = array_get($prefs, static::PREF_KEY, [])) {
+					continue;
+				}
+				$instances += $config;
+			}
+
+			return $instances;
+		}
+
+		/**
+		 * Start Redis instance
+		 *
+		 * @param string $name
+		 * @return bool
+		 */
+		public function start(string $name): bool
+		{
+			if (!$this->exists($name)) {
+				return error("Unknown redis instance `%s'", $name);
+			} else if ($pid = $this->running($name)) {
+				return warn("Redis instance `%s' already running with PID `%s'", $name, $pid);
+			}
+			$file = $this->getRedisConfiguration($name);
+
+			return $this->pman_run('redis-server %s', $file)['success'] ?? false;
 		}
 	}

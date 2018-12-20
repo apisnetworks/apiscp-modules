@@ -44,10 +44,10 @@
 				'get_global_preferences'           => PRIVILEGE_SITE,
 
 				/** INFORMATION **/
-				'get_current_services'             => PRIVILEGE_SITE|PRIVILEGE_USER|PRIVILEGE_SERVER_EXEC,
-				'get_new_services'                 => PRIVILEGE_SITE|PRIVILEGE_USER|PRIVILEGE_SERVER_EXEC,
-				'get_old_services'                 => PRIVILEGE_SITE|PRIVILEGE_USER|PRIVILEGE_SERVER_EXEC,
-				'get_user_preferences'             => PRIVILEGE_SITE|PRIVILEGE_USER,
+				'get_current_services'             => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
+				'get_new_services'                 => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
+				'get_old_services'                 => PRIVILEGE_SITE | PRIVILEGE_USER | PRIVILEGE_SERVER_EXEC,
+				'get_user_preferences'             => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'set_user_preferences'             => PRIVILEGE_SITE
 			);
 		}
@@ -110,11 +110,58 @@
 			}
 			if ($this->permission_level & PRIVILEGE_USER) {
 				$prefs = $this->get_user_preferences($this->username);
+
 				return $prefs['email'] ?? null;
 			}
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				return $this->admin_get_email();
 			}
+		}
+
+		/**
+		 * string get_admin_email (void)
+		 *
+		 * Returns the administrative e-mail associated to an account
+		 *
+		 * @privilege PRIVILEGE_USER|PRIVILEGE_SITE
+		 *
+		 * @return string administrative e-mail address
+		 */
+		public function get_admin_email()
+		{
+			return $this->getServiceValue('siteinfo', 'email');
+		}
+
+		/**
+		 * Get preferences for user
+		 *
+		 * @param string $user
+		 * @return array|bool
+		 */
+		public function get_user_preferences($user)
+		{
+			if (!IS_CLI) {
+				return $this->query('common_get_user_preferences', $user);
+			}
+			if ($user !== $this->username) {
+				if ($this->permission_level & PRIVILEGE_USER) {
+					return error("cannot load preferences for any user except self");
+				}
+			} else if (!($this->permission_level & PRIVILEGE_ADMIN) && !$this->user_exists($user)) {
+				return error("cannot get preferences - user `%s' does not exist", $user);
+			}
+			$path = '';
+			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
+				$path = $this->domain_info_path() . '/users/' . $user;
+			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
+				$path = implode(DIRECTORY_SEPARATOR,
+					[\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
+			}
+			if (!file_exists($path)) {
+				return array();
+			}
+
+			return (array)\Util_PHP::unserialize(file_get_contents($path));
 		}
 
 		/**
@@ -136,6 +183,7 @@
 				$prefs = \Preferences::factory($this->getAuthContext());
 				$prefs->unlock($this->getApnscpFunctionInterceptor());
 				$prefs['email'] = $email;
+
 				return true;
 			}
 
@@ -144,20 +192,6 @@
 			}
 
 			return error("unknown authentication level `%d'", $this->permission_level);
-		}
-
-		/**
-		 * string get_admin_email (void)
-		 *
-		 * Returns the administrative e-mail associated to an account
-		 *
-		 * @privilege PRIVILEGE_USER|PRIVILEGE_SITE
-		 *
-		 * @return string administrative e-mail address
-		 */
-		public function get_admin_email()
-		{
-			return $this->getServiceValue('siteinfo', 'email');
 		}
 
 		/**
@@ -181,6 +215,7 @@
 			 * @todo filter PRIVILEGE_USER requests?
 			 */
 			$srvcVal = parent::getServiceValue($mSrvcType, $mSrvcName, $default);
+
 			return $srvcVal;
 		}
 
@@ -214,18 +249,21 @@
 			if (is_null($domain)) {
 				$domain = $this->domain;
 			}
+
 			return $this->dns_domain_expiration($domain);
 		}
 
 		public function get_php_version()
 		{
 			deprecated_func('use php_version()');
+
 			return $this->php_version();
 		}
 
 		public function get_pod($module)
 		{
 			deprecated_func('use perl_get_pod()');
+
 			return $this->perl_get_pod($module);
 		}
 
@@ -236,6 +274,7 @@
 		public function get_last_login()
 		{
 			deprecated_func('use auth_get_last_login');
+
 			return $this->auth_get_last_login();
 		}
 
@@ -246,6 +285,7 @@
 		public function get_login_history($limit = null)
 		{
 			deprecated_func('use auth_get_login_history');
+
 			return $this->auth_get_login_history($limit);
 		}
 
@@ -278,6 +318,7 @@
 			}
 			$qused = $quota['qused'];
 			$qhard = $this->getServiceValue('diskquota', 'enabled') ? $quota['qhard'] : 0;
+
 			return array(
 				'used'  => $qused,
 				'total' => $qhard
@@ -287,6 +328,7 @@
 		public function get_mysql_version()
 		{
 			deprecated_func("use sql_mysql_version()");
+
 			return $this->sql_mysql_version();
 		}
 
@@ -303,6 +345,7 @@
 			$loadData = fgets($fp);
 			fclose($fp);
 			$loadData = array_slice(explode(" ", $loadData), 0, 3);
+
 			return array_combine(array(1, 5, 15), $loadData);
 		}
 
@@ -320,12 +363,60 @@
 			}
 
 			$svc = $this->query("common_get_services");
+
+			return $svc;
+		}
+
+		/**
+		 * array collect_services(int)
+		 *
+		 * Finds all services for a given username/level combination
+		 *
+		 * @access    private
+		 * @privilege PRIVILEGE_SERVER_EXEC
+		 * @return object
+		 *
+		 */
+		private function _collect_services($mType)
+		{
+			$svc = array();
+			if ($mType === 'current') {
+				$mType = 'cur';
+			}
+			if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
+				$suffixed = !platform_is('7.5');
+				$newpath = $this->domain_info_path('/new');
+				$curpath = $this->domain_info_path('/current');
+				foreach ([$curpath, $newpath] as $path) {
+					$dir = opendir($path);
+					if (!$dir) {
+						fatal('failed to collect services - account meta does not exist?');
+					}
+					while (false !== ($cfg = readdir($dir))) {
+						if ($cfg == "." || $cfg == "..") {
+							continue;
+						}
+
+						$data = Util_Conf::parse_ini($path . '/' . $cfg);
+						if (false === $data) {
+							return error($cfg . ": parse error");
+						}
+						if ($suffixed && false !== strpos($cfg, '.new')) {
+							$cfg = substr($cfg, 0, -4);
+						}
+						$svc[$cfg] = $data;
+					}
+					closedir($dir);
+				}
+			}
+
 			return $svc;
 		}
 
 		public function get_perl_version()
 		{
 			deprecated_func("use perl_get_version()");
+
 			return $this->perl_version();
 		}
 
@@ -342,6 +433,7 @@
 		public function get_postgresql_version()
 		{
 			deprecated_func("use sql_pgsql_version()");
+
 			return $this->sql_pgsql_version();
 		}
 
@@ -393,6 +485,7 @@
 			return deprecated_func("obsolete component");
 
 		}
+		/* }}} */
 
 		/**
 		 * array get_news(int, int, int)
@@ -424,7 +517,6 @@
 		{
 			return deprecated_func("obsolete component");
 		}
-		/* }}} */
 
 		/**
 		 * array get_news_types (void)
@@ -476,13 +568,13 @@
 
 			$uptimeStr = "";
 			for ($i = 0,
-			     $units = array(
-				     array(30, 'month'),
-				     array(24, 'day'),
-				     array(60, 'hour'),
-				     array(60, 'min')
-			     ),
-			     $dechunkifier = 30 * 24 * 60 * 60; $i < sizeof($units); $i++) {
+				 $units = array(
+					 array(30, 'month'),
+					 array(24, 'day'),
+					 array(60, 'hour'),
+					 array(60, 'min')
+				 ),
+				 $dechunkifier = 30 * 24 * 60 * 60; $i < sizeof($units); $i++) {
 				$cWholeUnit = $uptimeData / $dechunkifier;
 				$cPartialUnit = $uptimeData % $dechunkifier;
 				if ($cWholeUnit > 1) {
@@ -491,6 +583,7 @@
 				}
 				$dechunkifier /= $units[$i][0];
 			}
+
 			return rtrim($uptimeStr);
 
 		}
@@ -505,8 +598,11 @@
 		public function get_perl_modules()
 		{
 			deprecated_func('use Perl_Module::get_modules()');
+
 			return $this->perl_get_modules();
 		}
+
+		// {{{ get_ip_address()
 
 		/**
 		 * string get_web_server_ip_addr()
@@ -521,6 +617,7 @@
 		public function get_web_server_ip_addr()
 		{
 			deprecated(__FUNCTION__ . ": use get_ip_address()");
+
 			return $this->get_ip_address();
 		}
 
@@ -535,8 +632,6 @@
 				$this->getServiceValue("ipinfo", "nbaddrs") :
 				$this->getServiceValue("ipinfo", "ipaddrs");
 		}
-
-		// {{{ get_ip_address()
 
 		/**
 		 *  int get_listening_ip_addr
@@ -561,6 +656,7 @@
 			} else {
 				$result = null;
 			}
+
 			return $result;
 		}
 
@@ -631,6 +727,7 @@
 		public function list_pci_devices()
 		{
 			$data = Util_Process::exec('/sbin/lspci');
+
 			return $data['output'];
 
 		}
@@ -647,7 +744,34 @@
 			if (posix_getuid()) {
 				return $this->query("common_get_current_services", $svc);
 			}
+
 			return $this->_getServices($svc, 'current');
+		}
+
+		private function _getServices($svc, $type)
+		{
+			$svcs = (array)$svc;
+			$conf = array();
+			$path = $this->domain_info_path() . '/' . $type;
+			$suffixed = !platform_is('7.5');
+			foreach ($svcs as $s) {
+				$file = $path . '/' . $s;
+				if ($suffixed && $type === 'new') {
+					// older platforms name "new/<svc>.new"
+					// removed as of v7.5
+					$file .= '.' . $type;
+				}
+				if (!file_exists($file)) {
+					continue;
+				}
+				$conf[$s] = Util_Conf::parse_ini($file);
+
+			}
+			if (!is_array($svc)) {
+				$conf = array_pop($conf);
+			}
+
+			return $conf;
 		}
 
 		/**
@@ -661,6 +785,7 @@
 			if (!IS_CLI) {
 				return $this->query("common_get_new_services", $svc);
 			}
+
 			return $this->_getServices($svc, 'new');
 		}
 
@@ -669,6 +794,7 @@
 			if (!IS_CLI) {
 				return $this->query("common_get_old_services", $svc);
 			}
+
 			return $this->_getServices($svc, 'old');
 		}
 
@@ -676,10 +802,10 @@
 		 * bool save_service_information_backend([bool = true])
 		 *
 		 * @param array $services
-		 * @param bool $journal sync configuration change to master configuration.
-		 *                     If the supplied parameter is false, then the new
-		 *                     configuration value will be commited to the journal
-		 *                     requiring EditVirtDomain to be called
+		 * @param bool  $journal sync configuration change to master configuration.
+		 *                       If the supplied parameter is false, then the new
+		 *                       configuration value will be commited to the journal
+		 *                       requiring EditVirtDomain to be called
 		 * @return bool
 		 */
 		public function save_service_information_backend(array $services, bool $journal = false): bool
@@ -689,12 +815,14 @@
 				array_unshift($data, '[DEFAULT]');
 				$conf = Util_Conf::build_ini($data);
 				if ($journal) {
-					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . ($suffixed ? '.new' : ''), $conf);
+					file_put_contents($this->domain_info_path() . '/new/' . $srvc_name . ($suffixed ? '.new' : ''),
+						$conf);
 				} else {
 					file_put_contents($this->domain_info_path() . '/current/' . $srvc_name, $conf);
 				}
 			}
 			touch($this->domain_info_path());
+
 			return true;
 		}
 
@@ -710,10 +838,9 @@
 		{
 			if (is_array($pref) && !is_null($key)) {
 				return error("pref is array, second parameter must be omitted");
-			} else {
-				if (is_array($pref) && isset($pref[0])) {
-					return error("pref must be passed as key => value array, not scalar");
-				}
+			}
+			if (is_array($pref) && isset($pref[0])) {
+				return error("pref must be passed as key => value array, not scalar");
 			}
 		}
 
@@ -742,7 +869,7 @@
 				return error("invalid timezone `%s'", $zone);
 			}
 			date_default_timezone_set($zone);
-			if ($this->permission_level & PRIVILEGE_ADMIN)  {
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				return $this->config_set('system.timezone', $zone);
 			}
 			$prefs = $this->load_preferences();
@@ -757,6 +884,7 @@
 			$contents = rtrim(preg_replace(Regex::COMMON_BASH_TZ, '', $contents)) .
 				"\nTZ=\"" . $zone . "\"\nexport TZ\n";
 			$this->file_put_file_contents($bashrc, $contents);
+
 			return $this->save_preferences($prefs);
 		}
 
@@ -779,41 +907,17 @@
 				}
 				$prefs = $this->query('common_load_preferences');
 				$cache->set($key, $prefs);
+
 				return $prefs;
 			}
-			$prefs = array_merge($this->get_user_preferences($this->username), $this->get_global_preferences());
+			$prefs = array_replace($this->get_user_preferences($this->username), $this->get_global_preferences());
+
 			return $prefs;
 		}
 
-		/**
-		 * Get preferences for user
-		 *
-		 * @param string $user
-		 * @return array|bool
-		 */
-		public function get_user_preferences($user)
+		private function _getPreferencesKey()
 		{
-			if (!IS_CLI) {
-				return $this->query('common_get_user_preferences', $user);
-			}
-			if ($user !== $this->username) {
-				if ($this->permission_level & PRIVILEGE_USER) {
-					return error("cannot load preferences for any user except self");
-				}
-			} else if (!($this->permission_level & PRIVILEGE_ADMIN) && !$this->user_exists($user)) {
-				return error("cannot get preferences - user `%s' does not exist", $user);
-			}
-			$path = '';
-			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				$path = $this->domain_info_path() . '/users/' . $user;
-			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
-				$path = implode(DIRECTORY_SEPARATOR,
-					[\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
-			}
-			if (!file_exists($path)) {
-				return array();
-			}
-			return (array)\Util_PHP::unserialize(file_get_contents($path));
+			return 'userprf';
 		}
 
 		public function get_global_preferences()
@@ -821,7 +925,7 @@
 			if (!IS_CLI) {
 				return $this->query('common_get_global_preferences');
 			}
-			if ($this->permission_level & ~(PRIVILEGE_SITE|PRIVILEGE_USER)) {
+			if ($this->permission_level & ~(PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				// admin global preferences make no sense
 				return [];
 			}
@@ -829,23 +933,26 @@
 			if (!file_exists($path)) {
 				return array();
 			}
-			return (array)unserialize(file_get_contents($path));
+
+			return (array)Util_PHP::unserialize(file_get_contents($path));
 		}
 
 		public function save_preferences(array $prefs)
 		{
-			if ($this->permission_level & ~PRIVILEGE_SITE && !IS_CLI) {
-				return $this->query('common_save_preferences', $prefs);
+			if (!IS_CLI) {
+				if (!$this->inContext()) {
+					// clear old pref data
+					\Preferences::write();
+				}
+				$ret = $this->query('common_save_preferences', $prefs);
+				if (!$this->inContext()) {
+					\Preferences::reload();
+				}
+
+				return $ret;
 			}
-			// make sure this gets saved in the backend too
-			// session data is only resync'd if the worker
-			// session id changes during its service life
-			$ret = $this->set_user_preferences($this->username, $prefs);
-			if (!$this->inContext()) {
-				\Session::set(\Preferences::SESSION_KEY, $prefs);
-				\Preferences::reload();
-			}
-			return $ret;
+
+			return $this->set_user_preferences($this->username, $prefs);
 		}
 
 		public function set_user_preferences($user, array $prefs)
@@ -869,7 +976,7 @@
 			}
 			$blocked = true;
 			for ($i = 0; true; $i++) {
-				flock($fp, LOCK_EX|LOCK_NB, $blocked);
+				flock($fp, LOCK_EX | LOCK_NB, $blocked);
 				if (!$blocked) {
 					break;
 				}
@@ -886,8 +993,14 @@
 			if ($user === $this->username) {
 				$cache = \Cache_User::spawn($this->getAuthContext());
 				$cache->delete($this->_getPreferencesKey());
+			}
+			if (!$this->inContext()) {
+				// make sure this gets saved in the backend too
+				// session data is only resync'd if the worker
+				// session id changes during its service life
 				\Preferences::reload();
 			}
+
 			return true;
 		}
 
@@ -905,6 +1018,7 @@
 			if (!isset($prefs['timezone'])) {
 				return date_default_timezone_get();
 			}
+
 			return $prefs['timezone'];
 		}
 
@@ -918,6 +1032,7 @@
 			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				return $this->domain_fs_path();
 			}
+
 			return '';
 		}
 
@@ -946,81 +1061,15 @@
 			}
 		}
 
-		/**
-		 * array collect_services(int)
-		 *
-		 * Finds all services for a given username/level combination
-		 *
-		 * @access    private
-		 * @privilege PRIVILEGE_SERVER_EXEC
-		 * @return object
-		 *
-		 */
-		private function _collect_services($mType)
+		public function _housekeeping()
 		{
-			$svc = array();
-			if ($mType ===  'current') {
-				$mType = 'cur';
-			}
-			if ($mType & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				$suffixed = !platform_is('7.5');
-				$newpath = $this->domain_info_path('/new');
-				$curpath = $this->domain_info_path('/current');
-				foreach ([$curpath, $newpath] as $path) {
-					$dir = opendir($path);
-					if (!$dir) {
-						fatal('failed to collect services - account meta does not exist?');
-					}
-					while (false !== ($cfg = readdir($dir))) {
-						if ($cfg == "." || $cfg == "..") {
-							continue;
-						}
-
-						$data = Util_Conf::parse_ini($path . '/' . $cfg);
-						if (false === $data) {
-							return error($cfg . ": parse error");
-						}
-						if ($suffixed && false !== strpos($cfg, '.new')) {
-							$cfg = substr($cfg, 0, -4);
-						}
-						$svc[$cfg] = $data;
-					}
-					closedir($dir);
+			if (STYLE_ALLOW_CUSTOM) {
+				// @todo permissions should be corrected in build...
+				$path = public_path(\Frontend\Css\StyleManager::THEME_PATH);
+				if (is_dir($path)) {
+					chown($path, WS_UID);
 				}
 			}
-
-			return $svc;
-		}
-
-		private function _getServices($svc, $type)
-		{
-			$svcs = (array)$svc;
-			$conf = array();
-			$path = $this->domain_info_path() . '/' . $type;
-			$suffixed = !platform_is('7.5');
-			foreach ($svcs as $s) {
-				$file = $path . '/' . $s;
-				if ($suffixed && $type === 'new') {
-					// older platforms name "new/<svc>.new"
-					// removed as of v7.5
-					$file .= '.' . $type;
-				}
-				if (!file_exists($file))
-				{
-					continue;
-				}
-				$conf[$s] = Util_Conf::parse_ini($file);
-
-			}
-			if (!is_array($svc)) {
-				$conf = array_pop($conf);
-			}
-			return $conf;
-		}
-
-		private function _getPreferencesKey()
-		{
-			return 'userprf';
 		}
 
 		private function __scanServices()
@@ -1031,21 +1080,12 @@
 				$services[] = $svc;
 			}
 			closedir($dh);
+
 			return $services;
 		}
 
 		private function _getGlobalPreferencesKey()
 		{
 			return 'globalprf';
-		}
-
-		public function _housekeeping() {
-			if (STYLE_ALLOW_CUSTOM) {
-				// @todo permissions should be corrected in build...
-				$path = public_path(\Frontend\Css\StyleManager::THEME_PATH);
-				if (is_dir($path)) {
-					chown($path, WS_UID);
-				}
-			}
 		}
 	}

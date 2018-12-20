@@ -158,6 +158,7 @@
 			if (!file_exists($htpasswd)) {
 				return error(self::HTPASSWD_DIR . "/" . $host . ": htpasswd does not exist");
 			}
+
 			return file_get_contents($htpasswd);
 		}
 

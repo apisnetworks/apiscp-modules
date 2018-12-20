@@ -38,21 +38,21 @@
 				'*'                             => PRIVILEGE_SITE,
 				'version'                       => PRIVILEGE_ALL,
 				'get_elevated_password_backend' => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-				'create_database_backend' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'delete_database_backend' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'get_uptime'              => PRIVILEGE_ALL,
-				'assert_permissions'      => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'set_option'        => PRIVILEGE_ALL,
-				'get_option'        => PRIVILEGE_ALL,
-				'export_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'repair_mysql_database'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'get_prefix'        => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'create_database_backend'       => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'delete_database_backend'       => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'get_uptime'                    => PRIVILEGE_ALL,
+				'assert_permissions'            => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'set_option'                    => PRIVILEGE_ALL,
+				'get_option'                    => PRIVILEGE_ALL,
+				'export_pipe_real'              => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'enabled'                       => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'repair_mysql_database'         => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_prefix'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
 
 				// necessary for DB backup routines
-				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'database_exists'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'_export_old'       => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'get_database_size'             => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'database_exists'               => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'_export_old'                   => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 			);
 		}
 
@@ -81,6 +81,7 @@
 
 			$q = $conn->query("SELECT user FROM user WHERE user = '" .
 				$conn->escape_string($user) . "' AND host = '" . $conn->escape_string($host) . "'");
+
 			return !$q || $q->num_rows > 0;
 		}
 
@@ -107,6 +108,7 @@
 			if ($idx !== false) {
 				unset($this->_tempUsers[$idx]);
 			}
+
 			return true;
 		}
 
@@ -153,6 +155,7 @@
 
 
 			}
+
 			return ($stmt->affected_rows > 0);
 
 		}
@@ -189,6 +192,7 @@
 			if (!file_exists($path)) {
 				\Opcenter\Filesystem::touch($path, $this->user_id, $this->group_id, 0600);
 			}
+
 			return \Opcenter\Database\MySQL::setUserConfigurationField($path, $option, $value, $group);
 		}
 
@@ -220,10 +224,12 @@
 				'/etc/my.cnf'
 			];
 			foreach ($paths as $path) {
-				if (null !== ($val = array_get(\Opcenter\Database\MySQL::getUserConfiguration($path), "${group}.${option}", null))) {
+				if (null !== ($val = array_get(\Opcenter\Database\MySQL::getUserConfiguration($path),
+						"${group}.${option}", null))) {
 					return $val;
 				}
 			}
+
 			return null;
 		}
 
@@ -232,6 +238,7 @@
 			if (!IS_CLI) {
 				fatal("needs execution from backend");
 			}
+
 			return Opcenter\Database\MySQL::rootPassword();
 		}
 
@@ -240,7 +247,7 @@
 		 *
 		 * @see Mysql_Module::export()
 		 *
-		 * @param string $db database name
+		 * @param string $db   database name
 		 * @param string $file filename
 		 * @return bool
 		 */
@@ -277,8 +284,7 @@
 						}
 					}
 					if (0 === strpos($line, "CREATE DATABASE") ||
-						0 === strpos($line, "USE DATABASE"))
-					{
+						0 === strpos($line, "USE DATABASE")) {
 						$pos = ftell($fp) - strlen($line);
 						fseek($fp, $pos);
 						warn("`%s' statement redacted", trim($line));
@@ -291,6 +297,7 @@
 			$user = $this->_create_temp_user($db);
 			if (!$user) {
 				$this->_postImport($unlink);
+
 				return error("unable to import database");
 			}
 			$status = Util_Process_Safe::exec("mysql -u %s %s < %s",
@@ -320,6 +327,7 @@
 			}
 
 			$conn->close();
+
 			return $dbs;
 		}
 
@@ -381,6 +389,7 @@
 				return error("failed to create temp mysql user");
 			}
 			$this->_register_temp_user($user);
+
 			return $user;
 		}
 
@@ -398,6 +407,7 @@
 		public function get_sql_prefix()
 		{
 			deprecated("use sql_get_prefix");
+
 			return $this->get_prefix();
 		}
 
@@ -440,6 +450,7 @@
 					'password'             => $row->password,
 				);
 			}
+
 			return $users;
 		}
 
@@ -550,6 +561,7 @@
 			if ($stmt->affected_rows < 1) {
 				return error("user creation `%s@%s' failed", $user, $host);
 			}
+
 			return true;
 		}
 
@@ -613,13 +625,15 @@
 			if ($conn->error) {
 				echo "DROPPING";
 				\Opcenter\Database\MySQL::dropDatabase($db);
-				return error("failed to create db `%s'. Error while applying grants: `%s' ".
+
+				return error("failed to create db `%s'. Error while applying grants: `%s' " .
 					"- is control user `%s' missing?",
 					$db,
 					$conn->error,
 					$this->username
 				);
 			}
+
 			return info("created database `%s'", $db);
 
 		}
@@ -628,6 +642,7 @@
 		{
 			$charset = strtolower($charset);
 			$charsets = $this->get_supported_charsets();
+
 			return array_key_exists($charset, $charsets);
 		}
 
@@ -646,6 +661,7 @@
 				$charsets[$row->charset] = $row->desc;
 			}
 			$cache->set($key, $charsets);
+
 			return $charsets;
 		}
 
@@ -664,6 +680,7 @@
 					return true;
 				}
 			}
+
 			return false;
 		}
 
@@ -691,6 +708,7 @@
 				);
 			}
 			$cache->set($key, $collations);
+
 			return $collations;
 		}
 
@@ -712,6 +730,7 @@
 			if (!$rs) {
 				return false;
 			}
+
 			return $rs->num_rows > 0;
 		}
 
@@ -730,7 +749,7 @@
 				return false;
 			}
 
-			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER)) {
+			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				$sqlroot = $this->domain_fs_path() . self::MYSQL_DATADIR;
 				$normal = \Opcenter\Database\MySQL::canonicalize($db);
 				$prefix = $this->get_prefix();
@@ -749,11 +768,12 @@
 			$conn = $this->_connect_root();
 			$usersafe = $conn->escape_string($this->getConfig('mysql', 'dbaseadmin'));
 			// double prefix, remove first prefix, then check one last time
-			if (0 === strpos($db, $prefix.$prefix)) {
+			if (0 === strpos($db, $prefix . $prefix)) {
 				$db = (string)substr($db, strlen($prefix));
 			}
 			$dbsafe = $conn->escape_string($db);
 			$q = $conn->query("SELECT db FROM db WHERE db = '" . $dbsafe . "' AND user = '" . $usersafe . "'");
+
 			return $q && $q->num_rows > 0;
 		}
 
@@ -796,6 +816,7 @@
 			fclose($fp);
 			chown($path . '/db.opt', 'mysql');
 			chgrp($path . '/db.opt', (int)$this->group_id);
+
 			return file_exists(self::MYSQL_DATADIR . '/' . $dbcan) && file_exists($path);
 		}
 
@@ -814,6 +835,7 @@
 		public function add_user_permissions($user, $host, $db, array $opts)
 		{
 			deprecated_func("use set_mysql_privileges()");
+
 			return $this->set_privileges($user, $host, $db, $opts);
 		}
 
@@ -920,6 +942,7 @@
 			}
 
 			$conn->query("FLUSH PRIVILEGES;");
+
 			return $ar > 0;
 		}
 
@@ -931,6 +954,7 @@
 		public function delete_user_permissions($user, $host, $db)
 		{
 			deprecated_func("use revoke_from_mysql_db()");
+
 			return $this->revoke_privileges($user, $host, $db);
 		}
 
@@ -963,6 +987,7 @@
 			}
 
 			$conn->query("FLUSH PRIVILEGES;");
+
 			return $stmt->affected_rows > 0;
 		}
 
@@ -971,6 +996,7 @@
 		public function get_user_permissions($user, $host, $db)
 		{
 			deprecated_func("use get_privileges()");
+
 			return $this->get_privileges($user, $host, $db);
 		}
 
@@ -1038,7 +1064,9 @@
 					'trigger'          => $trigger,
 					'event'            => $event
 				);
-				array_walk($priv, function (&$key, &$val) { $key = $key == "Y"; });
+				array_walk($priv, function (&$key, &$val) {
+					$key = $key == "Y";
+				});
 				$stmt->close();
 			} else {
 				$priv = array(
@@ -1065,6 +1093,7 @@
 				unset($priv['event']);
 				unset($priv['trigger']);
 			}
+
 			return $priv;
 		}
 
@@ -1091,6 +1120,7 @@
 				$mysqlver[$v] = $version % 100;
 				$version /= 100;
 			}
+
 			return $mysqlver['major'] . '.' . $mysqlver['minor'] . '.' .
 				$mysqlver['patch'];
 
@@ -1119,8 +1149,10 @@
 				// don't coerce db to prefix + db unless db deletion failed
 				if (strncmp($db, $prefix, strlen($prefix))) {
 					$db = $prefix . $db;
+
 					return $this->delete_database($db);
 				}
+
 				return error("Unknown database `%s'", $db);
 			}
 			$stmt->free_result();
@@ -1147,6 +1179,7 @@
 			if ($conn->error) {
 				return error("error while removing database `$db' - " . $conn->error);
 			}
+
 			return true;
 		}
 
@@ -1172,6 +1205,7 @@
 
 			chown($this->domain_fs_path() . self::MYSQL_DATADIR, 'mysql');
 			chgrp($this->domain_fs_path() . self::MYSQL_DATADIR, $this->group_id);
+
 			return true;
 		}
 
@@ -1210,8 +1244,7 @@
 		{
 			$prefix = $this->get_prefix();
 			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
-				0 !== strpos($user, $prefix))
-			{
+				0 !== strpos($user, $prefix)) {
 				$user = $prefix . $user;
 			}
 			if (!is_array($opts)) {
@@ -1350,6 +1383,7 @@
 				}
 			}
 			$conn->query("FLUSH PRIVILEGES");
+
 			return true;
 		}
 
@@ -1365,6 +1399,7 @@
 		public function service_enabled()
 		{
 			deprecated("use enabled()");
+
 			return $this->enabled();
 		}
 
@@ -1430,6 +1465,7 @@
 				return error("%s failed on database `%s': `%s'", $mode, $db, $conn->error);
 			}
 			$this->_delete_temp_user($user);
+
 			return true;
 		}
 
@@ -1515,13 +1551,14 @@
 		/**
 		 * Get disk space occupied by database
 		 *
-		 * @param string $db   database name
+		 * @param string $db database name
 		 * @return int storage in bytes
 		 */
 		public function get_database_size($db)
 		{
 			if (!IS_CLI) {
 				$resp = $this->query('mysql_get_database_size', $db);
+
 				return (int)$resp;
 			}
 
@@ -1534,6 +1571,7 @@
 			}
 			if (!file_exists($dir) || (is_link($dir) && !readlink($dir))) {
 				warn($db . ": database does not exist");
+
 				return 0;
 			}
 
@@ -1541,6 +1579,7 @@
 			$dh = opendir($dir);
 			if (!$dh) {
 				error("failed to open database directory `%s'", $dir);
+
 				return 0;
 			}
 			while (($file = readdir($dh)) !== false) {
@@ -1550,8 +1589,10 @@
 				$space += filesize($dir . '/' . $file);
 			}
 			closedir($dh);
+
 			return $space;
 		}
+
 		// }}}
 
 		private function _move_db($db)
@@ -1570,6 +1611,7 @@
 			$dest = $this->domain_fs_path() . self::MYSQL_DATADIR . '/' . $dbfs;
 			if (is_dir($dest)) {
 				report("dest db exists - %s", $dest);
+
 				return false;
 			}
 			\Opcenter\Filesystem::mkdir($dest, 'mysql', $this->group_id, 02750);
@@ -1601,6 +1643,7 @@
 			warn("database `%s' relocated under account filesystem root", $db);
 			$db = $this->_connect_root();
 			$db->query("FLUSH TABLES");
+
 			return true;
 		}
 		// }}}
@@ -1699,6 +1742,7 @@
 		public function get_uptime()
 		{
 			$db = MySQL::initialize();
+
 			return $db->query("SHOW status LIKE 'uptime'")->fetch_object()->value;
 
 		}
@@ -1784,6 +1828,7 @@
 			if (!$ret['success'] && false === strpos($ret['stderr'], "doesn't exist")) {
 				return error("`%s' repair failed:\n%s", $db, $ret['stderr']);
 			}
+
 			return info("`%s' repair succeeded:\n%s", $db, $ret['output']);
 		}
 
@@ -1811,6 +1856,7 @@
 			}
 			$q = "KILL $id";
 			$rs = $db->query($q);
+
 			return (bool)$rs;
 		}
 
@@ -1854,6 +1900,7 @@
 					'info'    => $row->info
 				);
 			}
+
 			return $conns;
 		}
 
@@ -1886,6 +1933,7 @@
 
 			$rs = $res->fetch_object();
 			$cache[$field] = (int)$rs->maxlen;
+
 			return (int)$rs->maxlen;
 		}
 
@@ -1928,11 +1976,14 @@
 		}
 
 		public function _create_user(string $user)
-		{ }
+		{
+		}
 
 		public function _delete_user(string $user)
-		{ }
+		{
+		}
 
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
-		{ }
+		{
+		}
 	}

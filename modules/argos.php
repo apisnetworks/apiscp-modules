@@ -11,7 +11,6 @@
 	 *  | Author: Matt Saladna (msaladna@apisnetworks.com)           |
 	 *  +------------------------------------------------------------+
 	 */
-
 	class Argos_Module extends Module_Skeleton
 	{
 		const DEFAULT_BACKEND = 'default';
@@ -20,8 +19,8 @@
 		/**
 		 * Set or get configuration for Argos backend
 		 *
-		 * @param string $backend backend name
-		 * @param array|null  $newparams parameters to apply
+		 * @param string     $backend   backend name
+		 * @param array|null $newparams parameters to apply
 		 * @return bool|array
 		 */
 		public function config(string $backend, ?array $newparams)
@@ -43,6 +42,7 @@
 				if (!\Opcenter\Argos\Config::get()->createBackend($provider, $backend)) {
 					return error("Failed to create backend `%s'", $backend);
 				}
+
 				return true;
 			}
 
@@ -52,10 +52,12 @@
 			foreach ($newparams as $k => $v) {
 				$backend[$k] = $v;
 			}
+
 			return true;
 		}
 
-		public function get_config(string $backend, $param = null): ?array {
+		public function get_config(string $backend, $param = null): ?array
+		{
 			if (!IS_CLI) {
 				return $this->query('argos_get_config', $backend);
 			}
@@ -66,6 +68,7 @@
 
 			// reading backend vars
 			$cfg = \Opcenter\Argos\Config::get()->backend($backend)->toArray();
+
 			return $param ? array_get($cfg, $param, null) : $cfg;
 		}
 
@@ -75,7 +78,8 @@
 		 * @param $backend
 		 * @return bool
 		 */
-		public function set_default($backend) {
+		public function set_default($backend)
+		{
 			if (!IS_CLI) {
 				return $this->query('argos_set_default', $backend);
 			}
@@ -85,6 +89,7 @@
 					return error("Invalid backend `%s'", $b);
 				}
 			}
+
 			return \Opcenter\Argos\Config::get()->setDefault($backend);
 		}
 
@@ -93,23 +98,13 @@
 		 *
 		 * @return array
 		 */
-		public function get_backends(): array {
+		public function get_backends(): array
+		{
 			if (!IS_CLI) {
 				return $this->query('argos_get_backends');
 			}
-			return \Opcenter\Argos\Config::get()->getBackends();
-		}
 
-		/**
-		 * Get relays for backend
-		 *
-		 * @return array
-		 */
-		public function get_backend_relays(): array {
-			if (!IS_CLI) {
-				return $this->query('argos_get_backend_relays');
-			}
-			return \Opcenter\Argos\Backend::getBackends();
+			return \Opcenter\Argos\Config::get()->getBackends();
 		}
 
 		/**
@@ -134,7 +129,22 @@
 			$conf = \Opcenter\Argos\Config::get();
 			$conf->createBackend($driver, $name);
 			$conf->sync();
+
 			return true;
+		}
+
+		/**
+		 * Get relays for backend
+		 *
+		 * @return array
+		 */
+		public function get_backend_relays(): array
+		{
+			if (!IS_CLI) {
+				return $this->query('argos_get_backend_relays');
+			}
+
+			return \Opcenter\Argos\Backend::getBackends();
 		}
 
 		/**
@@ -143,7 +153,8 @@
 		 * @param string $backend
 		 * @return mixed
 		 */
-		public function test(string $backend = null) {
+		public function test(string $backend = null)
+		{
 			return $this->send('Argos test alert', $backend, '💯 test');
 		}
 
@@ -167,11 +178,12 @@
 			if ($backend) {
 				$backend = '-b ' . escapeshellarg($backend);
 			}
+
 			return array_get(
 				\Util_Process_Safe::exec("ntfy -c %(config)s " . $title . ' ' . $backend . ' send %(msg)s',
 					[
-						'config'  => \Opcenter\Argos\Config::CONFIGURATION_FILE,
-						'msg'     => $msg,
+						'config' => \Opcenter\Argos\Config::CONFIGURATION_FILE,
+						'msg'    => $msg,
 					]
 				),
 				'success',

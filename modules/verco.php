@@ -76,7 +76,13 @@
 			if (!$this->check_for_shell()) {
 				return error("Pre-req SSH not satisfied");
 			}
+
 			return $this->query('verco_enable_svn_backend');
+		}
+
+		private function check_for_shell()
+		{
+			return $this->getServiceValue('ssh', 'enabled');
 		}
 
 		/**
@@ -125,6 +131,7 @@
 		public function create_svn_repository_backend($mPath)
 		{
 			$status = Util_Process_Sudo::exec("svnadmin create %s", $mPath);
+
 			return $status;
 
 
@@ -147,6 +154,7 @@
 		{
 			$status = Util_Process_Sudo::exec('rm -rf %s',
 				$mPath);
+
 			return $status;
 
 		}
@@ -158,6 +166,7 @@
 			}
 
 			$status = Util_Process::exec($this->domain_fs_path() . '/usr/bin/svn --version --quiet');
+
 			return trim($status['output']);
 		}
 
@@ -165,6 +174,7 @@
 		{
 			$status = Util_Process::exec('env HOME="/" svn --version');
 			preg_match('/version (.*)/', $status['output'], $info);
+
 			return $info[1];
 		}
 
@@ -172,6 +182,7 @@
 		{
 			$status = Util_Process::exec('cvs --version');
 			preg_match('/\(CVS\) ([0-9\.]+)/', $status['output'], $info);
+
 			return $info[1];
 		}
 
@@ -179,6 +190,7 @@
 		{
 			$status = Util_Process::exec($this->domain_fs_path() . '/usr/bin/cvs --version');
 			preg_match('/\(CVS\) ([0-9\.]+)/', $status['output'], $info);
+
 			return isset($info[1]) ? $info[1] : false;
 		}
 
@@ -213,6 +225,7 @@
 			while ($row = $q->fetch_object()) {
 				$repos[] = array('path' => $row->path, 'date' => $row->date_installed);
 			}
+
 			return $repos;
 		}
 
@@ -235,6 +248,7 @@
 													 'cvs',
 													 " . time() . ",
 													 '" . $mPath . "');");
+
 			return $status;
 		}
 
@@ -242,6 +256,7 @@
 		{
 			$status = Util_Process_Sudo::exec('cvs -d %s init',
 				$mPath);
+
 			return $status;
 
 		}
@@ -263,6 +278,7 @@
 		{
 			$status = Util_Process_Sudo::exec('rm -rf %s',
 				$mPath);
+
 			return $status;
 		}
 
@@ -290,6 +306,7 @@
 			if (!$this->check_for_shell()) {
 				return error("Pre-req SSH not satisfied");
 			}
+
 			return $this->query('verco_enable_cvs_backend');
 		}
 
@@ -395,6 +412,7 @@
 				'/tmp/Trac-' . self::TRAC_VERSION);
 			Util_Process::exec("rm -rf %s/{pysqlite-2.3.3,clearsilver-0.10.4,setuptools-0.6c9,Trac-" . self::TRAC_VERSION . "}/",
 				$tmp);
+
 			return $this->trac_installed();
 
 		}
@@ -407,11 +425,6 @@
 		public function get_trac_version()
 		{
 			return self::TRAC_VERSION;
-		}
-
-		private function check_for_shell()
-		{
-			return $this->getServiceValue('ssh', 'enabled');
 		}
 
 

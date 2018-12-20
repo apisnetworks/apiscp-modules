@@ -76,7 +76,18 @@
 			$this->setConfig('frontpage', 'enabled', count($domains) > 0);
 			$this->setConfig('frontpage', 'paths', $paths);
 			$this->setConfig('frontpage', 'domains', $domains);
+
 			return $status['success'];
+		}
+
+		private function _canonicalizeDomain($domain)
+		{
+			$domain = strtolower($domain);
+			if (substr($domain, 0, 4) == "www.") {
+				$domain = substr($domain, 4);
+			}
+
+			return $domain;
 		}
 
 		/**
@@ -92,6 +103,7 @@
 			if (!$domain) {
 				$domain = $this->domain;
 			}
+
 			return in_array($domain, (array)$this->getServiceValue('frontpage', 'domains'));
 
 		}
@@ -134,6 +146,7 @@
 			$this->setConfig('frontpage', 'enabled', count($domains) > 0);
 			$this->setConfig('frontpage', 'paths', $paths);
 			$this->setConfig('frontpage', 'domains', $domains);
+
 			return $status['success'];
 		}
 
@@ -158,16 +171,8 @@
 					$editor->setConfig($module, $k, $v);
 				}
 			}
-			return array($module => $params);
-		}
 
-		private function _canonicalizeDomain($domain)
-		{
-			$domain = strtolower($domain);
-			if (substr($domain, 0, 4) == "www.") {
-				$domain = substr($domain, 4);
-			}
-			return $domain;
+			return array($module => $params);
 		}
 	}
 

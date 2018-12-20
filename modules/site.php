@@ -29,6 +29,7 @@
 		// 24 hours
 		const AMNESTY_MULTIPLIER = QUOTA_STORAGE_BOOST;
 		const DEPENDENCY_MAP = [];
+
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -93,6 +94,7 @@
 		public function get_user_count()
 		{
 			deprecated(__FUNCTION__ . " will be removed.  Use User::get_user_count()");
+
 			return $this->user_get_user_count();
 		}
 
@@ -138,6 +140,7 @@
 						if (!$ret) {
 							return error("failed to autofix bandwidth for site `%d'", $this->site_id);
 						}
+
 						return $this->get_bandwidth_usage($type);
 					}
 
@@ -149,6 +152,7 @@
 						site_id = " . $this->site_id . "
 						AND
 						ts >= '" . $bw_rs->begindate . "'");
+
 					return array(
 						'used'  => (float)$used_rs->fetch_object()->sum,
 						'total' => (float)($bw_rs ? $bw_rs->threshold : -1)
@@ -172,6 +176,7 @@
 				$ts = $ts2;
 			}
 			$res = $db->query("INSERT INTO bandwidth_spans (site_id, begindate, enddate) VALUES($site, TO_TIMESTAMP($ts), NULL);");
+
 			return !(bool)pg_last_error();
 		}
 
@@ -188,6 +193,7 @@
 			$localtime = localtime(time(), true);
 			$today = date('j');
 			$month = ($rollover < $today ? ($localtime['tm_mon'] + 1) : $localtime['tm_mon']);
+
 			return mktime(0, 0, 0, ++$month, $rollover);
 
 		}
@@ -219,8 +225,9 @@
 			}
 			parent::sendNotice('email', [
 				'email' => $oldemail,
-				'ip' => Auth::client_ip()
+				'ip'    => Auth::client_ip()
 			]);
+
 			return true;
 		}
 
@@ -240,6 +247,7 @@
 		public function get_users()
 		{
 			deprecated(__FUNCTION__ . " will be removed.  Use User::get_users()");
+
 			return $this->user_get_users();
 
 		}
@@ -276,6 +284,7 @@
 		public function split_hostname($hostname)
 		{
 			deprecated_func("use web_split_host()");
+
 			return $this->web_split_host($hostname);
 		}
 
@@ -306,15 +315,16 @@
 			);
 			if (false !== strpos($quota_rep['output'], ': none')) {
 				$quota = [
-					'qused' => 0,
-					'qsoft' => 0,
-					'qhard' => 0,
+					'qused'    => 0,
+					'qsoft'    => 0,
+					'qhard'    => 0,
 					'fileused' => 0,
 					'filesoft' => 0,
 					'filehard' => 0
 				];
 			} else if (!preg_match(Regex::QUOTA_USRGRP, $quota_rep['output'], $quota)) {
 				warn("quota output error");
+
 				return array();
 			}
 
@@ -361,11 +371,13 @@
 				}
 				$msg = "This is the most nuclear of options. " .
 					"Respond with the following token `%s' to confirm";
+
 				return warn($msg, $calctoken);
 			}
 
 			if ($token !== $calctoken) {
 				$msg = "provided token `%s' does not match confirmation token `%s'";
+
 				return error($msg, $token, $calctoken);
 			}
 
@@ -393,6 +405,7 @@
 			}
 			$proc = new Util_Process_Schedule('now');
 			$ret = $proc->run($addcmd);
+
 			return $ret['success'];
 		}
 
@@ -407,6 +420,7 @@
 
 			$inode = fileinode($this->domain_info_path());
 			$hash = hash('crc32', (string)$inode);
+
 			return $hash;
 		}
 
@@ -426,6 +440,7 @@
 			$now = coalesce($_SERVER['REQUEST_TIME'], time());
 			if (self::MIN_STORAGE_AMNESTY > ($now - $last)) {
 				$aday = self::MIN_STORAGE_AMNESTY / 86400;
+
 				return error("storage amnesty may be requested once every %d days, %d days remaining",
 					$aday,
 					$aday - ceil(($now - $last) / 86400)
@@ -440,6 +455,7 @@
 			$ret = $acct->edit();
 			if ($ret !== true) {
 				Error_Reporter::report(var_export($ret, true));
+
 				return error("failed to set amnesty on account");
 			}
 			$acct->setConfig('diskquota', 'quota', $storage);
@@ -448,6 +464,7 @@
 			$ret = $proc->run($cmd);
 			$msg = sprintf("Domain: %s\r\nSite: %d\r\nServer: %s", $this->domain, $this->site_id, SERVER_NAME_SHORT);
 			Mail::send(Crm_Module::COPY_ADMIN, "Amnesty Request", $msg);
+
 			return $ret['success'];
 		}
 
@@ -460,6 +477,7 @@
 		{
 			$time = isset($_SERVER['REQUEST_TIME']) ? $_SERVER['REQUEST_TIME'] : time();
 			$amnesty = $this->getServiceValue('diskquota', 'amnesty');
+
 			return ($time - $amnesty) <= self::AMNESTY_DURATION;
 		}
 
@@ -473,6 +491,7 @@
 		{
 			if (!$this->user_exists($user)) {
 				error("unknown user `%s'", $user);
+
 				return $this->session_id;
 			}
 			if ($user === $this->username) {
@@ -501,7 +520,8 @@
 			$db->close();
 		}
 
-		public function _edit() {
+		public function _edit()
+		{
 			$new = $this->getAuthContext()->conf('siteinfo', 'new');
 			$old = $this->getAuthContext()->conf('siteinfo', 'old');
 			if ($new['domain'] === $old['domain']) {
@@ -520,11 +540,13 @@
 		 * @param \Opcenter\Service\ConfigurationContext $ctx
 		 * @return bool
 		 */
-		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool {
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
 			return true;
 		}
 
-		public function _edit_user(string $userold, string $usernew, array $oldpwd) {
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
 			if ($usernew === $userold) {
 				return;
 			}

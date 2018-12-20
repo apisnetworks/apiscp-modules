@@ -61,6 +61,7 @@
 				$pearcmd,
 				escapeshellarg($module)
 			);
+
 			return $status['success'];
 		}
 
@@ -78,6 +79,7 @@
 			}
 			$content = file_get_contents($pearfile);
 			file_put_contents($pearfile, str_replace('@ini_set', '// @ini_set', $content));
+
 			return true;
 		}
 
@@ -122,6 +124,7 @@
 				);
 			}
 			ksort($packages);
+
 			return $packages;
 		}
 
@@ -139,6 +142,7 @@
 			if (!isset($packages[$mModule])) {
 				return false;
 			}
+
 			return $packages[$mModule]['description'];
 		}
 
@@ -156,6 +160,7 @@
 		{
 			if (file_exists(TEMP_DIR . '/pear-cache') && ((time() - filemtime(TEMP_DIR . '/pear-cache')) < 86400)) {
 				$data = unserialize(file_get_contents(TEMP_DIR . '/pear-cache'));
+
 				return $data;
 			}
 			$status = Util_Process::exec("/usr/bin/pear list-all");
@@ -173,6 +178,7 @@
 				);
 			}
 			file_put_contents(TEMP_DIR . '/pear-cache', serialize($pear));
+
 			return $pear;
 		}
 
@@ -188,6 +194,7 @@
 				return error("channel `$xml' must refer to .xml");
 			}
 			$status = Util_Process_Sudo::exec('pear add-channel %s', $xml);
+
 			return $status['success'];
 		}
 
@@ -201,6 +208,7 @@
 		public function remove_channel($channel)
 		{
 			$status = Util_Process_Sudo::exec('pear remove-channel %s', $channel);
+
 			return $status['success'];
 		}
 
@@ -240,6 +248,7 @@
 					'summary' => $channel['summary']
 				);
 			}
+
 			return $channels;
 		}
 
@@ -316,6 +325,7 @@
 					}
 				}
 			}
+
 			return $info;
 		}
 
@@ -337,7 +347,119 @@
 			}
 			$ver = \Opcenter\Php::version();
 			apcu_add($key, $ver, 86400);
+
 			return $ver;
+		}
+
+		public function _housekeeping()
+		{
+			// composer.phar seems standard nowadays..
+			if ($this->composer_exists()) {
+				return true;
+			}
+
+			$versions = file_get_contents('https://getcomposer.org/versions');
+			if (!$versions) {
+				return false;
+			}
+			$versions = json_decode($versions, true);
+			$url = 'https://getcomposer.org/' . $versions['stable'][0]['path'];
+			$res = Util_HTTP::download($url, self::COMPOSER_LOCATION);
+			if (!$res) {
+				return error("failed to download composer");
+			}
+			chmod(self::COMPOSER_LOCATION, 0755);
+			copy(self::COMPOSER_LOCATION, $this->service_template_path("siteinfo") . self::COMPOSER_LOCATION);
+
+			info("installed %s!", basename(self::COMPOSER_LOCATION));
+
+			return true;
+		}
+
+		public function composer_exists()
+		{
+			return file_exists(self::COMPOSER_LOCATION);
+		}
+
+		public function _delete()
+		{
+			foreach ($this->get_fallbacks() as $fallback) {
+				if ($this->fallback_enabled($fallback)) {
+					$this->disable_fallback($fallback);
+				}
+			}
+		}
+
+		public function get_fallbacks()
+		{
+			return $this->getPersonalities();
+		}
+
+		/**
+		 * Verify if fallback enabled for given personality
+		 *
+		 * @param string|null $mode
+		 * @return bool
+		 */
+		public function fallback_enabled($mode = null)
+		{
+			if (is_null($mode)) {
+				$mode = $this->getPersonalities();
+				$mode = array_pop($mode);
+			}
+
+			return file_exists($this->getPersonalityPathFromPersonality($mode, $this->site));
+		}
+
+		/**
+		 * Disable PHP fallback support
+		 *
+		 * @return bool
+		 */
+		public function disable_fallback($mode = '')
+		{
+			if (!IS_CLI) {
+				return $this->query('php_disable_fallback');
+			}
+			if ($mode) {
+				$personalities = [$mode];
+			} else {
+				$personalities = $this->getPersonalities();
+			}
+			foreach ($personalities as $personality) {
+				if (!$this->personalityExists($personality)) {
+					error("unknown personality `%s', skipping", $personality);
+					continue;
+				}
+				$path = $this->getPersonalityPathFromPersonality($personality, $this->site);
+				if (file_exists($path)) {
+					unlink($path);
+				} else {
+					warn("fallback `%s' not enabled", $personality);
+				}
+			}
+
+			// defer reloading to a later date
+			return true;
+		}
+
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			// TODO: Implement _verify_conf() method.
+		}
+
+		public function _create()
+		{
+			// TODO: Implement _create() method.
+		}
+
+		public function _edit()
+		{
+			foreach ($this->get_fallbacks() as $fallback) {
+				if ($this->fallback_enabled($fallback)) {
+					$this->disable_fallback($fallback) && $this->enable_fallback($fallback);
+				}
+			}
 		}
 
 		/**
@@ -376,115 +498,8 @@
 				file_put_contents($confpath, $newconfig) && info("enabled fallback for `%s'", $m);
 			}
 			Util_Account_Hooks::run('reload', ['php']);
+
 			return true;
-		}
-
-		public function _housekeeping()
-		{
-			// composer.phar seems standard nowadays..
-			if ($this->composer_exists()) {
-				return true;
-			}
-
-			$versions = file_get_contents('https://getcomposer.org/versions');
-			if (!$versions) {
-				return false;
-			}
-			$versions = json_decode($versions, true);
-			$url = 'https://getcomposer.org/' . $versions['stable'][0]['path'];
-			$res = Util_HTTP::download($url, self::COMPOSER_LOCATION);
-			if (!$res) {
-				return error("failed to download composer");
-			}
-			chmod(self::COMPOSER_LOCATION, 0755);
-			copy(self::COMPOSER_LOCATION, $this->service_template_path("siteinfo") . self::COMPOSER_LOCATION);
-
-			info("installed %s!", basename(self::COMPOSER_LOCATION));
-			return true;
-		}
-
-		public function composer_exists()
-		{
-			return file_exists(self::COMPOSER_LOCATION);
-		}
-
-		public function get_fallbacks()
-		{
-			return $this->getPersonalities();
-		}
-
-		/**
-		 * Verify if fallback enabled for given personality
-		 *
-		 * @param string|null $mode
-		 * @return bool
-		 */
-		public function fallback_enabled($mode = null)
-		{
-			if (is_null($mode)) {
-				$mode = $this->getPersonalities();
-				$mode = array_pop($mode);
-			}
-			return file_exists($this->getPersonalityPathFromPersonality($mode, $this->site));
-		}
-
-		/**
-		 * Disable PHP fallback support
-		 *
-		 * @return bool
-		 */
-		public function disable_fallback($mode = '')
-		{
-			if (!IS_CLI) {
-				return $this->query('php_disable_fallback');
-			}
-			if ($mode) {
-				$personalities = [$mode];
-			} else {
-				$personalities = $this->getPersonalities();
-			}
-			foreach ($personalities as $personality) {
-				if (!$this->personalityExists($personality)) {
-					error("unknown personality `%s', skipping", $personality);
-					continue;
-				}
-				$path = $this->getPersonalityPathFromPersonality($personality, $this->site);
-				if (file_exists($path)) {
-					unlink($path);
-				} else {
-					warn("fallback `%s' not enabled", $personality);
-				}
-			}
-			// defer reloading to a later date
-			return true;
-		}
-
-		public function _delete()
-		{
-			foreach ($this->get_fallbacks() as $fallback) {
-				if ($this->fallback_enabled($fallback)) {
-					$this->disable_fallback($fallback);
-				}
-			}
-		}
-
-		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
-		{
-			// TODO: Implement _verify_conf() method.
-		}
-
-		public function _create()
-		{
-			// TODO: Implement _create() method.
-		}
-
-		public function _edit()
-		{
-			foreach ($this->get_fallbacks() as $fallback) {
-				if ($this->fallback_enabled($fallback)) {
-					$this->disable_fallback($fallback) && $this->enable_fallback($fallback);
-				}
-			}
 		}
 
 		public function _create_user(string $user)

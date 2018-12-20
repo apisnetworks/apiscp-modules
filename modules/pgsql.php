@@ -42,19 +42,19 @@
 				'*'                             => PRIVILEGE_SITE,
 				'version'                       => PRIVILEGE_ALL,
 				'get_elevated_password_backend' => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
-				'prep_tablespace_backend' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'vacuum_backend'    => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'get_uptime'        => PRIVILEGE_ALL,
-				'get_username'      => PRIVILEGE_ALL,
-				'get_password'      => PRIVILEGE_ALL,
-				'set_password'      => PRIVILEGE_ALL,
-				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_prefix'        => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'prep_tablespace_backend'       => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'vacuum_backend'                => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'get_uptime'                    => PRIVILEGE_ALL,
+				'get_username'                  => PRIVILEGE_ALL,
+				'get_password'                  => PRIVILEGE_ALL,
+				'set_password'                  => PRIVILEGE_ALL,
+				'enabled'                       => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_prefix'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
 
 				// necessary for DB backup routines
-				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'database_exists'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'site_from_tablespace' => PRIVILEGE_ADMIN
+				'get_database_size'             => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'database_exists'               => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'site_from_tablespace'          => PRIVILEGE_ADMIN
 			);
 		}
 
@@ -67,14 +67,6 @@
 				$this->_delete_temp_user($user);
 			}
 		}
-
-
-		public function get_prefix()
-		{
-			// for now
-			return $this->getServiceValue('mysql', 'dbaseprefix');
-		}
-
 
 		/**
 		 * Verify if PostgreSQL user exists
@@ -95,7 +87,14 @@
 				$user = $prefix . $user;
 			}
 			$q = $db->query_params("SELECT 1 FROM pg_authid WHERE rolname = $1", array($db->escape_string($user)));
+
 			return !$q || $db->num_rows() > 0;
+		}
+
+		public function get_prefix()
+		{
+			// for now
+			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 		private function _delete_temp_user($user)
@@ -108,6 +107,7 @@
 			if ($idx !== false) {
 				unset($this->_tempUsers[$idx]);
 			}
+
 			return true;
 		}
 
@@ -188,16 +188,17 @@
 			}
 			// not strictly enforced yet...
 			$map = \Opcenter\Map::load('pgsql.usermap');
+
 			return $map->fetch($user) ?: null;
 		}
 
-		public function set_password($password)
+		public function set_username($user)
 		{
 			if (!IS_CLI) {
-				return $this->query('pgsql_set_password', $password);
+				return $this->query('pgsql_set_username', $user);
 			}
 
-			return $this->_set_pg_param('password', $password);
+			return $this->_set_pg_param('username', $user);
 
 		}
 
@@ -211,15 +212,6 @@
 			}
 
 			return \Opcenter\Database\PostgreSQL::setUserConfigurationField($file, $param, $val);
-
-		}
-
-		public function set_username($user)
-		{
-			if (!IS_CLI) {
-				return $this->query('pgsql_set_username', $user);
-			}
-			return $this->_set_pg_param('username', $user);
 
 		}
 
@@ -239,6 +231,7 @@
 			if (!file_exists($file)) {
 				return false;
 			}
+
 			return \Opcenter\Database\PostgreSQL::getUserConfiguration($file)['password'];
 		}
 
@@ -261,6 +254,7 @@
 		public function get_sql_prefix()
 		{
 			deprecated("use pgsql_get_prefix");
+
 			return $this->get_prefix();
 		}
 
@@ -275,6 +269,7 @@
 		public function service_enabled()
 		{
 			deprecated("use enabled()");
+
 			return $this->enabled();
 		}
 
@@ -288,42 +283,6 @@
 		public function enabled()
 		{
 			return parent::svc_enabled('pgsql');
-		}
-
-		/**
-		 * bool add_user(string, string[, int])
-		 */
-		public function add_user($user, $password, $maxconn = self::DEFAULT_CONCURRENCY_LIMIT)
-		{
-			if (!$user) {
-				return error("no username specified");
-			}
-			$prefix = str_replace('-', '', $this->get_prefix());
-			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
-				0 !== strpos($user, $prefix))
-			{
-				$user = $prefix . $user;
-			}
-			if (!$this->enabled()) {
-				return error("PostgreSQL service not enabled for account.");
-			} else if ($this->user_exists($user)) {
-				return error("pg user `$user' exists");
-			}
-
-			if ($maxconn < 0) {
-				$maxconn = self::PER_DATABASE_CONNECTION_LIMIT;
-			}
-			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
-				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
-			} else if ($maxconn < 0) {
-				return error("Max connections, queries, and updates must be greater than -1");
-			}
-			if (!\Opcenter\Database\PostgreSQL::createUser($user, $password)) {
-				return false;
-			}
-			\Opcenter\Database\PostgreSQL::setRole($user, $this->username);
-			$vendor = \Opcenter\Database\PostgreSQL::vendor();
-			return (bool)\PostgreSQL::initialize()->query($vendor->setMaxConnections($user, $maxconn));
 		}
 
 		/**
@@ -362,6 +321,7 @@
 			if ($pghandler->error) {
 				return error("error while creating database: %s", $pghandler->error);
 			}
+
 			return info("created database `%s'", $db);
 		}
 
@@ -381,6 +341,7 @@
 			}
 			$pgdb = \PostgreSQL::initialize();
 			$q = $pgdb->query_params("SELECT 1 FROM pg_database WHERE datname = $1", array($pgdb->escape_string($db)));
+
 			return !$q || $pgdb->num_rows() > 0;
 		}
 
@@ -400,6 +361,7 @@
 			if (!file_exists($path)) {
 				$this->query("pgsql_prep_tablespace_backend", $path);
 			}
+
 			return \Opcenter\Database\PostgreSQL::initializeTablespace($this->domain, $path, $this->username);
 		}
 
@@ -433,6 +395,7 @@
 			if (!$proc['success']) {
 				return error("extension creation failed - %s", $proc['stderr']);
 			}
+
 			return $proc['success'];
 		}
 
@@ -458,6 +421,7 @@
 			while ($row = $pgdb->fetch_object()) {
 				$dbs[] = $row->datname;
 			}
+
 			return $dbs;
 		}
 
@@ -496,19 +460,6 @@
 		}
 
 		/**
-		 * Assign privileges for database to user
-		 *
-		 * @param string $user
-		 * @param string $host
-		 * @param string $db
-		 * @param array  $privileges
-		 * @return bool
-		 */
-		public function set_privileges(string $user, string $host, string $db, array $privileges): bool {
-
-		}
-
-		/**
 		 * Append prefix if necessary
 		 *
 		 * @param string $name
@@ -522,6 +473,51 @@
 			}
 
 			return $name;
+		}
+
+		/**
+		 * array list_users ()
+		 * Lists all created users for PostgreSQL
+		 *
+		 * @return array
+		 */
+		public function list_users()
+		{
+			if (!$this->enabled()) {
+				return error("PostgreSQL service not enabled for account.");
+			}
+			// meta is corrupted, let's bail
+			if (!$prefix = $this->get_prefix()) {
+				return [];
+			}
+
+			$pgdb = \PostgreSQL::initialize();
+			$q = $pgdb->query("SELECT rolname, rolpassword, rolconnlimit FROM pg_authid WHERE rolname = '"
+				. $this->username . "' OR rolname LIKE '" . str_replace(array("-", "_"), array("", '\_'),
+					$prefix) . "%' ORDER BY rolname");
+			$users = array();
+			while ($row = $pgdb->fetch_object()) {
+				$users[$row->rolname] = array(
+					'max_connections' => $row->rolconnlimit,
+					'password'        => $row->rolpassword
+				);
+			}
+
+			return $users;
+		}
+
+		/**
+		 * Assign privileges for database to user
+		 *
+		 * @param string $user
+		 * @param string $host
+		 * @param string $db
+		 * @param array  $privileges
+		 * @return bool
+		 */
+		public function set_privileges(string $user, string $host, string $db, array $privileges): bool
+		{
+
 		}
 
 		/**
@@ -594,6 +590,7 @@
 			if (!$resp) {
 				return error("Error while dropping database, " . $pgdb->error);
 			}
+
 			return true;
 		}
 
@@ -641,8 +638,8 @@
 			}
 			$pgdb = \PostgreSQL::pdo();
 			$params = [
-				':name' => $user,
-				':password' => $password,
+				':name'      => $user,
+				':password'  => $password,
 				':connlimit' => $maxconn
 			];
 
@@ -677,6 +674,7 @@
 			if ($user == $this->get_username()) {
 				$this->set_password($password);
 			}
+
 			return true;
 		}
 
@@ -703,34 +701,14 @@
 			return $matches['username'] ?: $this->username;
 		}
 
-		/**
-		 * array list_users ()
-		 * Lists all created users for PostgreSQL
-		 *
-		 * @return array
-		 */
-		public function list_users()
+		public function set_password($password)
 		{
-			if (!$this->enabled()) {
-				return error("PostgreSQL service not enabled for account.");
-			}
-			// meta is corrupted, let's bail
-			if (!$prefix = $this->get_prefix()) {
-				return [];
+			if (!IS_CLI) {
+				return $this->query('pgsql_set_password', $password);
 			}
 
-			$pgdb = \PostgreSQL::initialize();
-			$q = $pgdb->query("SELECT rolname, rolpassword, rolconnlimit FROM pg_authid WHERE rolname = '"
-				. $this->username . "' OR rolname LIKE '" . str_replace(array("-", "_"), array("", '\_'),
-					$prefix) . "%' ORDER BY rolname");
-			$users = array();
-			while ($row = $pgdb->fetch_object()) {
-				$users[$row->rolname] = array(
-					'max_connections' => $row->rolconnlimit,
-					'password'        => $row->rolpassword
-				);
-			}
-			return $users;
+			return $this->_set_pg_param('password', $password);
+
 		}
 
 		/**
@@ -765,6 +743,7 @@
 			if ($status['error'] instanceof Exception) {
 				return error($status['error']);
 			}
+
 			return $status['success'];
 		}
 
@@ -801,6 +780,7 @@
 			$sqldb = pg_connect($dsn);
 			if (!$sqldb) {
 				$this->_delete_temp_user($user);
+
 				return error("failed to %s db `%s', db connection failed", $mode, $db);
 			}
 			// via psql -E, unlikely to
@@ -831,9 +811,9 @@
 				}
 			}
 			$this->_delete_temp_user($user);
+
 			return true;
 		}
-
 
 		/***************** STATISTICS *******************/
 
@@ -889,8 +869,45 @@
 			}
 			$sqldb->query("GRANT \"" . $this->username . "\" TO \"" . $user . "\"");
 			$this->_register_temp_user($user);
+
 			return $user;
 
+		}
+
+		/**
+		 * bool add_user(string, string[, int])
+		 */
+		public function add_user($user, $password, $maxconn = self::DEFAULT_CONCURRENCY_LIMIT)
+		{
+			if (!$user) {
+				return error("no username specified");
+			}
+			$prefix = str_replace('-', '', $this->get_prefix());
+			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
+				0 !== strpos($user, $prefix)) {
+				$user = $prefix . $user;
+			}
+			if (!$this->enabled()) {
+				return error("PostgreSQL service not enabled for account.");
+			} else if ($this->user_exists($user)) {
+				return error("pg user `$user' exists");
+			}
+
+			if ($maxconn < 0) {
+				$maxconn = self::PER_DATABASE_CONNECTION_LIMIT;
+			}
+			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
+				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
+			} else if ($maxconn < 0) {
+				return error("Max connections, queries, and updates must be greater than -1");
+			}
+			if (!\Opcenter\Database\PostgreSQL::createUser($user, $password)) {
+				return false;
+			}
+			\Opcenter\Database\PostgreSQL::setRole($user, $this->username);
+			$vendor = \Opcenter\Database\PostgreSQL::vendor();
+
+			return (bool)\PostgreSQL::initialize()->query($vendor->setMaxConnections($user, $maxconn));
 		}
 
 		public function version($pretty = false)
@@ -904,6 +921,7 @@
 				$pgver[$v] = $version % 100;
 				$version /= 100;
 			}
+
 			return $pgver['major'] . '.' . $pgver['minor'] . '.' .
 				$pgver['patch'];
 		}
@@ -956,21 +974,9 @@
 			if (!$status['success']) {
 				return error("import failed: %s", $status['error']);
 			}
+
 			return $status['success'];
 		}
-
-		/**
-		 * Get disk space occupied by database
-		 *
-		 * @param string $db   database name
-		 * @return int storage in bytes
-		 */
-		public function get_database_size($db)
-		{
-			$size = \PostgreSQL::initialize()->query("SELECT pg_database_size(" . pg_escape_literal($db) . ") as size")->fetch_object();
-			return (int)$size->size;
-		}
-		// }}}
 
 		public function export($db, $file = null)
 		{
@@ -1029,7 +1035,23 @@
 			if (!$status['success']) {
 				return error("export failed: %s", $status['stderr']);
 			}
+
 			return $this->file_unmake_path($path);
+		}
+
+		// }}}
+
+		/**
+		 * Get disk space occupied by database
+		 *
+		 * @param string $db database name
+		 * @return int storage in bytes
+		 */
+		public function get_database_size($db)
+		{
+			$size = \PostgreSQL::initialize()->query("SELECT pg_database_size(" . pg_escape_literal($db) . ") as size")->fetch_object();
+
+			return (int)$size->size;
 		}
 
 		/**
@@ -1111,6 +1133,7 @@
 		public function get_uptime()
 		{
 			$q = $this->psql->query("SELECT pg_postmaster_start_time() as st")->fetch_object();
+
 			return $q->st;
 		}
 

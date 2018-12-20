@@ -43,6 +43,12 @@
 						'hijack',
 					], PRIVILEGE_NONE)
 				);
+			} else if (!platform_is('7.5')) {
+				$this->exportedFunctions += [
+					'add_site'    => PRIVILEGE_NONE,
+					'edit_site'   => PRIVILEGE_NONE,
+					'delete_site' => PRIVILEGE_NONE
+				];
 			}
 		}
 
@@ -61,6 +67,7 @@
 			while (null !== ($row = $q->fetch_object())) {
 				$domains[$row->site_id] = $row->domain;
 			}
+
 			return $domains;
 		}
 
@@ -85,6 +92,7 @@
 			if ($pgdb->num_rows() > 0) {
 				return $q->fetch_object()->email;
 			}
+
 			return false;
 		}
 
@@ -99,6 +107,7 @@
 		{
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				error("invalid domain `%s'", $domain);
+
 				return null;
 			}
 			$pgdb = \PostgreSQL::initialize();
@@ -107,56 +116,9 @@
 				return (int)$q->fetch_object()->site_id;
 			}
 			$id = Auth::get_site_id_from_domain($domain);
+
 			return $id;
 
-		}
-
-		/**
-		 * Get account metadata
-		 *
-		 * @param string $domain
-		 * @param string $service
-		 * @param string $class
-		 * @return array|bool|mixed|void
-		 */
-		public function get_meta_from_domain(string $domain, string $service, string $class = null)
-		{
-
-			if (!IS_CLI) {
-				return $this->query('admin_get_meta_from_domain', $domain, $service, $class);
-			}
-			$site = $domain;
-
-			// $domain passed as site
-			if (strpos($domain, 'site') !== 0 || (int)$domain !== substr($domain, 4)) {
-				$tmp = Auth::get_site_id_from_domain($domain);
-				if (!$tmp) {
-					return error("unknown domain `$domain'");
-				}
-				$site = 'site' . $tmp;
-			} else if (!Auth::site_exists($site)) {
-				return error("site `%s' out of bounds", $site);
-			}
-			$file = '/home/virtual/' . $site . '/info/current/' . $service;
-			$new = '/home/virtual/' . $site . '/info/new/' . $service . (!platform_is('7.5') ? '.new' : '');
-			if (file_exists($new)) {
-				$file = $new;
-			} else if (!file_exists($file)) {
-				return error("service `$service' not installed for `$domain'");
-			}
-
-			$meta = Util_Conf::parse_ini($file);
-			if (!$class) {
-				return $meta;
-			}
-			if (!isset($meta[$class])) {
-				// @XXX DEBUG from CRM
-				Error_Reporter::report(join(" ",
-						array($domain, $service, $class)) . " " . Error_Reporter::get_debug_bt());
-				return error("meta `%s' does not exist for `%s'",
-					$class, $service);
-			}
-			return $meta[$class];
 		}
 
 		/**
@@ -170,7 +132,31 @@
 				return $this->query('admin_get_email');
 			}
 			$ini = $this->_get_admin_config();
+
 			return $ini['adminemail'] ?? $ini['email'] ?? null;
+		}
+
+		protected function _get_admin_config()
+		{
+			$file = $this->getAdminConfigFile();
+			if (!file_exists($file)) {
+				return [];
+			}
+			if (!platform_is('7.5')) {
+				return parse_ini_file($file);
+			}
+
+			return Util_PHP::unserialize(file_get_contents($file));
+		}
+
+		private function getAdminConfigFile(): string
+		{
+			if (version_compare(platform_version(), '7.5', '<')) {
+				return self::ADMIN_CONFIG_LEGACY;
+			}
+
+			return self::ADMIN_HOME . DIRECTORY_SEPARATOR . self::ADMIN_CONFIG .
+				DIRECTORY_SEPARATOR . $this->username;
 		}
 
 		/**
@@ -204,6 +190,7 @@
 				unset($cfg);
 
 			}
+
 			return (bool)file_put_contents($this->getAdminConfigFile(), $data);
 		}
 
@@ -251,33 +238,14 @@
 			symlink(STYLE_THEME, dirname($themepath) . '/current');
 		}
 
-		protected function _get_admin_config()
-		{
-			$file = $this->getAdminConfigFile();
-			if (!file_exists($file)) {
-				return [];
-			}
-			if (!platform_is('7.5')) {
-				return parse_ini_file($file);
-			}
-			return Util_PHP::unserialize(file_get_contents($file));
-		}
-
-		private function getAdminConfigFile(): string {
-			if (version_compare(platform_version(), '7.5', '<')) {
-				return self::ADMIN_CONFIG_LEGACY;
-			}
-			return self::ADMIN_HOME . DIRECTORY_SEPARATOR . self::ADMIN_CONFIG .
-				DIRECTORY_SEPARATOR . $this->username;
-		}
-
 		/**
 		 * Force bulk update of webapps
 		 *
 		 * @param array $options
 		 * @return bool
 		 */
-		public function update_webapps(array $options = []): bool {
+		public function update_webapps(array $options = []): bool
+		{
 			$launcher = \Module\Support\Webapps\Updater::launch();
 			foreach ($options as $k => $v) {
 				switch ($k) {
@@ -300,6 +268,7 @@
 						fatal("unknown option `%s'", $k);
 				}
 			}
+
 			return (bool)$launcher->run();
 		}
 
@@ -309,23 +278,26 @@
 		 * @param array $constraints [site: <anything>, version: <operator> <version>, type: <type>]
 		 * @return int
 		 */
-		public function reset_webapp_failure(array $constraints = []): int {
+		public function reset_webapp_failure(array $constraints = []): int
+		{
 			$known = ['site', 'version', 'type'];
 			if ($bad = array_diff(array_keys($constraints), $known)) {
 				error("unknown constraints: `%s'", implode(', ', $bad));
+
 				return 0;
 			}
 			if (isset($constraints['site'])) {
 				$siteid = Auth::get_site_id_from_anything($constraints['site']);
 				if (!$siteid) {
 					error("unknown site `%s'", $constraints['site']);
+
 					return 0;
 				}
 				$sites = ['site' . $siteid];
 			} else {
 				$sites = \Opcenter\Account\Enumerate::active();
 			}
-			$versionFilter = function(array $appmeta) use ($constraints) {
+			$versionFilter = function (array $appmeta) use ($constraints) {
 				if (!isset($constraints['version'])) {
 					return true;
 				}
@@ -337,12 +309,14 @@
 				if (count($vercon) === 1) {
 					$vercon = ['=', $vercon[0]];
 				}
+
 				return version_compare($appmeta['version'], ...array_reverse($vercon));
 			};
-			$typeFilter = function(array $appmeta) use ($constraints) {
+			$typeFilter = function (array $appmeta) use ($constraints) {
 				if (!isset($constraints['type'])) {
 					return true;
 				}
+
 				return $appmeta['type'] === $constraints['type'];
 			};
 			$count = 0;
@@ -362,12 +336,13 @@
 					/**
 					 * @var \Module\Support\Webapps\App\Type\Unknown $instance
 					 */
-					$instance =  \Module\Support\Webapps\App\Loader::factory(null, $path, $auth);
+					$instance = \Module\Support\Webapps\App\Loader::factory(null, $path, $auth);
 					$instance->clearFailed();
 					info("Reset failed status on `%s/%s'", $instance->getHostname(), $instance->getPath());
 					$count++;
 				}
 			}
+
 			return $count;
 		}
 
@@ -377,7 +352,8 @@
 		 * @param string|array $site
 		 * @return array
 		 */
-		public function locate_webapps($site = null): array {
+		public function locate_webapps($site = null): array
+		{
 			return \Module\Support\Webapps\Finder::find($site);
 		}
 
@@ -387,13 +363,14 @@
 		 * @param string $site
 		 * @return bool
 		 */
-		public function delete_site(string $site): bool {
+		public function delete_site(string $site): bool
+		{
 			if (!IS_CLI) {
 				return $this->query('admin_delete_site', $site);
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/DeleteDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_json($ret['stdout']);
 
 			return $ret['success'];
 		}
@@ -420,7 +397,7 @@
 			$cmd = INCLUDE_PATH . "/bin/AddDomain --output=json ${cmd}";
 			info("AddDomain command: $cmd");
 			$ret = \Util_Process_Safe::exec($cmd);
-			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_json($ret['stdout']);
 
 			return $ret['success'];
 		}
@@ -438,15 +415,16 @@
 				return $this->query('admin_edit_site', $site, $opts);
 			}
 
-			$args = implode(' ', array_key_map(function($key, $val) {
-				return '-c ' . escapeshellarg(str_replace_first('.', ',', $key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
+			$args = implode(' ', array_key_map(function ($key, $val) {
+				return '-c ' . escapeshellarg(str_replace_first('.', ',',
+						$key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
 			}, array_dot($opts)));
 			$cmd = INCLUDE_PATH . "/bin/EditDomain --output=json ${args} %s";
 			info("Edit command: $cmd", $site);
 			$ret = \Util_Process_Safe::exec($cmd, $site);
-			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_json($ret['stdout']);
 
-			return $ret['success'] ;
+			return $ret['success'];
 		}
 
 		/**
@@ -462,7 +440,7 @@
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/ActivateDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_json($ret['stdout']);
 
 			return $ret['success'];
 		}
@@ -480,7 +458,7 @@
 			}
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/SuspendDomain --output=json %s', $site);
-			\Error_Reporter::merge_buffer((array)json_decode($ret['stdout'], true));
+			\Error_Reporter::merge_json($ret['stdout']);
 
 			return $ret['success'];
 		}
@@ -504,13 +482,15 @@
 		 *
 		 * @return array
 		 */
-		public function get_storage(): array {
+		public function get_storage(): array
+		{
 			$mounts = $this->stats_get_partition_information();
 			for ($i = 0, $n = count($mounts); $i < $n; $i++) {
 				$mount = $mounts[$i];
 				if ($mount['mount'] != '/') {
 					continue;
 				}
+
 				return [
 					'qused' => $mount['used'],
 					'qhard' => $mount['size'],
@@ -522,6 +502,53 @@
 
 			}
 			warn("Failed to locate root partition / - storage information incomplete");
+
 			return [];
+		}
+
+		/**
+		 * Destroy all logins matching site
+		 *
+		 * @param string $site
+		 * @return bool
+		 */
+		public function kill_site(string $site): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_kill_site', $site);
+			}
+			if (!($admin = $this->get_meta_from_domain($site, 'siteinfo', 'admin'))) {
+				return error("Failed to lookup admin for site `%s'", $site);
+			}
+
+			foreach (\Opcenter\Process::matchGroup($admin) as $pid) {
+				\Opcenter\Process::kill($pid, SIGKILL);
+			}
+
+			return true;
+
+		}
+
+		/**
+		 * Get account metadata
+		 *
+		 * @param string $domain
+		 * @param string $service
+		 * @param string $class
+		 * @return array|bool|mixed|void
+		 */
+		public function get_meta_from_domain(string $domain, string $service, string $class = null)
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_get_meta_from_domain', $domain, $service, $class);
+			}
+			if (!$context = \Auth::context(null, $domain)) {
+				return error("Unknown domain `%s'", $domain);
+			}
+			if (null === ($conf = $context->conf($service))) {
+				return error("Unknown service `%s'", $service);
+			}
+
+			return array_get($conf, "${class}", null);
 		}
 	}

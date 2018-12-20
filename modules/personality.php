@@ -57,9 +57,71 @@
 			if (false === ($parser = $this->_getCache($splfile))) {
 				$parser = $this->_getParser($splfile);
 				$this->_setCache($splfile, $parser);
+
 				return $parser->parse();
 			}
+
 			return $parser;
+		}
+
+		private function _getSPLObjectFromFile($file)
+		{
+			$path = $this->file_make_path($file);
+			try {
+				$splfile = new SplFileObject($path);
+			} catch (Exception $e) {
+				return error("unable to access control file `%s': %s",
+					$this->file_unmake_path($file),
+					$e->getMessage()
+				);
+			}
+
+			return $splfile;
+
+		}
+
+		private function _getCache(SplFileObject $file, $which = 'entry')
+		{
+			$cache = Cache_Account::spawn($this->getAuthContext());
+			$key = self::CACHE_KEY_PREFIX . $file->getInode();
+			if (false !== ($res = $cache->get($key))) {
+				if ($res['time'] == $file->getMTime()) {
+					return $res[$which];
+				}
+			}
+
+			return false;
+		}
+
+		private function _getParser(SplFileObject $splfile)
+		{
+			$parser = new \Tivie\HtaccessParser\Parser();
+			$parser->ignoreComments(false)->ignoreWhitelines(false);
+			$parser->setFile($splfile);
+
+			return $parser;
+		}
+
+		/**
+		 * Store Htaccess Parser
+		 *
+		 * @param SplFileObject                $file
+		 * @param \Tivie\HtaccessParser\Parser $parser
+		 * @return mixed
+		 * @throws \Tivie\HtaccessParser\Exception\Exception
+		 */
+		private function _setCache(SplFileObject $file, \Tivie\HtaccessParser\Parser $parser)
+		{
+			$cache = Cache_Account::spawn($this->getAuthContext());
+			$ts = $file->getMtime();
+			$key = self::CACHE_KEY_PREFIX . $file->getInode();
+			$parsed = $parser->parse($file);
+
+			return $cache->set($key, array(
+				'time'  => $file->getMTime(),
+				'hash'  => spl_object_hash($parsed),
+				'entry' => $parsed
+			));
 		}
 
 		public function get_personalities()
@@ -71,7 +133,76 @@
 				$ret[] = $name;
 				$personalities->next();
 			}
+
 			return $ret;
+		}
+
+		private function _tryPersonalities()
+		{
+			$key = 'prsntly';
+			$cache = Cache_Global::spawn();
+			$personalities = $cache->get($key);
+			if ($personalities) {
+				// arg! enumeration consumes the queue
+				$tmp = Util_PHP::unserialize($personalities, true);
+				$this->_personalities = $tmp['personalities'];
+				$this->_instances = $tmp['instances'];
+
+				return $this->_personalities;
+			}
+
+
+			$queue = new CacheablePriorityHeap();
+
+			$dir = INCLUDE_PATH . '/' . self::PERSONALITY_MODULE_LOCATION;
+			$dh = opendir($dir);
+			if (!$dh) {
+				return error("unable to access personality module location");
+			}
+			while (false !== ($entry = readdir($dh))) {
+				if ($entry[0] === '.') {
+					continue;
+				}
+				$pos = strrpos($entry, '.');
+				if ($pos === false || substr($entry, $pos) !== ".php") {
+					continue;
+				}
+
+				$type = substr($entry, 0, strpos($entry, '.'));
+				$class = $this->_getInstanceFromPersonality($type);
+				$queue->insert($type, $class->getPriority());
+			}
+
+			closedir($dh);
+			$queue->rewind();
+			$this->_personalities = &$queue;
+
+			$data = array(
+				'personalities' => $this->_personalities,
+				'instances'     => $this->_instances
+			);
+
+			$cache->set($key, serialize($data));
+
+			return $queue;
+		}
+
+		private function _getInstanceFromPersonality($personality)
+		{
+			if (!$personality) {
+				return error('no personality specified');
+			}
+
+			if (isset($this->_instances[$personality])) {
+				return $this->_instances[$personality];
+			}
+			$class = '\\Module\\Support\\Personality\\' . ucwords($personality);
+			if (!class_exists($class)) {
+				return error("unknown personality `%s'", $personality);
+			}
+			$this->_instances[$personality] = new $class;
+
+			return $this->_instances[$personality];
 		}
 
 		public function insert(
@@ -87,6 +218,7 @@
 				return error("unknown directive `%s'", $directive->getName());
 			}
 			$config->insertAt($line, $directive);
+
 			return $config;
 		}
 
@@ -113,6 +245,7 @@
 			if (null === $response) {
 				return true;
 			}
+
 			return $response;
 		}
 
@@ -134,13 +267,24 @@
 				$p = $this->_getPersonalityFromName($name);
 				if ($p->resolves($token)) {
 					$this->_resolverCache[$token] = $name;
+
 					return $name;
 				}
 				$personalities->next();
 			}
 
 			$this->_resolverCache[$token] = null;
+
 			return false;
+		}
+
+		private function _getPersonalityFromName($name)
+		{
+			if (isset($this->_instances[$name])) {
+				return $this->_instances[$name];
+			}
+
+
 		}
 
 		public function get_description($personality, $directive)
@@ -161,6 +305,7 @@
 			}
 
 			$config->offsetUnset($line);
+
 			return $config;
 		}
 
@@ -177,6 +322,54 @@
 			}
 		}
 
+		/**
+		 * Convert a string to a htaccess object
+		 *
+		 * @param string $token
+		 * @return \Tivie\HtaccessParser\Token\BaseToken
+		 * @throws \Tivie\HtaccessParser\Exception\DomainException
+		 */
+		private function _token2Object($token)
+		{
+			if ($token instanceof \Tivie\HtaccessParser\Token\BaseToken) {
+				return $token;
+			}
+			$token = trim($token);
+			if (!isset($token[0])) {
+				return new \Tivie\HtaccessParser\Token\WhiteLine($token);
+			}
+			switch ($token[0]) {
+				case '#':
+					return new \Tivie\HtaccessParser\Token\Comment($token);
+				case '<':
+					// do extra formatting here
+					break;
+				default:
+					// normal directive
+					$tokens = explode(" ", $token);
+
+					return new \Tivie\HtaccessParser\Token\Directive($tokens[0], array_slice($tokens, 1));
+
+			}
+			$args = explode(" ", substr($token, 1, strpos($token, '>') - 1));
+
+			$block = new \Tivie\HtaccessParser\Token\Block($args[0]);
+			if (isset($args[1])) {
+				$block->setArguments(array_slice($args, 1));
+			}
+
+			// CRLF LF and CR
+			$lines = preg_split('/\R/m', $token);
+			unset($lines[0]);
+			// skip final closing /IfDefine
+			for ($i = 1, $n = sizeof($lines); $i < $n; $i++) {
+				$block->addChild($this->_token2Object($lines[$i]));
+			}
+
+			return $block;
+
+		}
+
 		public function get_directives($personality)
 		{
 			$instance = $this->_getInstanceFromPersonality($personality);
@@ -191,8 +384,8 @@
 		 * Write changes to control file
 		 *
 		 * @param array|string $host hostname or host + path
-		 * @param $data
-		 * @param $hash validation hash @see hash()
+		 * @param              $data
+		 * @param              $hash validation hash @see hash()
 		 * @return bool
 		 */
 		public function commit($host, $hash, $data)
@@ -224,6 +417,7 @@
 				if ($res instanceof Exception) {
 					$reason = $res->getMessage();
 				}
+
 				return error("failed to update htaccess contents in `%s', reason: %s", $controlpath, $reason);
 			}
 			// global subdomain -> plop on active domain to make request
@@ -243,14 +437,17 @@
 						$controlpath
 					);
 					$this->file_put_file_contents($controlpath, $olddata);
+
 					return false;
 				}
 			} catch (\Exception $e) {
 				$this->file_put_file_contents($controlpath, $olddata);
+
 				return error("unable to connect to server to test control file, reverting. Error message: `%s'",
 					$e->getMessage()
 				);
 			}
+
 			return true;
 		}
 
@@ -288,183 +485,8 @@
 					$obj = $this->_getParser($spl)->parse();
 				}
 			}
+
 			return md5(is_object($obj) ? spl_object_hash($obj) : $obj);
-
-		}
-
-		private function _getSPLObjectFromFile($file)
-		{
-			$path = $this->file_make_path($file);
-			try {
-				$splfile = new SplFileObject($path);
-			} catch (Exception $e) {
-				return error("unable to access control file `%s': %s",
-					$this->file_unmake_path($file),
-					$e->getMessage()
-				);
-			}
-			return $splfile;
-
-		}
-
-		private function _getCache(SplFileObject $file, $which = 'entry')
-		{
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			$key = self::CACHE_KEY_PREFIX . $file->getInode();
-			if (false !== ($res = $cache->get($key))) {
-				if ($res['time'] == $file->getMTime()) {
-					return $res[$which];
-				}
-			}
-			return false;
-		}
-
-		private function _getParser(SplFileObject $splfile)
-		{
-			$parser = new \Tivie\HtaccessParser\Parser();
-			$parser->ignoreComments(false)->ignoreWhitelines(false);
-			$parser->setFile($splfile);
-			return $parser;
-		}
-
-		/**
-		 * Store Htaccess Parser
-		 *
-		 * @param SplFileObject                $file
-		 * @param \Tivie\HtaccessParser\Parser $parser
-		 * @return mixed
-		 * @throws \Tivie\HtaccessParser\Exception\Exception
-		 */
-		private function _setCache(SplFileObject $file, \Tivie\HtaccessParser\Parser $parser)
-		{
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			$ts = $file->getMtime();
-			$key = self::CACHE_KEY_PREFIX . $file->getInode();
-			$parsed = $parser->parse($file);
-			return $cache->set($key, array(
-				'time'  => $file->getMTime(),
-				'hash'  => spl_object_hash($parsed),
-				'entry' => $parsed
-			));
-		}
-
-		private function _tryPersonalities()
-		{
-			$key = 'prsntly';
-			$cache = Cache_Global::spawn();
-			$personalities = $cache->get($key);
-			if ($personalities) {
-				// arg! enumeration consumes the queue
-				$tmp = Util_PHP::unserialize($personalities, true);
-				$this->_personalities = $tmp['personalities'];
-				$this->_instances = $tmp['instances'];
-				return $this->_personalities;
-			}
-
-
-			$queue = new CacheablePriorityHeap();
-
-			$dir = INCLUDE_PATH . '/' . self::PERSONALITY_MODULE_LOCATION;
-			$dh = opendir($dir);
-			if (!$dh) {
-				return error("unable to access personality module location");
-			}
-			while (false !== ($entry = readdir($dh))) {
-				if ($entry[0] === '.') {
-					continue;
-				}
-				$pos = strrpos($entry, '.');
-				if ($pos === false || substr($entry, $pos) !== ".php") {
-					continue;
-				}
-
-				$type = substr($entry, 0, strpos($entry, '.'));
-				$class = $this->_getInstanceFromPersonality($type);
-				$queue->insert($type, $class->getPriority());
-			}
-
-			closedir($dh);
-			$queue->rewind();
-			$this->_personalities = &$queue;
-
-			$data = array(
-				'personalities' => $this->_personalities,
-				'instances'     => $this->_instances
-			);
-
-			$cache->set($key, serialize($data));
-			return $queue;
-		}
-
-		private function _getInstanceFromPersonality($personality)
-		{
-			if (!$personality) {
-				return error('no personality specified');
-			}
-
-			if (isset($this->_instances[$personality])) {
-				return $this->_instances[$personality];
-			}
-			$class = '\\Module\\Support\\Personality\\' . ucwords($personality);
-			if (!class_exists($class)) {
-				return error("unknown personality `%s'", $personality);
-			}
-			$this->_instances[$personality] = new $class;
-			return $this->_instances[$personality];
-		}
-
-		private function _getPersonalityFromName($name)
-		{
-			if (isset($this->_instances[$name])) {
-				return $this->_instances[$name];
-			}
-
-
-		}
-
-		/**
-		 * Convert a string to a htaccess object
-		 *
-		 * @param string $token
-		 * @return \Tivie\HtaccessParser\Token\BaseToken
-		 * @throws \Tivie\HtaccessParser\Exception\DomainException
-		 */
-		private function _token2Object($token)
-		{
-			if ($token instanceof \Tivie\HtaccessParser\Token\BaseToken) {
-				return $token;
-			}
-			$token = trim($token);
-			if (!isset($token[0])) {
-				return new \Tivie\HtaccessParser\Token\WhiteLine($token);
-			}
-			switch ($token[0]) {
-				case '#':
-					return new \Tivie\HtaccessParser\Token\Comment($token);
-				case '<':
-					// do extra formatting here
-					break;
-				default:
-					// normal directive
-					$tokens = explode(" ", $token);
-					return new \Tivie\HtaccessParser\Token\Directive($tokens[0], array_slice($tokens, 1));
-
-			}
-			$args = explode(" ", substr($token, 1, strpos($token, '>') - 1));
-
-			$block = new \Tivie\HtaccessParser\Token\Block($args[0]);
-			if (isset($args[1])) {
-				$block->setArguments(array_slice($args, 1));
-			}
-
-			// CRLF LF and CR
-			$lines = preg_split('/\R/m', $token);
-			unset($lines[0]);
-			// skip final closing /IfDefine
-			for ($i = 1, $n = sizeof($lines); $i < $n; $i++) {
-				$block->addChild($this->_token2Object($lines[$i]));
-			}
-			return $block;
 
 		}
 
@@ -483,6 +505,7 @@
 					$e->getMessage()
 				);
 			}
+
 			return $parsed;
 		}
 

@@ -251,6 +251,7 @@
 				$this->file_delete($docroot, true);
 				$this->sql_delete_mysql_database($db);
 				$this->sql_delete_mysql_user($dbuser, 'localhost');
+
 				return error('failed to install Drupal: %s', $ret['stderr']);
 			}
 			// by default, let's only open up ACLs to the bare minimum
@@ -304,7 +305,38 @@
 			if (!$opts['squash']) {
 				parent::unsquash($docroot);
 			}
+
 			return info('Drupal installed - confirmation email with login info sent to %s', $opts['email']);
+		}
+
+		private function _exec($path = null, $cmd, array $args = array())
+		{
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . self::DRUPAL_CLI . ' -y';
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
+			}
+			$user = $this->username;
+			if ($path) {
+				$user = parent::getDocrootUser($path);
+				$cli = 'cd %(path)s && ' . $cli;
+				$args['path'] = $path;
+			}
+			$cmd = $cli . ' ' . $cmd;
+			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
+			if (0 === strpos((string)coalesce($ret['stderr'], $ret['stdout']), 'Error:')) {
+				// move stdout to stderr on error for consistency
+				$ret['success'] = false;
+				if (!$ret['stderr']) {
+					$ret['stderr'] = $ret['stdout'];
+				}
+
+			}
+
+			return $ret;
 		}
 
 		/**
@@ -321,6 +353,7 @@
 				return null;
 			}
 			$docroot = $this->getAppRoot($hostname, $path);
+
 			return $this->_getVersion($docroot);
 		}
 
@@ -344,6 +377,56 @@
 
 			return $this->file_exists($docroot . '/sites/default')
 				|| $this->file_exists($docroot . '/sites/all');
+		}
+
+		/**
+		 * Get version using exact docroot
+		 *
+		 * @param $docroot
+		 * @return string
+		 */
+		protected function _getVersion($docroot): ?string
+		{
+			static $metaCache;
+			if (null === $metaCache) {
+				$metaCache = array();
+			}
+			$ret = $this->_exec($docroot, 'status --format=json');
+			if (!$ret['success']) {
+				return null;
+			}
+
+			$output = json_decode($ret['stdout'], true);
+
+			return $output['drupal-version'] ?? null;
+		}
+
+		/**
+		 * Add trusted_host_patterns if necessary
+		 *
+		 * @param $version
+		 * @param $hostname
+		 * @param $docroot
+		 * @return bool
+		 */
+		private function _postInstallTrustedHost($version, $hostname, $docroot): bool
+		{
+			if (version_compare((string)$version, '8.0', '<')) {
+				return true;
+			}
+			$file = $docroot . '/sites/default/settings.php';
+			$content = $this->file_get_file_contents($file);
+			if (!$content) {
+				return error('unable to add trusted_host_patterns configuration - cannot get ' .
+					"Drupal configuration for `%s'", $hostname);
+			}
+			$content .= "\n\n" .
+				'/** in the event the domain name changes, trust site configuration */' . "\n" .
+				'$settings["trusted_host_patterns"] = array(' . "\n" .
+				"\t" . "'^(www\.)?' . " . 'str_replace(".", "\\\\.", $_SERVER["DOMAIN"]) . ' . "'$'" . "\n" .
+				');' . "\n";
+
+			return $this->file_put_file_contents($file, $content, true, true);
 		}
 
 		/**
@@ -379,6 +462,7 @@
 				return warn("downloaded plugin `%s' but failed to activate: %s", $plugin, $ret['stderr']);
 			}
 			info("installed plugin `%s'", $plugin);
+
 			return true;
 		}
 
@@ -392,6 +476,7 @@
 			if (!$ret) {
 				return error("failed to enable plugin `%s': %s", $plugin, $ret['stderr']);
 			}
+
 			return true;
 		}
 
@@ -428,6 +513,7 @@
 				return error("failed to uninstall plugin `%s': %s", $plugin, $ret['stderr']);
 			}
 			info("uninstalled plugin `%s'", $plugin);
+
 			return true;
 		}
 
@@ -438,6 +524,7 @@
 				return error('invalid Drupal location');
 			}
 			$plugin = $this->plugin_status($hostname, $path, $plugin);
+
 			return $plugin['status'] === 'enabled';
 		}
 
@@ -453,12 +540,12 @@
 				return null;
 			}
 			$plugins = [];
-			foreach(json_decode($ret['stdout'], true) as $name => $meta) {
+			foreach (json_decode($ret['stdout'], true) as $name => $meta) {
 				$plugins[$name] = [
 					'version' => $meta['version'],
-					'next' => null,
+					'next'    => null,
 					'current' => true,
-					'max' => $meta['version']
+					'max'     => $meta['version']
 				];
 			}
 
@@ -476,6 +563,7 @@
 				return error("failed to disable plugin `%s': %s", $plugin, $ret['stderr']);
 			}
 			info("disabled plugin `%s'", $plugin);
+
 			return true;
 		}
 
@@ -508,6 +596,7 @@
 			if ($plugins) {
 				info("disabled plugins: `%s'", implode(',', $plugins));
 			}
+
 			return true;
 		}
 
@@ -525,6 +614,7 @@
 			if (!$ret['success']) {
 				return error('failed to enumerate plugins: %s', $ret['stderr']);
 			}
+
 			return json_decode($ret['stdout'], true);
 		}
 
@@ -586,7 +676,86 @@
 			if (version_compare((string)$version, (string)$latest, '<')) {
 				return 0;
 			}
+
 			return -1;
+		}
+
+		/**
+		 * Get latest Drupal release
+		 *
+		 * @param null $version
+		 * @return null|string
+		 */
+		private function _getLastestVersion($version = null): ?string
+		{
+			if (!$version) {
+				$version = self::DEFAULT_BRANCH;
+			}
+			$version = $this->_extractBranch($version);
+			$versions = $this->_getVersions('drupal', $version);
+
+			if (!$versions) {
+				return null;
+			}
+			$releases = $versions['releases']['release'];
+			for ($i = 0, $n = count($releases); $i < $n; $i++) {
+				// dev, alpha, etc
+				if (!isset($releases[$i]['version_extra'])) {
+					return $releases[$i]['version'];
+				}
+			}
+
+			// can't find a suitable release, return the first one
+			return $releases[0]['version'];
+		}
+
+		private function _extractBranch($version)
+		{
+			if (substr($version, -2) === '.x') {
+				return $version;
+			}
+			$pos = strpos($version, '.');
+			if (false === $pos) {
+				// sent major alone
+				return $version . '.x';
+			}
+			$newver = substr($version, 0, $pos);
+
+			return $newver . '.x';
+		}
+
+		/**
+		 * Get all current major versions
+		 *
+		 * @param string $module
+		 * @param string $version
+		 * @return array
+		 */
+		private function _getVersions($module = 'drupal', $version = self::DEFAULT_BRANCH): array
+		{
+			$version = $this->_extractBranch($version);
+			$key = 'drupal.versions:' . $module;
+
+			$cache = Cache_Super_Global::spawn();
+			if (false !== ($ver = $cache->get($key)) && isset($ver[$version])) {
+				return $ver[$version];
+			}
+			$url = self::VERSION_CHECK_URL;
+			$url .= '/' . $module . '/' . $version;
+			$contents = file_get_contents($url);
+
+			if (!$contents) {
+				return array();
+			}
+			if (!is_array($ver)) {
+				$ver = array();
+			}
+
+			$versions = json_decode(json_encode(simplexml_load_string($contents)), true);
+			$ver[$version] = $versions;
+			$cache->set($key, $versions, 43200);
+
+			return $versions;
 		}
 
 		public function test()
@@ -627,6 +796,7 @@
 					return error("failed to update password for user `%s': %s", $admin, $ret['stderr']);
 				}
 			}
+
 			return true;
 		}
 
@@ -643,6 +813,7 @@
 			$ret = $this->_exec($docroot, 'user-information 1 --format=json');
 			if (!$ret['success']) {
 				warn('failed to enumerate Drupal administrative users');
+
 				return null;
 			}
 			$tmp = json_decode($ret['stdout'], true);
@@ -650,6 +821,7 @@
 				return null;
 			}
 			$tmp = array_pop($tmp);
+
 			return $tmp['name'];
 		}
 
@@ -670,6 +842,7 @@
 				'version' => $this->get_version($hostname, $path),
 				'failed'  => !$ret
 			]);
+
 			return $ret;
 		}
 
@@ -722,23 +895,68 @@
 
 			parent::setInfo($docroot, [
 				'version' => $this->get_version($hostname, $path) ?? $version,
-				'failed' => !$ret['success']
+				'failed'  => !$ret['success']
 			]);
-
 			$this->fortify($hostname, $path, array_get($this->getOptions($docroot), 'fortify', 'max'));
 
 			if (!$ret['success']) {
-				return warn('failed to update Drupal - ' .
-					'login to Drupal admin panel to manually perform operation');
+				return error('failed to update Drupal: %s', coalesce($ret['stderr'], $ret['stdout']));
 			}
 
 
 			return $ret['success'];
 		}
 
-		public function isLocked(string $docroot): bool {
+		public function isLocked(string $docroot): bool
+		{
 			return file_exists($this->domain_fs_path() . $docroot . DIRECTORY_SEPARATOR .
 				'.drush-lock-update');
+		}
+
+		/**
+		 * Set Drupal maintenance mode before/after update
+		 *
+		 * @param      $docroot
+		 * @param      $mode
+		 * @param null $version
+		 * @return bool
+		 */
+		private function _setMaintenance($docroot, $mode, $version = null)
+		{
+			if (null === $version) {
+				$version = $this->_getVersion($docroot);
+			}
+			if ($version[0] >= 8) {
+				$maintenancecmd = 'sset system.maintenance_mode %(mode)d';
+				$cachecmd = 'cr';
+			} else {
+				$maintenancecmd = 'vset --exact maintenance_mode %(mode)d';
+				$cachecmd = 'cache-clear all';
+			}
+
+			$ret = $this->_exec($docroot, $maintenancecmd, array('mode' => (int)$mode));
+			if (!$ret['success']) {
+				warn('failed to set maintenance mode');
+			}
+			$ret = $this->_exec($docroot, $cachecmd);
+			if (!$ret['success']) {
+				warn('failed to rebuild cache');
+			}
+
+			return true;
+		}
+
+		/**
+		 * Restrict write-access by the app
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @param string $mode
+		 * @return bool
+		 */
+		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
+		{
+			return parent::fortify($hostname, $path, $mode);
 		}
 
 		/**
@@ -784,6 +1002,7 @@
 				 */
 				return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
 			}
+
 			return $ret['success'];
 		}
 
@@ -796,19 +1015,6 @@
 		public function has_fortification(string $mode = null): bool
 		{
 			return parent::has_fortification($mode);
-		}
-
-		/**
-		 * Restrict write-access by the app
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @param string $mode
-		 * @return bool
-		 */
-		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
-		{
-			return parent::fortify($hostname, $path, $mode);
 		}
 
 		/**
@@ -840,200 +1046,9 @@
 				copy(self::DRUPAL_CLI, $local);
 				chmod($local, 755);
 			}
-			return true;
-		}
-
-		private function _exec($path = null, $cmd, array $args = array())
-		{
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . self::DRUPAL_CLI . ' -y';
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			$user = $this->username;
-			if ($path) {
-				$user = parent::getDocrootUser($path);
-				$cli = 'cd %(path)s && ' . $cli;
-				$args['path'] = $path;
-			}
-			$cmd = $cli . ' ' . $cmd;
-			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
-			if (0 === strpos((string)coalesce($ret['stderr'], $ret['stdout']), 'Error:')) {
-				// move stdout to stderr on error for consistency
-				$ret['success'] = false;
-				if (!$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
-
-			}
-			return $ret;
-		}
-
-		/**
-		 * Get version using exact docroot
-		 *
-		 * @param $docroot
-		 * @return string
-		 */
-		protected function _getVersion($docroot): ?string
-		{
-			static $metaCache;
-			if (null === $metaCache) {
-				$metaCache = array();
-			}
-			$ret = $this->_exec($docroot, 'status --format=json');
-			if (!$ret['success']) {
-				return null;
-			}
-
-			$output = json_decode($ret['stdout'], true);
-
-			return $output['drupal-version'] ?? null;
-		}
-
-		/**
-		 * Add trusted_host_patterns if necessary
-		 *
-		 * @param $version
-		 * @param $hostname
-		 * @param $docroot
-		 * @return bool
-		 */
-		private function _postInstallTrustedHost($version, $hostname, $docroot): bool
-		{
-			if (version_compare((string)$version, '8.0', '<')) {
-				return true;
-			}
-			$file = $docroot . '/sites/default/settings.php';
-			$content = $this->file_get_file_contents($file);
-			if (!$content) {
-				return error('unable to add trusted_host_patterns configuration - cannot get ' .
-					"Drupal configuration for `%s'", $hostname);
-			}
-			$content .= "\n\n" .
-				'/** in the event the domain name changes, trust site configuration */' . "\n" .
-				'$settings["trusted_host_patterns"] = array(' . "\n" .
-				"\t" . "'^(www\.)?' . " . 'str_replace(".", "\\\\.", $_SERVER["DOMAIN"]) . ' . "'$'" . "\n" .
-				');' . "\n";
-			return $this->file_put_file_contents($file, $content, true, true);
-		}
-
-		/**
-		 * Get latest Drupal release
-		 *
-		 * @param null $version
-		 * @return null|string
-		 */
-		private function _getLastestVersion($version = null): ?string
-		{
-			if (!$version) {
-				$version = self::DEFAULT_BRANCH;
-			}
-			$version = $this->_extractBranch($version);
-			$versions = $this->_getVersions('drupal', $version);
-
-			if (!$versions) {
-				return null;
-			}
-			$releases = $versions['releases']['release'];
-			for ($i = 0, $n = count($releases); $i < $n; $i++) {
-				// dev, alpha, etc
-				if (!isset($releases[$i]['version_extra'])) {
-					return $releases[$i]['version'];
-				}
-			}
-			// can't find a suitable release, return the first one
-			return $releases[0]['version'];
-		}
-
-		private function _extractBranch($version)
-		{
-			if (substr($version, -2) === '.x') {
-				return $version;
-			}
-			$pos = strpos($version, '.');
-			if (false === $pos) {
-				// sent major alone
-				return $version . '.x';
-			}
-			$newver = substr($version, 0, $pos);
-			return $newver . '.x';
-		}
-
-		/**
-		 * Get all current major versions
-		 *
-		 * @param string $module
-		 * @param string $version
-		 * @return array
-		 */
-		private function _getVersions($module = 'drupal', $version = self::DEFAULT_BRANCH): array
-		{
-			$version = $this->_extractBranch($version);
-			$key = 'drupal.versions:' . $module;
-
-			$cache = Cache_Super_Global::spawn();
-			if (false !== ($ver = $cache->get($key)) && isset($ver[$version])) {
-				return $ver[$version];
-			}
-			$url = self::VERSION_CHECK_URL;
-			$url .= '/' . $module . '/' . $version;
-			$contents = file_get_contents($url);
-
-			if (!$contents) {
-				return array();
-			}
-			if (!is_array($ver)) {
-				$ver = array();
-			}
-
-			$versions = json_decode(json_encode(simplexml_load_string($contents)), true);
-			$ver[$version] = $versions;
-			$cache->set($key, $versions, 43200);
-			return $versions;
-		}
-
-		/**
-		 * Set Drupal maintenance mode before/after update
-		 *
-		 * @param      $docroot
-		 * @param      $mode
-		 * @param null $version
-		 * @return bool
-		 */
-		private function _setMaintenance($docroot, $mode, $version = null)
-		{
-			if (null === $version) {
-				$version = $this->_getVersion($docroot);
-			}
-			if ($version[0] >= 8) {
-				$maintenancecmd = 'sset system.maintenance_mode %(mode)d';
-				$cachecmd = 'cr';
-			} else {
-				$maintenancecmd = 'vset --exact maintenance_mode %(mode)d';
-				$cachecmd = 'cache-clear all';
-			}
-
-			$ret = $this->_exec($docroot, $maintenancecmd, array('mode' => (int)$mode));
-			if (!$ret['success']) {
-				warn('failed to set maintenance mode');
-			}
-			$ret = $this->_exec($docroot, $cachecmd);
-			if (!$ret['success']) {
-				warn('failed to rebuild cache');
-			}
 
 			return true;
 		}
-
-		private function _getCommand()
-		{
-			return 'php ' . self::DRUPAL_CLI;
-		}
-
 
 		/**
 		 * Get all available stable versions
@@ -1057,6 +1072,7 @@
 				return empty($v['version_extra']) && $v['status'] === 'published';
 			}), 'version');
 			$cache->set($key, $versions, 86400);
+
 			return $versions;
 		}
 
@@ -1086,5 +1102,10 @@
 		public function install_theme(string $hostname, string $path = '', string $theme, string $version = null): bool
 		{
 			return parent::install_theme($hostname, $path, $theme, $version);
+		}
+
+		private function _getCommand()
+		{
+			return 'php ' . self::DRUPAL_CLI;
 		}
 	}

@@ -62,6 +62,7 @@
 			if (!file_exists($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list)) {
 				return error("Invalid list name " . $list);
 			}
+
 			return file_get_contents($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list);
 		}
 
@@ -135,6 +136,7 @@
 				if (is_array($members)) {
 					$members = join("\n", $members);
 				}
+
 				return $this->query('majordomo_set_mailing_list_users', $list, $members);
 			}
 
@@ -147,6 +149,7 @@
 			file_put_contents($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list, $members);
 			chown($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list, self::MAJORDOMO_SETUID);
 			chgrp($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list, (int)$this->group_id);
+
 			return $this->file_chmod('/var/lib/majordomo/lists/' . $list, 644);
 		}
 
@@ -171,8 +174,8 @@
 				file_put_contents(
 					$aliasPath,
 					trim(file_get_contents($aliasPath)) . "\n" .
-						'majordomo+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' .
-						$prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/majordomo"'
+					'majordomo+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' .
+					$prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/majordomo"'
 				);
 				// delete in case it was replicated by an alias addition
 				$this->email_remove_alias('majordomo', $domain);
@@ -214,9 +217,9 @@
 			file_put_contents(
 				$aliasPath,
 				trim(file_get_contents($aliasPath)) . "\n" .
-					$list . '+' . $domain . ': "|  env HOME=/usr/lib/majordomo /usr/lib/majordomo/wrapper resend -C ' . $prefix . '/etc/majordomo-' . $domain . '.cf -l ' . $list . ' -h ' . $domain . ' ' . $list . '-outgoing+' . $domain . '"' . "\n" .
-					$list . '-outgoing+' . $domain . ': :include:' . $prefix . '/var/lib/majordomo/lists/' . $list . "\n" .
-					$list . '-request+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' . $prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/request-answer ' . $list . ' -h ' . $domain . '"' . "\n"
+				$list . '+' . $domain . ': "|  env HOME=/usr/lib/majordomo /usr/lib/majordomo/wrapper resend -C ' . $prefix . '/etc/majordomo-' . $domain . '.cf -l ' . $list . ' -h ' . $domain . ' ' . $list . '-outgoing+' . $domain . '"' . "\n" .
+				$list . '-outgoing+' . $domain . ': :include:' . $prefix . '/var/lib/majordomo/lists/' . $list . "\n" .
+				$list . '-request+' . $domain . ': "| env HOME=/usr/lib/majordomo MAJORDOMO_CF=' . $prefix . '/etc/majordomo-' . $domain . '.cf  /usr/lib/majordomo/request-answer ' . $list . ' -h ' . $domain . '"' . "\n"
 			);
 			// add aliases
 			Util_Process::exec('/usr/sbin/postalias -w %s', $aliasPath);
@@ -241,6 +244,7 @@
 			system("setfacl -d -m user:" . self::MAJORDOMO_SETUID . ":7 -m user:postfix:7 " . $aclprefix . '/var/lib/majordomo/*');
 			system("setfacl -m user:" . (int)$this->user_id . ":7 " . $aclprefix . '/var/lib/majordomo/lists/' . $list . '*');
 			system('setfacl -R -m user:' . self::MAJORDOMO_SETUID . ':7 -m user:postfix:7 ' . $aclprefix . '/var/lib/majordomo/');
+
 			return true;
 		}
 
@@ -259,6 +263,7 @@
 					$configuration[$option]['value'] = $value;
 				}
 			}
+
 			return $this->generate_configuration($configuration);
 		}
 
@@ -281,6 +286,7 @@
 				$configuration .= "\n\n";
 
 			}
+
 			return $configuration;
 
 		}
@@ -288,6 +294,22 @@
 		public function load_configuration_options($list)
 		{
 			return $this->_parse_configuration($this->file_get_file_contents('/var/lib/majordomo/lists/' . $list . '.config'));
+		}
+
+		private function _parse_configuration($text)
+		{
+			if (!preg_match_all(Regex::MAJORDOMO_CONFIG_ENTRY, $text, $matches, PREG_SET_ORDER)) {
+				return false;
+			}
+			$base = $this->majordomo_skeleton;
+			foreach ($matches as $match => $value) {
+				if (isset($base[$value[1]])) {
+					$base[$value[1]]['value'] = trim(($base[$value[1]]['type'] == text) ? str_replace("END", "",
+						$value[2]) : $value[2]);
+				}
+			}
+
+			return array_merge($base, array_intersect_key($base, $base));
 		}
 
 		public function save_configuration_options($list, $data)
@@ -323,6 +345,7 @@
 				$entries[] = $entry;
 			}
 			$dh->close();
+
 			return $entries;
 		}
 
@@ -387,6 +410,7 @@
 			if (!IS_CLI) {
 				return $this->query('majordomo_mailing_list_exists', $list);
 			}
+
 			return file_exists($this->domain_fs_path() . '/var/lib/majordomo/lists/' . $list . '.config');
 		}
 
@@ -409,8 +433,11 @@
 			} else {
 				$domain = $this->getServiceValue('siteinfo', 'domain');
 			}
+
 			return $domain;
 		}
+
+		// currently handled by create_mailing_list
 
 		/**
 		 * @return bool At least one mailing list exists
@@ -426,25 +453,9 @@
 			}
 
 			$glob = glob($this->domain_fs_path() . '/var/lib/majordomo/lists/');
+
 			return sizeof($glob) > 1;
 
-		}
-
-		// currently handled by create_mailing_list
-
-		private function _parse_configuration($text)
-		{
-			if (!preg_match_all(Regex::MAJORDOMO_CONFIG_ENTRY, $text, $matches, PREG_SET_ORDER)) {
-				return false;
-			}
-			$base = $this->majordomo_skeleton;
-			foreach ($matches as $match => $value) {
-				if (isset($base[$value[1]])) {
-					$base[$value[1]]['value'] = trim(($base[$value[1]]['type'] == text) ? str_replace("END", "",
-						$value[2]) : $value[2]);
-				}
-			}
-			return array_merge($base, array_intersect_key($base, $base));
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

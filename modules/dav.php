@@ -1,5 +1,6 @@
 <?php
 	declare(strict_types=1);
+
 	/**
 	 * Copyright (C) Apis Networks, Inc - All Rights Reserved.
 	 *
@@ -11,17 +12,19 @@
 	 *
 	 * Written by Matt Saladna <matt@apisnetworks.com>, May 2017
 	 */
-
-	class Dav_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable {
+	class Dav_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
+	{
 		const PAM_FILE = 'dav.pamlist';
 
-		public function _create() {
+		public function _create()
+		{
 			$path = $this->domain_fs_path() . '/etc/' . self::PAM_FILE;
 			if (!DAV_ENABLED) {
 				touch($path);
+
 				return;
 			}
-			file_put_contents($path, $this->username ."\n");
+			file_put_contents($path, $this->username . "\n");
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

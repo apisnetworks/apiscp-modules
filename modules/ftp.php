@@ -94,6 +94,7 @@
 			if (!$this->user_exists($user)) {
 				return error("user " . $user . " does not exist");
 			}
+
 			return $this->_set_option_real($user, $c_directive, $c_val);
 		}
 
@@ -102,7 +103,7 @@
 			$user_conf = self::VSFTPD_CONF_DIR . '/' . $user;
 
 			if (!file_exists($this->domain_fs_path() . $user_conf) &&
-				true !== ($status = $this->file_put_file_contents(self::VSFTPD_CONF_DIR . '/' . $user, ""))
+				($status = file_put_contents($this->domain_fs_path(self::VSFTPD_CONF_DIR . '/' . $user), "") === false)
 			) {
 				return $status;
 			}
@@ -142,6 +143,7 @@
 			// make sure configuration is owned by root on v6+ platforms
 			// no more custom patches
 			chown($path, 'root');
+
 			return true;
 		}
 
@@ -150,11 +152,29 @@
 			return (new Util_Pam($this->getAuthContext()))->remove($user, $this->getPamServiceName());
 		}
 
+		/**
+		 * Wrapper for backwards compatibility during dev
+		 *
+		 * @todo yank before 3.0.0 release
+		 *
+		 * @return string
+		 */
+		protected function getPamServiceName(): string
+		{
+			//@xxx temporary backwards compatibility
+			if (version_compare(platform_version(), '7.5', '<')) {
+				return 'proftpd';
+			}
+
+			return static::PAM_SVC_NAME;
+		}
+
 		public function permit_user($user)
 		{
 			if ($this->auth_is_demo()) {
 				return error("FTP disabled for demo account");
 			}
+
 			return (new Util_Pam($this->getAuthContext()))->add($user, $this->getPamServiceName());
 		}
 
@@ -207,12 +227,14 @@
 			if (!file_exists($chroot_file)) {
 				return false;
 			}
+
 			return (bool)preg_match('/\b' . $user . '\b/', file_get_contents($chroot_file));
 		}
 
 		public function has_configuration($user)
 		{
 			$path = $this->domain_fs_path() . self::VSFTPD_CONF_DIR . '/' . $user;
+
 			return file_exists($path);
 		}
 
@@ -225,6 +247,7 @@
 			if (!$this->user_exists($user)) {
 				return error("user " . $user . " does not exist");
 			}
+
 			return $this->_get_option_real($user, $c_directive);
 		}
 
@@ -233,6 +256,7 @@
 			$conf_file = $this->domain_fs_path() . self::VSFTPD_CONF_DIR . '/' . $user;
 			if (!file_exists($conf_file)) {
 				warn("no configuration set for user " . $user);
+
 				return null;
 			}
 			$user_conf = file_get_contents($conf_file);
@@ -243,6 +267,7 @@
 			}
 
 			$conf_val = $conf_val[1];
+
 			return $conf_val;
 		}
 
@@ -251,6 +276,7 @@
 			if ($what === "letsencrypt") {
 				Util_Process::exec('/sbin/service vsftpd restart');
 			}
+
 			return true;
 		}
 
@@ -269,6 +295,7 @@
 			if (file_exists($ftp_conf)) {
 				unlink($ftp_conf);
 			}
+
 			return true;
 		}
 
@@ -313,6 +340,7 @@
 			$prefix = $this->domain_fs_path();
 			$path = $prefix . self::VSFTPD_CHROOT_FILE;
 			$size = file_put_contents($path, join("\n", $buffer) . "\n", LOCK_EX);
+
 			return $size !== false;
 		}
 
@@ -325,20 +353,6 @@
 			if ($this->auth_is_demo() && $pam->check($admin, $this->getPamServiceName())) {
 				$pam->remove($admin, $this->getPamServiceName());
 			}
-		}
-
-		/**
-		 * Wrapper for backwards compatibility during dev
-		 * @todo yank before 3.0.0 release
-		 *
-		 * @return string
-		 */
-		protected function getPamServiceName(): string {
-			//@xxx temporary backwards compatibility
-			if (version_compare(platform_version(), '7.5', '<')) {
-				return 'proftpd';
-			}
-			return static::PAM_SVC_NAME;
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

@@ -136,7 +136,8 @@
 			$args['version'] = $version;
 
 			if (version_compare($args['version'], '2', '>=')) {
-				if (version_compare($args['version'], '2.2', '>=') && version_compare(Opcenter\Php::version(), '7.1', '<')) {
+				if (version_compare($args['version'], '2.2', '>=') && version_compare(Opcenter\Php::version(), '7.1',
+						'<')) {
 					return error('Magento 2.2+ required for PHP 7.1');
 				}
 				$args['vername'] = 'magento-ce-' . $args['version'];
@@ -210,6 +211,7 @@
 						$args['version']
 					);
 				}
+
 				return error('failed to install magento: %s', coalesce($ret['stderr'], $ret['stdout']));
 			}
 			/** post install fixup */
@@ -248,6 +250,7 @@
 				$this->file_delete($docroot, true);
 				$this->sql_delete_mysql_database($db);
 				$this->sql_delete_mysql_user($dbuser, 'localhost');
+
 				return error('failed to create admin user: %s', $ret['stdout']);
 			}
 
@@ -260,7 +263,7 @@
 			parent::fixRewriteBase($docroot, $path);
 			parent::fixSymlinkTraversal($docroot);
 			if ($magerunver === 2) {
-				parent::fixRewriteBase($docroot . '/pub', rtrim($path, '/') .'/');
+				parent::fixRewriteBase($docroot . '/pub', rtrim($path, '/') . '/');
 				parent::fixRewriteBase($docroot . '/pub/static', rtrim($path, '/') . '/static');
 			}
 			$users = array(
@@ -289,7 +292,7 @@
 			$url = 'https://' . $fqdn . '/' . $path . '/';
 			$args = array(
 				'path' => 'web/secure/base_url',
-				'url'  => rtrim($url,'/') . '/'
+				'url'  => rtrim($url, '/') . '/'
 			);
 			$this->_exec($docroot, 'config:set %(path)s %(url)s', $args);
 			if ($magerunver === 2) {
@@ -323,7 +326,51 @@
 			if (!$opts['squash']) {
 				parent::unsquash($docroot);
 			}
+
 			return true;
+		}
+
+		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		{
+			return parent::getAppRoot($hostname, $path);
+		}
+
+		/**
+		 * Requested version is known by magerun
+		 *
+		 * @param string $version
+		 * @return bool
+		 */
+		private function _versionValid($version): bool
+		{
+			$versions = $this->_getVersions();
+
+			return in_array($version, $versions);
+		}
+
+		/**
+		 * Get all current major versions
+		 *
+		 * @return array
+		 */
+		protected function _getVersions(): array
+		{
+			$key = 'magento.versions';
+			$cache = Cache_Super_Global::spawn();
+			// @TODO
+
+			if (false !== ($vers = $cache->get($key))) {
+				return $vers;
+			}
+
+			$req = file_get_contents(self::VERSION_CHECK_URL . '?all');
+			if (!$req) {
+				return array();
+			}
+			$req = json_decode($req);
+			$cache->set($key, $req, 43200);
+
+			return $req;
 		}
 
 		/**
@@ -342,7 +389,64 @@
 				return null;
 			}
 			$tmp = $contents['http-basic']['repo.magento.com'];
+
 			return array($tmp['username'], $tmp['password']);
+		}
+
+		private function _keyAuthFile()
+		{
+			$home = $this->user_get_home();
+
+			return $home . '/.composer/auth.json';
+		}
+
+		private function _copyMagerunConfig($version = 1)
+		{
+			$f = resource_path('storehouse/magento/magento' . $version . '.yaml');
+			if (!file_exists($f)) {
+				return error('failed to locate magento download YAML');
+			}
+			$filename = '.n98-magerun' . ($version > 1 ? $version : '') . '.yaml';
+			copy($f, $this->domain_fs_path() . '/tmp/' . $filename);
+			$dest = $this->user_get_home() . '/' . $filename;
+			$this->file_copy('/tmp/' . $filename, $dest);
+			unlink($this->domain_fs_path() . '/tmp/' . $filename);
+
+			return $dest;
+		}
+
+		private function _exec(string $path = null, $cmd, array $args = array(), $ver = null)
+		{
+
+			if ($path && null === $ver) {
+				$ver = $this->guessMajor($path);
+			}
+
+			$magerun = $ver === 1 ? self::MAGENTO_CLI : self::MAGENTO2_CLI;
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . $magerun . '';
+
+			if (!is_array($args)) {
+				$args = func_get_args();
+				array_shift($args);
+			}
+			$user = $this->username;
+			if ($path) {
+				$cli = 'cd %(path)s && ' . $cli;
+				$args['path'] = $path;
+				$stat = $this->file_stat($path);
+				$user = !empty($stat['owner']) && $stat['uid'] >= \a23r::get_class_from_module('user')::MIN_UID ?
+					$stat['owner'] : $this->username;
+			}
+			$cmd = $cli . ' ' . $cmd;
+			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
+			if (!$ret['success'] && $ret['stderr']) {
+				$ret['stderr'] = $ret['stdout'];
+			}
+
+			return $ret;
 		}
 
 		/**
@@ -371,13 +475,11 @@
 					return $el['value'];
 				}
 			}
+
 			return null;
 
 		}
 
-		protected function getAppRoot(string $hostname, string $path = ''): ?string {
-			return parent::getAppRoot($hostname, $path);
-		}
 		/**
 		 * Location is a valid WP install
 		 *
@@ -395,7 +497,47 @@
 					return false;
 				}
 			}
+
 			return $this->guessMajor($docroot) !== null;
+		}
+
+		private function _fixModelPHP7($docroot)
+		{
+			// PHP7 fix
+			// @see https://www.atwix.com/magento/magento-and-php-7/
+			if (version_compare(platform_version(), '6.5', '<')) {
+				return true;
+			}
+			$f = $docroot . '/app/code/core/Mage/Core/Model/Layout.php';
+			$contents = $this->file_get_file_contents($f);
+			$old = '$out .= $this->getBlock($callback[0])->$callback[1]();';
+			$new = '$out .= $this->getBlock($callback[0])->{$callback[1]}();';
+			$replacement = str_replace($old, $new, $contents);
+
+			return $this->file_put_file_contents($f, $replacement);
+		}
+
+		private function _fixConnectConfig($docroot)
+		{
+			$file = $docroot . '/downloader/connect.cfg';
+			$preamble = '::ConnectConfig::v::1.0::';
+			if ($this->file_exists($file)) {
+				$raw = $this->file_get_file_contents($file);
+				if (!preg_match('/^((?:::[[[:alnum:].]*]*)+?)([sibNaO]:.*)$/mi', $raw, $preamble)) {
+					return error('cannot set Magento Connect FTP login information, ' .
+						'config is malformed: %s', $raw);
+				}
+				$contents = \Util_PHP::unserialize($preamble[2]);
+				$preamble = $preamble[1];
+			} else {
+				$contents = array();
+			}
+			$contents['remote_config'] = 'ftp://' . $this->username . '@' . $this->domain . ':debug@localhost';
+			$contents['downloader_path'] = $this->domain_fs_path() . $docroot . '/downloader';
+			$contents['magento_root'] = $this->domain_fs_path() . $docroot;
+			$newdata = $preamble . serialize($contents);
+
+			return $this->file_put_file_contents($file, $newdata);
 		}
 
 		/**
@@ -407,8 +549,12 @@
 		 * @param string $version  optional plugin version
 		 * @return bool
 		 */
-		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = 'stable'): bool
-		{
+		public function install_plugin(
+			string $hostname,
+			string $path = '',
+			string $plugin,
+			string $version = 'stable'
+		): bool {
 			$docroot = $this->getAppRoot($hostname, $path);
 			if (!$docroot) {
 				return error('invalid WP location');
@@ -490,6 +636,7 @@
 					return error("failed to obtain Magento configuration for `%s'", $docroot);
 				}
 				$conn = array_pop($conn);
+
 				return array(
 					'user'     => (string)$conn->username,
 					'host'     => (string)$conn->host,
@@ -502,6 +649,7 @@
 			if (!file_exists($file) || null === ($conn = array_get(include $file, 'db'))) {
 				return [];
 			}
+
 			return [
 				'user'     => array_get($conn, 'connection.default.username'),
 				'host'     => array_get($conn, 'connection.default.host'),
@@ -556,6 +704,7 @@
 			} else {
 				return warn('no other fields besides password implemented');
 			}
+
 			return true;
 
 		}
@@ -563,7 +712,7 @@
 		/**
 		 * Get the primary admin for a Magento instance
 		 *
-		 * @param string $hostname
+		 * @param string      $hostname
 		 * @param string|null $path
 		 * @return null|string admin or false on failure
 		 */
@@ -573,11 +722,13 @@
 			$ret = $this->_exec($approot, 'admin:user:list --format=json');
 			if (!$ret['success']) {
 				warn('failed to enumerate administrative users');
+
 				return null;
 			}
 			$users = json_decode($ret['stdout'], true);
 			if (!$users) {
 				error('no administrative users found');
+
 				return null;
 			}
 			foreach ($users as $user) {
@@ -585,6 +736,7 @@
 					break;
 				}
 			}
+
 			return $user['username'];
 		}
 
@@ -693,6 +845,7 @@
 			if (!$docroot) {
 				return error('update failed');
 			}
+
 			return info('not implemented');
 		}
 
@@ -707,6 +860,7 @@
 				return true;
 			}
 			unset($contents['http-basic']['repo.magento.com']);
+
 			return $this->file_put_file_contents($file, json_encode($contents));
 		}
 
@@ -730,6 +884,7 @@
 				'username' => $publickey,
 				'password' => $privatekey
 			);
+
 			return $this->file_put_file_contents($file, json_encode($contents), true);
 		}
 
@@ -761,134 +916,6 @@
 			}
 
 			return true;
-		}
-
-		/**
-		 * Requested version is known by magerun
-		 *
-		 * @param string $version
-		 * @return bool
-		 */
-		private function _versionValid($version): bool
-		{
-			$versions = $this->_getVersions();
-			return in_array($version, $versions);
-		}
-
-		/**
-		 * Get all current major versions
-		 *
-		 * @return array
-		 */
-		protected function _getVersions(): array
-		{
-			$key = 'magento.versions';
-			$cache = Cache_Super_Global::spawn();
-			// @TODO
-
-			if (false !== ($vers = $cache->get($key))) {
-				return $vers;
-			}
-
-			$req = file_get_contents(self::VERSION_CHECK_URL . '?all');
-			if (!$req) {
-				return array();
-			}
-			$req = json_decode($req);
-			$cache->set($key, $req, 43200);
-			return $req;
-		}
-
-		private function _keyAuthFile()
-		{
-			$home = $this->user_get_home();
-
-			return $home . '/.composer/auth.json';
-		}
-
-
-		private function _copyMagerunConfig($version = 1)
-		{
-			$f = resource_path('storehouse/magento/magento' . $version . '.yaml');
-			if (!file_exists($f)) {
-				return error('failed to locate magento download YAML');
-			}
-			$filename = '.n98-magerun' . ($version > 1 ? $version : '') . '.yaml';
-			copy($f, $this->domain_fs_path() . '/tmp/' . $filename);
-			$dest = $this->user_get_home() . '/' . $filename;
-			$this->file_copy('/tmp/' . $filename, $dest);
-			unlink($this->domain_fs_path() . '/tmp/' . $filename);
-			return $dest;
-		}
-
-		private function _exec(string $path = null, $cmd, array $args = array(), $ver = null)
-		{
-
-			if ($path && null === $ver) {
-				$ver = $this->guessMajor($path);
-			}
-
-			$magerun = $ver === 1 ? self::MAGENTO_CLI : self::MAGENTO2_CLI;
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d pdo_mysql.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=192m ' . $magerun . '';
-
-			if (!is_array($args)) {
-				$args = func_get_args();
-				array_shift($args);
-			}
-			$user = $this->username;
-			if ($path) {
-				$cli = 'cd %(path)s && ' . $cli;
-				$args['path'] = $path;
-				$stat = $this->file_stat($path);
-				$user = !empty($stat['owner']) && $stat['uid'] >= \a23r::get_class_from_module('user')::MIN_UID ?
-					$stat['owner'] : $this->username;
-			}
-			$cmd = $cli . ' ' . $cmd;
-			$ret = $this->pman_run($cmd, $args, null, ['user' => $user]);
-			if (!$ret['success'] && $ret['stderr']) {
-				$ret['stderr'] = $ret['stdout'];
-			}
-			return $ret;
-		}
-
-		private function _fixModelPHP7($docroot)
-		{
-			// PHP7 fix
-			// @see https://www.atwix.com/magento/magento-and-php-7/
-			if (version_compare(platform_version(), '6.5', '<')) {
-				return true;
-			}
-			$f = $docroot . '/app/code/core/Mage/Core/Model/Layout.php';
-			$contents = $this->file_get_file_contents($f);
-			$old = '$out .= $this->getBlock($callback[0])->$callback[1]();';
-			$new = '$out .= $this->getBlock($callback[0])->{$callback[1]}();';
-			$replacement = str_replace($old, $new, $contents);
-			return $this->file_put_file_contents($f, $replacement);
-		}
-
-		private function _fixConnectConfig($docroot)
-		{
-			$file = $docroot . '/downloader/connect.cfg';
-			$preamble = '::ConnectConfig::v::1.0::';
-			if ($this->file_exists($file)) {
-				$raw = $this->file_get_file_contents($file);
-				if (!preg_match('/^((?:::[[[:alnum:].]*]*)+?)([sibNaO]:.*)$/mi', $raw, $preamble)) {
-					return error('cannot set Magento Connect FTP login information, ' .
-						'config is malformed: %s', $raw);
-				}
-				$contents = \Util_PHP::unserialize($preamble[2]);
-				$preamble = $preamble[1];
-			} else {
-				$contents = array();
-			}
-			$contents['remote_config'] = 'ftp://' . $this->username . '@' . $this->domain . ':debug@localhost';
-			$contents['downloader_path'] = $this->domain_fs_path() . $docroot . '/downloader';
-			$contents['magento_root'] = $this->domain_fs_path() . $docroot;
-			$newdata = $preamble . serialize($contents);
-			return $this->file_put_file_contents($file, $newdata);
 		}
 
 		/**

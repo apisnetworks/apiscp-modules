@@ -110,6 +110,7 @@
 			if (!$user) {
 				return false;
 			}
+
 			return $user['uid'];
 		}
 
@@ -141,6 +142,7 @@
 						return $users[$user];
 					}
 				}
+
 				return $this->query('user_getpwnam', $user);
 			}
 			$pwd = \Opcenter\Role\User::bindTo($this->domain_fs_path())->getpwnam(null);
@@ -150,6 +152,7 @@
 					'users:pwd'     => $pwd,
 				)
 			);
+
 			return array_get($pwd, $user, []);
 		}
 
@@ -215,7 +218,8 @@
 			$ftp_enable = isset($options['ftp']) && $options['ftp'] != 0;
 			$cp_enable = isset($options['cp']) && $options['cp'] != 0;
 			$dav_enable = isset($options['dav']) && $options['dav'] != 0;
-			$ssh_enable = $this->getServiceValue('ssh', 'enabled') && isset($options['smtp'], $options['ssh']) && $options['ssh'] != 0;
+			$ssh_enable = $this->getServiceValue('ssh',
+					'enabled') && isset($options['smtp'], $options['ssh']) && $options['ssh'] != 0;
 
 			if ($this->auth_is_demo()) {
 				$blacklist = ['imap', 'smtp', 'dav', 'ssh', 'ftp'];
@@ -253,6 +257,7 @@
 			]);
 			if (!$ret) {
 				$instance->releaseUid($uid, $this->site_id);
+
 				// user creation failed
 				return false;
 			}
@@ -293,17 +298,6 @@
 
 
 			return true;
-		}
-
-		/**
-		 * Get shells valid for account
-		 *
-		 * /bin/false blocks access via PAM controlled services
-		 *
-		 * @return array
-		 */
-		public function get_shells(): array {
-			return file($this->domain_fs_path('/etc/shells'), FILE_IGNORE_NEW_LINES|FILE_SKIP_EMPTY_LINES) + ['/bin/false'];
 		}
 
 		/**
@@ -357,7 +351,39 @@
 			$cache = Cache_Account::spawn($this->getAuthContext());
 			$cache->set('users.gen', $mtime, 43200);
 			$cache->set('users', $users, 43200);
+
 			return $users;
+		}
+
+		/**
+		 * Get shells valid for account
+		 *
+		 * /bin/false blocks access via PAM controlled services
+		 *
+		 * @return array
+		 */
+		public function get_shells(): array
+		{
+			return file($this->domain_fs_path('/etc/shells'),
+					FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) + ['/bin/false'];
+		}
+
+		/**
+		 * Flush account user cache
+		 *
+		 * @return bool
+		 */
+		public function flush()
+		{
+			$cache = Cache_Account::spawn($this->getAuthContext());
+			$keys = array('users:pwd.gen', 'users');
+			foreach ($keys as $key) {
+				// don't worry about Redis::delete() response
+				// response will return NOT FOUND if cache is not yet set
+				$cache->delete($key);
+			}
+
+			return true;
 		}
 
 		public function get_user_home($user = null)
@@ -372,6 +398,7 @@
 			}
 
 			$pwnam = $this->getpwnam($user);
+
 			return !$pwnam ? false : $pwnam['home'];
 		}
 
@@ -393,90 +420,12 @@
 				}
 			}
 			fclose($fp);
+
 			return array(
 				'users' => $users,
 				// bc pre v7.5
 				'max'   => $this->getServiceValue("users", "max", $this->getServiceValue('users', 'maxusers'))
 			);
-		}
-
-		public function delete_user($user)
-		{
-			if (!IS_CLI) {
-				return $this->query('user_delete_user', $user);
-			}
-
-			$users = $this->get_users();
-			if (!isset($users[$user])) {
-				return error("user `%s' not found", $user);
-			} else if ($user == $this->getServiceValue('siteinfo', 'admin_user')) {
-				return error("cannot delete primary user");
-			}
-
-			$uid = $users[$user]['uid'];
-			// check to make sure subdomains/domains aren't hosted by user
-			$domains = $this->aliases_list_shared_domains();
-			$home = $this->get_home($user);
-			$subdomains = array_keys(
-				$this->web_list_subdomains('path', '!^' . $home . '/!')
-			);
-
-			$blocking = array();
-			foreach ($domains as $domain => $path) {
-				if (!$this->file_exists($path)) {
-					continue;
-				}
-				$stat = $this->file_stat($path);
-				if (!$stat) {
-					continue;
-				}
-				if (0 === strpos($home, $path) || $stat['uid'] == $uid) {
-					$blocking[] = $domain;
-				}
-			}
-			$subcount = count($subdomains);
-			$domaincount = count($blocking);
-			if ($domaincount > 0 || $subcount > 0) {
-				Util_Conf::sort_domains($blocking);
-				if ($domaincount > 0) {
-					error("one or more domains rely on user `%s', remove or relocate these domains first (DNS > Addon Domains): `%s'",
-						$user, join($blocking, ", "));
-				}
-
-				if (count($subdomains) === 1 && ($subdomains[0] === $user || 0 === strpos($subdomains[0].'.', $user.'.'))) {
-					$subcount--;
-					info("removed user-specific subdomain, `%s'", $subdomains[0]);
-					$this->web_remove_subdomain($subdomains[0]);
-				} else {
-					if (count($subdomains) > 0) {
-						error("one or more subdomains rely on user `%s', remove or relocate these subdomains first (Web > Subdomains): `%s'",
-							$user, join($subdomains, ", "));
-					}
-				}
-
-				if ($domaincount || $subcount) {
-					return false;
-				}
-
-			}
-
-			Util_Account_Hooks::run('delete_user', $user);
-			$instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
-			$ret = $instance->delete($user, true);
-			if (!$ret) {
-				return false;
-			}
-			$instance->releaseUid($uid, $this->site_id);
-			$this->flush();
-			\apnscpSession::invalidate_by_user($this->site_id, $user);
-			$key = $this->site . '.' . $user;
-
-			if (array_has($this->uid_mappings, $key)) {
-				array_forget($this->uid_mappings, $key);
-			}
-
-			return $ret;
-
 		}
 
 		/**
@@ -525,23 +474,6 @@
 					'move_home' => true
 				)
 			);
-		}
-
-		/**
-		 * Flush account user cache
-		 *
-		 * @return bool
-		 */
-		public function flush()
-		{
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			$keys = array('users:pwd.gen', 'users');
-			foreach ($keys as $key) {
-				// don't worry about Redis::delete() response
-				// response will return NOT FOUND if cache is not yet set
-				$cache->delete($key);
-			}
-			return true;
 		}
 
 		/**
@@ -652,10 +584,9 @@
 				$quotas[] = array('ts' => $row->ts, 'quota' => $row->quota);
 			}
 			$cache->set($key, gzdeflate(serialize($quotas)), 43200);
+
 			return $quotas;
 		}
-
-		// {{{ change_gecos()
 
 		/**
 		 * Fetch storage and file quotas from the underlying quota subsystem
@@ -708,7 +639,7 @@
 			$quota_rep = Util_Process::exec('quota -w -v -u ' . $uid_list, array('mute_stderr' => true));
 			preg_match_all(Regex::QUOTA_USRGRP, $quota_rep['output'], $quotas, PREG_SET_ORDER);
 			$quota_stat = array_combine($users, array_fill(0, sizeof($users), null));
-			$max = $this->getServiceValue('diskquota','enabled') ?
+			$max = $this->getServiceValue('diskquota', 'enabled') ?
 				round($this->getConfig('diskquota', 'quota') * 1024) : 0;
 			foreach ($quotas as $quota) {
 				$uid = $quota['uid'];
@@ -751,12 +682,11 @@
 					'fhard' => $grp['fsoft']
 				);
 			}
+
 			return $single ? array_pop($quota_stat) : $quota_stat;
 		}
 
-		// }}}
-
-		// {{{ usermod_driver()
+		// {{{ change_gecos()
 
 		/**
 		 * Change a user's gecos field
@@ -785,6 +715,8 @@
 
 		// }}}
 
+		// {{{ usermod_driver()
+
 		public function get_username_from_uid($uid)
 		{
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
@@ -812,8 +744,11 @@
 			if (!isset($this->uid_mappings[$site][$uid])) {
 				return false;
 			}
+
 			return $this->uid_mappings[$site][$uid];
 		}
+
+		// }}}
 
 		/**
 		 * Generate a list of files contributing towards the account quota
@@ -875,6 +810,7 @@
 			if (!$ret['success']) {
 				return false;
 			}
+
 			return $file;
 		}
 
@@ -916,6 +852,7 @@
 			fwrite($fp, $lines);
 			flock($fp, LOCK_UN);
 			fclose($fp);
+
 			return true;
 		}
 
@@ -937,6 +874,7 @@
 				}
 				$groups[] = $group_name;
 			}
+
 			return $groups;
 		}
 
@@ -956,52 +894,14 @@
 			if (in_array($group, $groups)) {
 				return error("duplicate group `%s'", $group);
 			}
+
 			// @XXX -o is a Redhat-specific param to override duplicate gid
 			return (new \Opcenter\Role\Group($this->domain_fs_path()))->create($group, [
-				'force'    => true,
+				'force'     => true,
 				'duplicate' => true,
-				'gid'      => $this->group_id
+				'gid'       => $this->group_id
 			]);
 		}
-
-		/**
-		 * Get list of services for which user is enabled
-		 *
-		 * @param string $user
-		 * @return array|false
-		 */
-		public function enrollment(string $user)
-		{
-			if (!$this->exists($user) || $this->get_uid_from_username($user) < self::MIN_UID) {
-				return error("unknown or system user `%s'", $user);
-			}
-			$pam = new Util_Pam($this->getAuthContext());
-			return $pam->enrolled($user);
-		}
-
-		/**
-		 * Remove historical quota data
-		 *
-		 * @param  string $user
-		 * @param  int    $until erase records until this timestamp
-		 * @return bool
-		 */
-		public function erase_quota_history($user, $until = -1)
-		{
-			if (!$this->exists($user)) {
-				return error("user `$user' does not exist");
-			}
-			$uid = $this->get_uid_from_username($user);
-			$until = intval($until);
-			if ($until < 0) {
-				$until = time() + 86400 * 30;
-			}
-			$db = MySQL::initialize();
-			$q = $db->query("DELETE FROM quota_tracker WHERE uid = " . $uid . " AND ts < FROM_UNIXTIME(" . $until . ");");
-			return (bool)$q;
-
-		}
-
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
@@ -1024,6 +924,135 @@
 			}
 		}
 
+		public function _delete_user(string $user)
+		{
+			$pam = new Util_Pam($this->getAuthContext());
+			foreach ($this->enrollment($user) as $svc) {
+				$pam->remove($user, $svc);
+			}
+			$this->erase_quota_history($user);
+		}
+
+		/**
+		 * Get list of services for which user is enabled
+		 *
+		 * @param string $user
+		 * @return array|false
+		 */
+		public function enrollment(string $user)
+		{
+			if (!$this->exists($user) || $this->get_uid_from_username($user) < self::MIN_UID) {
+				return error("unknown or system user `%s'", $user);
+			}
+			$pam = new Util_Pam($this->getAuthContext());
+
+			return $pam->enrolled($user);
+		}
+
+		/**
+		 * Remove historical quota data
+		 *
+		 * @param  string $user
+		 * @param  int    $until erase records until this timestamp
+		 * @return bool
+		 */
+		public function erase_quota_history($user, $until = -1)
+		{
+			if (!$this->exists($user)) {
+				return error("user `$user' does not exist");
+			}
+			$uid = $this->get_uid_from_username($user);
+			$until = intval($until);
+			if ($until < 0) {
+				$until = time() + 86400 * 30;
+			}
+			$db = MySQL::initialize();
+			$q = $db->query("DELETE FROM quota_tracker WHERE uid = " . $uid . " AND ts < FROM_UNIXTIME(" . $until . ");");
+
+			return (bool)$q;
+
+		}
+
+		public function delete_user($user)
+		{
+			if (!IS_CLI) {
+				return $this->query('user_delete_user', $user);
+			}
+
+			$users = $this->get_users();
+			if (!isset($users[$user])) {
+				return error("user `%s' not found", $user);
+			} else if ($user == $this->getServiceValue('siteinfo', 'admin_user')) {
+				return error("cannot delete primary user");
+			}
+
+			$uid = $users[$user]['uid'];
+			// check to make sure subdomains/domains aren't hosted by user
+			$domains = $this->aliases_list_shared_domains();
+			$home = $this->get_home($user);
+			$subdomains = array_keys(
+				$this->web_list_subdomains('path', '!^' . $home . '/!')
+			);
+
+			$blocking = array();
+			foreach ($domains as $domain => $path) {
+				if (!$this->file_exists($path)) {
+					continue;
+				}
+				$stat = $this->file_stat($path);
+				if (!$stat) {
+					continue;
+				}
+				if (0 === strpos($home, $path) || $stat['uid'] == $uid) {
+					$blocking[] = $domain;
+				}
+			}
+			$subcount = count($subdomains);
+			$domaincount = count($blocking);
+			if ($domaincount > 0 || $subcount > 0) {
+				Util_Conf::sort_domains($blocking);
+				if ($domaincount > 0) {
+					error("one or more domains rely on user `%s', remove or relocate these domains first (DNS > Addon Domains): `%s'",
+						$user, join($blocking, ", "));
+				}
+
+				if (count($subdomains) === 1 && ($subdomains[0] === $user || 0 === strpos($subdomains[0] . '.',
+							$user . '.'))) {
+					$subcount--;
+					info("removed user-specific subdomain, `%s'", $subdomains[0]);
+					$this->web_remove_subdomain($subdomains[0]);
+				} else {
+					if (count($subdomains) > 0) {
+						error("one or more subdomains rely on user `%s', remove or relocate these subdomains first (Web > Subdomains): `%s'",
+							$user, join($subdomains, ", "));
+					}
+				}
+
+				if ($domaincount || $subcount) {
+					return false;
+				}
+
+			}
+
+			Util_Account_Hooks::run('delete_user', $user);
+			$instance = \Opcenter\Role\User::bindTo($this->domain_fs_path());
+			$ret = $instance->delete($user, true);
+			if (!$ret) {
+				return false;
+			}
+			$instance->releaseUid($uid, $this->site_id);
+			$this->flush();
+			\apnscpSession::invalidate_by_user($this->site_id, $user);
+			$key = $this->site . '.' . $user;
+
+			if (array_has($this->uid_mappings, $key)) {
+				array_forget($this->uid_mappings, $key);
+			}
+
+			return $ret;
+
+		}
+
 		public function _edit()
 		{
 			$new = $this->getAuthContext()->conf('siteinfo', 'new');
@@ -1031,11 +1060,8 @@
 			if ($new['admin_user'] === $old['admin_user']) {
 				return true;
 			}
-			return $this->_edit_user($old['admin_user'], $new['admin_user'], []);
-		}
 
-		public function _create_user(string $user)
-		{
+			return $this->_edit_user($old['admin_user'], $new['admin_user'], []);
 		}
 
 		public function _edit_user(string $user, string $usernew, array $oldpwd)
@@ -1045,12 +1071,7 @@
 			$this->flush();
 		}
 
-		public function _delete_user(string $user)
+		public function _create_user(string $user)
 		{
-			$pam = new Util_Pam($this->getAuthContext());
-			foreach ($this->enrollment($user) as $svc) {
-				$pam->remove($user, $svc);
-			}
-			$this->erase_quota_history($user);
 		}
 	}

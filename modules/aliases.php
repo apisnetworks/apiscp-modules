@@ -36,9 +36,9 @@
 		public function __construct()
 		{
 			$this->exportedFunctions = array(
-				'*'                         => PRIVILEGE_SITE,
+				'*'                  => PRIVILEGE_SITE,
 				'add_domain_backend' => PRIVILEGE_SERVER_EXEC | PRIVILEGE_SITE,
-				'map_domain'                => PRIVILEGE_SERVER_EXEC,
+				'map_domain'         => PRIVILEGE_SERVER_EXEC,
 			);
 			parent::__construct();
 		}
@@ -91,6 +91,7 @@
 			$ret = $this->add_alias($domain);
 			if (!$ret) {
 				file_exists($path) && unlink($path);
+
 				return error("failed to add domain alias configuration `%s'", $domain);
 			}
 
@@ -101,7 +102,39 @@
 			}
 			$ip = $this->common_get_ip_address();
 			$this->removeBypass($domain);
+
 			return $this->dns_add_zone_backend($domain, $ip);
+		}
+
+		/**
+		 * Add hostname to account configuration
+		 *
+		 * add_alias() implies that prereq checks have been made,
+		 * including duplication checks
+		 *
+		 * @param string $alias
+		 * @return bool
+		 */
+		protected function add_alias($alias)
+		{
+			if (!IS_CLI) {
+				return error(__METHOD__ . ' should be called from backend');
+			}
+
+			$alias = strtolower($alias);
+			if (!preg_match(Regex::DOMAIN, $alias)) {
+				return error($alias . ": invalid domain");
+			}
+
+			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
+			$aliases[] = $alias;
+			$limit = $this->getServiceValue('aliases', 'max', null);
+			if (null !== $limit && count($aliases) + 1 > $limit) {
+				return error("account has reached max amount of addon domains, `%d'", $limit);
+			}
+
+			return $this->setConfigJournal('aliases', 'enabled', 1) &&
+				$this->setConfigJournal('aliases', 'aliases', $aliases);
 		}
 
 		/**
@@ -111,7 +144,8 @@
 		 * @param string $path
 		 * @return bool
 		 */
-		protected function notify_admin(string $domain, string $path): bool {
+		protected function notify_admin(string $domain, string $path): bool
+		{
 			if (!DOMAINS_NOTIFY) {
 				return false;
 			}
@@ -119,11 +153,11 @@
 			$template = \BladeLite::factory('views/email');
 			$html = $template->make('aliases.domain-add',
 				[
-					'domain' => $domain,
-					'path' => $path,
+					'domain'     => $domain,
+					'path'       => $path,
 					'authdomain' => $this->domain,
-					'authuser' => $this->username,
-					'siteid' => $this->site_id,
+					'authuser'   => $this->username,
+					'siteid'     => $this->site_id,
 				]
 			)->render();
 
@@ -151,6 +185,7 @@
 			);
 
 		}
+
 		/**
 		 * Manage domain symlink mapping
 		 *
@@ -234,7 +269,7 @@
 						// assign a doc root under all_domains/
 						$localpath = $user_home . '/all_domains/' . $domain;
 						if (!file_exists($fullpath)) {
-							$this->file_create_symlink($path, $localpath);
+							$this->file_symlink($path, $localpath);
 						} else {
 							warn("cannot make symlink %s - file exists, possibly misplaced docroot?",
 								$localpath
@@ -248,6 +283,7 @@
 			if ($mode == 'add') {
 				return $this->addMap($domain, $path);
 			}
+
 			return $this->removeMap($domain);
 		}
 
@@ -277,6 +313,7 @@
 					\Preferences::reload();
 				}
 				$this->web_purge();
+
 				return $ret;
 			}
 			if (!$this->domain_exists($domain)) {
@@ -311,100 +348,8 @@
 				}
 			}
 			$this->web_purge();
+
 			return true;
-		}
-
-		public function remove_shared_domain(string $domain) {
-			deprecated_func('Use remove_domain');
-			return $this->remove_domain($domain);
-		}
-
-		/**
-		 * bool remove_domain(string)
-		 *
-		 * @param string $domain domain name to remove
-		 * @return bool
-		 */
-		public function remove_domain($domain)
-		{
-			if (!IS_CLI) {
-				$docroot = $this->web_get_docroot($domain);
-				$status = $this->query('aliases_remove_domain', $domain);
-				if ($status && $docroot) {
-					$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
-					$meta->forget($docroot);
-				}
-				return $status;
-			}
-			$domain = strtolower($domain);
-			if (!preg_match(Regex::DOMAIN, $domain)) {
-				return error("Invalid domain `$domain'");
-			}
-			$this->map_domain('delete', $domain);
-			if (!$this->remove_alias($domain)) {
-				return false;
-			}
-			/**
-			 * NB: don't call dns_remove_zone, the domain may be added back at a later date,
-			 * in which case the DNS will get clobbered
-			 */
-			return true;
-		}
-
-		public function remove_alias($alias)
-		{
-			if (!IS_CLI) {
-				$status = $this->query('aliases_remove_alias', $alias);
-				return $status;
-			}
-			$alias = strtolower(trim($alias));
-			if (!preg_match(Regex::DOMAIN, $alias)) {
-				return error("Invalid domain");
-			}
-
-			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
-
-			$key = array_search($alias, $aliases);
-			if ($key === false) {
-				return error("domain `$alias' not found");
-			}
-
-			unset($aliases[$key]);
-			if (!$aliases && version_compare(platform_version(), '7.5', '<')) {
-				$this->setConfigJournal('aliases', 'enabled', 0);
-			}
-
-			return $this->setConfigJournal('aliases', 'aliases', $aliases);
-		}
-
-		public function add_shared_domain(string $domain, string $path) {
-			deprecated_func('Use add_domain');
-			return $this->add_domain($domain, $path);
-		}
-
-		public function add_domain($domain, $path)
-		{
-			$domain = preg_replace('/^www./', '', strtolower($domain));
-			$path = rtrim(str_replace('..', '.', $path), '/') . '/';
-
-			if (!preg_match(Regex::DOMAIN, $domain)) {
-				return error($domain . ": invalid domain");
-			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $path)) {
-				return error($path . ": invalid path");
-			} else if ($domain === $this->getServiceValue('siteinfo', 'domain')) {
-				return error("Primary domain may not be replicated as a shared domain");
-			}
-
-			if (!$this->_verify($domain)) {
-				return false;
-			}
-			return $this->query('aliases_add_domain_backend', $domain, $path);
-		}
-
-		public function shared_domain_exists($domain): bool
-		{
-			deprecated_func('use domain_exists');
-			return $this->domain_exists($domain);
 		}
 
 		/**
@@ -433,6 +378,7 @@
 			if (isset($map[$this->domain])) {
 				unset($map[$this->domain]);
 			}
+
 			return $map;
 		}
 
@@ -452,182 +398,174 @@
 			if ($id && $id != $this->site_id) {
 				return true;
 			}
+
 			return false;
 		}
 
-		/**
-		 * Get challenge token to verify ownership of domain
-		 *
-		 * @param string $domain
-		 * @return string
-		 */
-		public function challenge_token(): string
+		private function _change_owner($domain, $user)
 		{
-			if (!IS_CLI) {
-				return $this->query('aliases_challenge_token');
+			$users = $this->user_get_users();
+			if (!isset($users[$user])) {
+				return error("user `$user' not found");
 			}
-			$str = (string)fileinode($this->domain_info_path('users'));
-			return sha1($str);
+			$map = $this->transformMap();
+			if (!array_key_exists($domain, $map)) {
+				return error("domain `$domain' not found in domain map");
+			}
+
+			$path = $map[$domain];
+
+			return $this->file_chown($path, $user, true);
+		}
+
+		private function _change_path($domain, $newpath)
+		{
+			$map = $this->transformMap();
+			if (!array_key_exists($domain, $map)) {
+				return error("domain `$domain' not found in domain map");
+			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $newpath)) {
+				return error($newpath . ": invalid path");
+			}
+			$oldpath = $map[$domain];
+			if (!$this->removeMap($domain)) {
+				return false;
+			}
+			if (!file_exists($this->domain_fs_path() . $newpath)) {
+				$this->createDocumentRoot($newpath);
+			}
+			if (!$this->addMap($domain, $newpath)) {
+				// domain addition failed - revert
+				$this->addMap($domain, $oldpath);
+
+				return error("domain `$domain' path change failure - reverting");
+			}
+
+			if ($oldpath === $newpath) {
+				return true;
+			}
+
+			$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
+			$meta->rename($oldpath, $newpath);
+
+			return true;
+
+		}
+
+		private function _change_domain($domain, $newdomain)
+		{
+			$map = $this->transformMap();
+			if (!array_key_exists($domain, $map)) {
+				return error("domain `$domain' not found in domain map");
+			}
+			$map = $this->transformMap();
+			$path = $map[$domain];
+			$ret = $this->remove_domain($domain)
+				&& $this->_synchronize_changes() &&
+				$this->add_domain($newdomain, $path);
+			if ($ret) {
+				warn("activate configuration changes for new domain to take effect");
+			}
+
+			return $ret;
 		}
 
 		/**
-		 * Compare domain configuration journal
+		 * bool remove_domain(string)
 		 *
+		 * @param string $domain domain name to remove
 		 * @return bool
 		 */
-		public function list_unsynchronized_domains()
-		{
-			$active = parent::getActiveServices('aliases');
-			$active = $active['aliases'];
-			$pending = (array)parent::getNewServices('aliases');
-			if ($pending) {
-				$pending = $pending['aliases'];
-			}
-			$domains = array_keys($this->list_shared_domains());
-			$changes = array(
-				'add'    => array_diff($pending, $active),
-				'remove' => array_diff($active, $domains)
-			);
-			return $changes;
-		}
-
-		public function synchronize_changes()
+		public function remove_domain($domain)
 		{
 			if (!IS_CLI) {
-				return $this->query('aliases_synchronize_changes');
-			}
-
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			$time = $cache->get('aliases.sync');
-			$aliases = array_keys($this->list_shared_domains());
-			if (version_compare(platform_version(), '7.5', '<')) {
-				$this->setConfigJournal('aliases', 'enabled', intval(count($aliases) > 0));
-			}
-			$this->setConfigJournal('aliases', 'aliases', $aliases);
-			return $this->_synchronize_changes() && ($cache->set('aliases.sync', $time) || true);
-		}
-
-		/**
-		 * array list_aliases()
-		 *
-		 * @return array aliases associated to the domain
-		 */
-		public function list_aliases()
-		{
-			$values = $this->getServiceValue('aliases', 'aliases');
-			return (array)$values;
-		}
-
-		public function _reset(Util_Account_Editor &$editor = null)
-		{
-			$module = 'aliases';
-			$params = array('aliases' => array());
-			if (version_compare(platform_version(), '7.5', '<')) {
-				$params['enabled'] = 0;
-			}
-			if ($editor) {
-				foreach ($params as $k => $v) {
-					$editor->setConfig($module, $k, $v);
+				$docroot = $this->web_get_docroot($domain);
+				$status = $this->query('aliases_remove_domain', $domain);
+				if ($status && $docroot) {
+					$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
+					$meta->forget($docroot);
 				}
-			}
-			return array($module => $params);
-		}
 
-		public function _edit()
-		{
-			$conf_old = $this->getAuthContext()->conf('siteinfo', 'old');
-			$conf_new = $this->getAuthContext()->conf('siteinfo', 'new');
-			$domainold = $conf_old['domain'];
-			$domainnew = $conf_new['domain'];
-
-			// domain name change via auth_change_domain()
-			if ($domainold !== $domainnew && $this->isBypass($domainnew)) {
-				$this->removeBypass($domainnew);
+				return $status;
 			}
-			$aliasesnew = array_get($this->getAuthContext()->conf('aliases', 'new'), 'aliases', []);
-			$aliasesold = array_get($this->getAuthContext()->conf('aliases', 'old'), 'aliases', []);
-			$add = array_diff($aliasesnew, $aliasesold);
-			$rem = array_diff($aliasesold, $aliasesnew);
-			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
-			foreach ($add as $a) {
-				$db->insert($a, $this->site);
+			$domain = strtolower($domain);
+			if (!preg_match(Regex::DOMAIN, $domain)) {
+				return error("Invalid domain `$domain'");
 			}
-			foreach ($rem as $r) {
-				$db->delete($r);
-			}
-			$db->close();
-			return;
-		}
-
-		public function _create() {
-			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
-			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
-			foreach ($conf as $domain) {
-				$db->insert($domain, $this->site);
-			}
-			$db->close();
-		}
-
-		public function _delete() {
-			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
-			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
-			foreach ($conf as $domain) {
-				$db->delete($domain);
-			}
-			$db->close();
-		}
-
-		public function _edit_user(string $user, string $usernew, array $oldpwd)
-		{
-			if ($user === $usernew) {
-				return;
+			$this->map_domain('delete', $domain);
+			if (!$this->remove_alias($domain)) {
+				return false;
 			}
 
-			$domains = $this->list_shared_domains();
-			$home = $oldpwd['home'];
-			$newhome = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!', DIRECTORY_SEPARATOR . $usernew, $home, 1);
-			foreach ($domains as $domain => $info) {
-				if (strncmp($home, $newhome, strlen($home))) {
-					continue;
-				}
-				$newpath = preg_replace('!^' . $home . '!', $newhome, $info['path']);
-				if (!$this->_change_path($domain, $newpath)) {
-					warn("failed to update domain `%s'", $domain);
-				}
-			}
-			$this->web_purge();
+			/**
+			 * NB: don't call dns_remove_zone, the domain may be added back at a later date,
+			 * in which case the DNS will get clobbered
+			 */
 			return true;
 		}
 
-		/**
-		 * Add hostname to account configuration
-		 *
-		 * add_alias() implies that prereq checks have been made,
-		 * including duplication checks
-		 *
-		 * @param string $alias
-		 * @return bool
-		 */
-		protected function add_alias($alias)
+		public function remove_alias($alias)
 		{
 			if (!IS_CLI) {
-				return error(__METHOD__ . ' should be called from backend');
-			}
+				$status = $this->query('aliases_remove_alias', $alias);
 
-			$alias = strtolower($alias);
+				return $status;
+			}
+			$alias = strtolower(trim($alias));
 			if (!preg_match(Regex::DOMAIN, $alias)) {
-				return error($alias . ": invalid domain");
+				return error("Invalid domain");
 			}
 
 			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
-			$aliases[] = $alias;
-			$limit = $this->getServiceValue('aliases','max', null);
-			if (null !== $limit && count($aliases)+1 > $limit) {
-				return error("account has reached max amount of addon domains, `%d'", $limit);
+
+			$key = array_search($alias, $aliases);
+			if ($key === false) {
+				return error("domain `$alias' not found");
 			}
 
-			return $this->setConfigJournal('aliases', 'enabled', 1) &&
-				$this->setConfigJournal('aliases', 'aliases', $aliases);
+			unset($aliases[$key]);
+			if (!$aliases && version_compare(platform_version(), '7.5', '<')) {
+				$this->setConfigJournal('aliases', 'enabled', 0);
+			}
+
+			return $this->setConfigJournal('aliases', 'aliases', $aliases);
+		}
+
+		private function _synchronize_changes()
+		{
+			if ($this->auth_is_inactive()) {
+				return error('account is suspended, will not resync');
+			}
+			$cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
+			// pull in latest, unsynchronized config from new/
+			$cmd->importConfig();
+			$status = $cmd->edit();
+			if (!$status) {
+				return error("failed to activate domain changes");
+			}
+			info("Hang tight! Domain changes will be active within a few minutes, but may take up to 24 hours to work properly.");
+			$this->getAuthContext()->getAccount()->reset($this->getAuthContext());
+
+			return true;
+		}
+
+		public function add_domain($domain, $path)
+		{
+			$domain = preg_replace('/^www./', '', strtolower($domain));
+			$path = rtrim(str_replace('..', '.', $path), '/') . '/';
+
+			if (!preg_match(Regex::DOMAIN, $domain)) {
+				return error($domain . ": invalid domain");
+			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $path)) {
+				return error($path . ": invalid path");
+			} else if ($domain === $this->getServiceValue('siteinfo', 'domain')) {
+				return error("Primary domain may not be replicated as a shared domain");
+			}
+
+			if (!$this->_verify($domain)) {
+				return false;
+			}
+
+			return $this->query('aliases_add_domain_backend', $domain, $path);
 		}
 
 		protected function _verify($domain)
@@ -651,6 +589,7 @@
 				$cpnameservers = $this->dns_get_hosting_nameservers($domain);
 				$hash = $this->challenge_token($domain);
 				$script = $hash . '.html';
+
 				return error("`%s': domain has DNS records delegated to nameservers %s. " .
 					"Domain cannot be added to this account for security. Complete one of the following options to " .
 					"verify ownership:" . "\r\n\r\n" .
@@ -670,6 +609,7 @@
 					$this->common_get_ip_address()
 				);
 			}
+
 			return true;
 		}
 
@@ -692,7 +632,7 @@
 				return true;
 			}
 			// domain not hosted, 5 second timeout
-			$ip = silence(function() use ($domain) {
+			$ip = silence(function () use ($domain) {
 				return parent::__call('dns_gethostbyname_t', [$domain, 5000]);
 			});
 			if (!$ip) {
@@ -712,6 +652,7 @@
 			if ($tmp && $tmp == $myip) {
 				return true;
 			}
+
 			return false;
 		}
 
@@ -742,6 +683,7 @@
 					return 1;
 				}
 			}
+
 			return 0;
 		}
 
@@ -784,86 +726,181 @@
 			} catch (HTTP_Request2_Exception $e) {
 				return error("Fatal error retrieving verification URL: `%s'", $e->getMessage());
 			}
+
 			return trim(strip_tags($content)) == $hash;
 		}
 
-		private function _change_owner($domain, $user)
+		/**
+		 * Get challenge token to verify ownership of domain
+		 *
+		 * @param string $domain
+		 * @return string
+		 */
+		public function challenge_token(): string
 		{
-			$users = $this->user_get_users();
-			if (!isset($users[$user])) {
-				return error("user `$user' not found");
+			if (!IS_CLI) {
+				return $this->query('aliases_challenge_token');
 			}
-			$map = $this->transformMap();
-			if (!array_key_exists($domain, $map)) {
-				return error("domain `$domain' not found in domain map");
-			}
+			$str = (string)fileinode($this->domain_info_path('users'));
 
-			$path = $map[$domain];
-			return $this->file_chown($path, $user, true);
+			return sha1($str);
 		}
 
-		private function _change_path($domain, $newpath)
+		public function remove_shared_domain(string $domain)
 		{
-			$map = $this->transformMap();
-			if (!array_key_exists($domain, $map)) {
-				return error("domain `$domain' not found in domain map");
-			} else if (!preg_match(Regex::ADDON_DOMAIN_PATH, $newpath)) {
-				return error($newpath . ": invalid path");
-			}
-			$oldpath = $map[$domain];
-			if (!$this->removeMap($domain)) {
-				return false;
-			}
-			if (!file_exists($this->domain_fs_path() . $newpath)) {
-				$this->createDocumentRoot($newpath);
-			}
-			if (!$this->addMap($domain, $newpath)) {
-				// domain addition failed - revert
-				$this->addMap($domain, $oldpath);
-				return error("domain `$domain' path change failure - reverting");
-			}
+			deprecated_func('Use remove_domain');
 
-			if ($oldpath === $newpath) {
-				return true;
-			}
-
-			$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
-			$meta->rename($oldpath, $newpath);
-			return true;
-
+			return $this->remove_domain($domain);
 		}
 
-		private function _change_domain($domain, $newdomain)
+		public function add_shared_domain(string $domain, string $path)
 		{
-			$map = $this->transformMap();
-			if (!array_key_exists($domain, $map)) {
-				return error("domain `$domain' not found in domain map");
-			}
-			$map = $this->transformMap();
-			$path = $map[$domain];
-			$ret = $this->remove_domain($domain)
-				&& $this->_synchronize_changes() &&
-				$this->add_domain($newdomain, $path);
-			if ($ret) {
-				warn("activate configuration changes for new domain to take effect");
-			}
-			return $ret;
+			deprecated_func('Use add_domain');
+
+			return $this->add_domain($domain, $path);
 		}
 
-		private function _synchronize_changes()
+		public function shared_domain_exists($domain): bool
 		{
-			if ($this->auth_is_inactive()) {
-				return error('account is suspended, will not resync');
+			deprecated_func('use domain_exists');
+
+			return $this->domain_exists($domain);
+		}
+
+		/**
+		 * Compare domain configuration journal
+		 *
+		 * @return bool
+		 */
+		public function list_unsynchronized_domains()
+		{
+			$active = parent::getActiveServices('aliases');
+			$active = $active['aliases'];
+			$pending = (array)parent::getNewServices('aliases');
+			if ($pending) {
+				$pending = $pending['aliases'];
 			}
-			$cmd = new Util_Account_Editor($this->getAuthContext()->getAccount());
-			// pull in latest, unsynchronized config from new/
-			$cmd->importConfig();
-			$status = $cmd->edit();
-			if (!$status) {
-				return error("failed to activate domain changes");
+			$domains = array_keys($this->list_shared_domains());
+			$changes = array(
+				'add'    => array_diff($pending, $active),
+				'remove' => array_diff($active, $domains)
+			);
+
+			return $changes;
+		}
+
+		public function synchronize_changes()
+		{
+			if (!IS_CLI) {
+				return $this->query('aliases_synchronize_changes');
 			}
-			info("Hang tight! Domain changes will be active within a few minutes, but may take up to 24 hours to work properly.");
-			$this->getAuthContext()->getAccount()->reset($this->getAuthContext());
+
+			$cache = Cache_Account::spawn($this->getAuthContext());
+			$time = $cache->get('aliases.sync');
+			$aliases = array_keys($this->list_shared_domains());
+			if (version_compare(platform_version(), '7.5', '<')) {
+				$this->setConfigJournal('aliases', 'enabled', intval(count($aliases) > 0));
+			}
+			$this->setConfigJournal('aliases', 'aliases', $aliases);
+
+			return $this->_synchronize_changes() && ($cache->set('aliases.sync', $time) || true);
+		}
+
+		/**
+		 * array list_aliases()
+		 *
+		 * @return array aliases associated to the domain
+		 */
+		public function list_aliases()
+		{
+			$values = $this->getServiceValue('aliases', 'aliases');
+
+			return (array)$values;
+		}
+
+		public function _reset(Util_Account_Editor &$editor = null)
+		{
+			$module = 'aliases';
+			$params = array('aliases' => array());
+			if (version_compare(platform_version(), '7.5', '<')) {
+				$params['enabled'] = 0;
+			}
+			if ($editor) {
+				foreach ($params as $k => $v) {
+					$editor->setConfig($module, $k, $v);
+				}
+			}
+
+			return array($module => $params);
+		}
+
+		public function _edit()
+		{
+			$conf_old = $this->getAuthContext()->conf('siteinfo', 'old');
+			$conf_new = $this->getAuthContext()->conf('siteinfo', 'new');
+			$domainold = $conf_old['domain'];
+			$domainnew = $conf_new['domain'];
+
+			// domain name change via auth_change_domain()
+			if ($domainold !== $domainnew && $this->isBypass($domainnew)) {
+				$this->removeBypass($domainnew);
+			}
+			$aliasesnew = array_get($this->getAuthContext()->conf('aliases', 'new'), 'aliases', []);
+			$aliasesold = array_get($this->getAuthContext()->conf('aliases', 'old'), 'aliases', []);
+			$add = array_diff($aliasesnew, $aliasesold);
+			$rem = array_diff($aliasesold, $aliasesnew);
+			$db = \Opcenter\Map::load(\Opcenter\Map::DOMAIN_MAP, 'wd');
+			foreach ($add as $a) {
+				$db->insert($a, $this->site);
+			}
+			foreach ($rem as $r) {
+				$db->delete($r);
+			}
+			$db->close();
+
+			return;
+		}
+
+		public function _create()
+		{
+			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
+			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
+			foreach ($conf as $domain) {
+				$db->insert($domain, $this->site);
+			}
+			$db->close();
+		}
+
+		public function _delete()
+		{
+			$db = \Opcenter\Map::write(\Opcenter\Map::DOMAIN_MAP);
+			$conf = array_get($this->getAuthContext()->conf('aliases'), 'aliases', []);
+			foreach ($conf as $domain) {
+				$db->delete($domain);
+			}
+			$db->close();
+		}
+
+		public function _edit_user(string $user, string $usernew, array $oldpwd)
+		{
+			if ($user === $usernew) {
+				return;
+			}
+
+			$domains = $this->list_shared_domains();
+			$home = $oldpwd['home'];
+			$newhome = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!', DIRECTORY_SEPARATOR . $usernew, $home, 1);
+			foreach ($domains as $domain => $info) {
+				if (strncmp($home, $newhome, strlen($home))) {
+					continue;
+				}
+				$newpath = preg_replace('!^' . $home . '!', $newhome, $info['path']);
+				if (!$this->_change_path($domain, $newpath)) {
+					warn("failed to update domain `%s'", $domain);
+				}
+			}
+			$this->web_purge();
+
 			return true;
 		}
 

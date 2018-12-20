@@ -43,6 +43,7 @@
 			$tail->exec($script);
 			$script = 'echo ' . date("r") . '; for (( C=0; C < ' . $cnt . ' ; C++ )) ; do echo $C; usleep ' . ($timing * 1000000) . '; done ; echo `date`';
 			$tail->exec($script);
+
 			return true;
 		}
 
@@ -73,6 +74,7 @@
 			$proc->exec("idontexist");
 			$proc->log("Testing!");
 			$proc->exec('whoami');
+
 			return true;
 		}
 
@@ -91,6 +93,7 @@
 			if (!IS_CLI) {
 				return $this->query('demo_test_backend_error', $message);
 			}
+
 			return error($message);
 
 		}
@@ -100,6 +103,7 @@
 			if (!IS_CLI) {
 				return $this->query('demo_test_sudo');
 			}
+
 			return Util_Process_Sudo::exec('echo whoami: `whoami`');
 		}
 

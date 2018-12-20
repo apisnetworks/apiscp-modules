@@ -11,11 +11,13 @@
 	 * Written by Matt Saladna <matt@apisnetworks.com>, July 2017
 	 */
 
-	class Diskquota_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable {
+	class Diskquota_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
+	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
 			'users'
 		];
+
 		public function _edit()
 		{
 			// TODO: Implement _edit() method.

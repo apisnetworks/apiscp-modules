@@ -1,5 +1,6 @@
 <?php
 	declare(strict_types=1);
+
 	/**
 	 * Copyright (C) Apis Networks, Inc - All Rights Reserved.
 	 *
@@ -11,9 +12,10 @@
 	 *
 	 * Written by Matt Saladna <matt@apisnetworks.com>, May 2017
 	 */
-
-	class Telemetry_Module extends Module_Skeleton {
-		public function __construct() {
+	class Telemetry_Module extends Module_Skeleton
+	{
+		public function __construct()
+		{
 			parent::__construct();
 			$this->exportedFunctions = ['*' => PRIVILEGE_SERVER_EXEC];
 			if (!TELEMETRY_ENABLED) {
@@ -21,11 +23,13 @@
 			}
 		}
 
-		public function collect() {
+		public function collect()
+		{
 
 		}
 
-		public function _cron() {
+		public function _cron()
+		{
 			/**
 			 * Prevent losing configuration settings in allkeys-lru purge
 			 */

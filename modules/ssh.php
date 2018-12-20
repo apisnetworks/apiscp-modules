@@ -21,8 +21,13 @@
 	{
 		const PAM_SVC_NAME = 'ssh';
 		const DEPENDENCY_MAP = [
-			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'auth'
+			'siteinfo',
+			'ipinfo',
+			'ipinfo6',
+			'users',
+			'auth'
 		];
+
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -48,6 +53,7 @@
 			if ($this->auth_is_demo()) {
 				return error("SSH disabled for demo account");
 			}
+
 			return (new Util_Pam($this->getAuthContext()))->add($user, self::PAM_SVC_NAME);
 		}
 
@@ -64,6 +70,7 @@
 			$pam = new Util_Pam($this->getAuthContext());
 			$pam->remove($userold, self::PAM_SVC_NAME);
 			$pam->add($usernew, self::PAM_SVC_NAME);
+
 			return true;
 		}
 
@@ -73,6 +80,7 @@
 			if ($this->permission_level & PRIVILEGE_USER) {
 				$check = $check && $this->user_enabled($this->username);
 			}
+
 			return $check;
 		}
 

@@ -52,6 +52,7 @@
 		public function list_cronjobs($user = null)
 		{
 			deprecated_func("use list_jobs()");
+
 			return $this->list_jobs($user);
 		}
 
@@ -116,28 +117,8 @@
 					"disabled"     => (bool)$matches['disabled']
 				);
 			}
-			return $cronjobs;
-		}
 
-		/**
-		 * Find crons that match a command
-		 *
-		 * @param string      $command
-		 * @param string|null $user
-		 * @return array
-		 */
-		public function filter_by_command(string $command, string $user = null): array {
-			if (!$jobs = $this->list_jobs($user)) {
-				return [];
-			}
-			$matches = [];
-			foreach ($jobs as $j) {
-				if (false === strpos($j['cmd'], $command)) {
-					continue;
-				}
-				$matches[] = $j;
-			}
-			return $matches;
+			return $cronjobs;
 		}
 
 		/**
@@ -165,17 +146,15 @@
 				return false;
 			}
 			$pid = (int)file_get_contents($pidfile);
+
 			return \Opcenter\Process::pidMatches($pid, 'crond');
 		}
 
-		/**
-		 * Service is permitted
-		 *
-		 * @return bool
-		 */
-		public function permitted(): bool
+		private function validUser($user)
 		{
-			return $this->ssh_enabled() && $this->getServiceValue('crontab', 'permit');
+			$uid = $this->user_get_uid_from_username($user);
+
+			return $uid && $uid > User_Module::MIN_UID;
 		}
 
 		public function user_permitted($user = null)
@@ -209,12 +188,102 @@
 		}
 
 		/**
+		 * Get absolute path to crontab spool file
+		 *
+		 * @return string
+		 */
+		private function get_spool_file($user = null)
+		{
+			if (!$user || ($this->permission_level & PRIVILEGE_USER)) {
+				$user = $this->username;
+			}
+
+			return $this->domain_fs_path() . self::CRON_SPOOL . '/' . $user;
+		}
+
+		/**
+		 * Parse crontab @token into corresponding time
+		 *
+		 * @param $token @token [@reboot, @yearly, @weekly, @monthly, @daily, @hourly]
+		 * @return array
+		 */
+		private function _parseCronToken($token)
+		{
+			$min = $hour = $dom = $month = $dow = '';
+			$hash = $this->site_id % 60;
+			$hash2 = $this->site_id % 24;
+			$expand = array(0 => $hash, 1 => $hash2, 2 => '*', 3 => '*', 4 => '*');
+			switch ($token) {
+				case '@reboot':
+					return array($token, '', '', '', '');
+				case '@yearly':
+				case '@annually':
+					$expand[3] = date('M');
+
+					return $expand;
+				case '@weekly':
+					$expand[4] = '0';
+
+					return $expand;
+				case '@monthly':
+					$expand[2] = '1';
+
+					return $expand;
+				case '@daily':
+					return $expand;
+				case '@hourly':
+					$expand[1] = '*';
+
+					return $expand;
+				default:
+					warn("unknown crond token `$token'");
+
+					return $expand;
+
+			}
+		}
+
+		/**
+		 * Find crons that match a command
+		 *
+		 * @param string      $command
+		 * @param string|null $user
+		 * @return array
+		 */
+		public function filter_by_command(string $command, string $user = null): array
+		{
+			if (!$jobs = $this->list_jobs($user)) {
+				return [];
+			}
+			$matches = [];
+			foreach ($jobs as $j) {
+				if (false === strpos($j['cmd'], $command)) {
+					continue;
+				}
+				$matches[] = $j;
+			}
+
+			return $matches;
+		}
+
+		/**
+		 * Service is permitted
+		 *
+		 * @return bool
+		 */
+		public function permitted(): bool
+		{
+			return $this->ssh_enabled() && $this->getServiceValue('crontab', 'permit');
+		}
+
+		/**
 		 * @deprecated
 		 * @see enabled()
 		 */
 		public function crontab_enabled()
 		{
 			deprecated_func("use enabled()");
+
 			return $this->enabled();
 		}
 
@@ -258,7 +327,48 @@
 			if (!$found) {
 				warn("requested cron `%s' not matched", $match);
 			}
+
 			return $this->_setCronContents(join("\n", $new), $user);
+		}
+
+		private function _getCronContents($user)
+		{
+			$spool = $this->get_spool_file($user);
+
+			if (!file_exists($spool)) {
+				return "";
+			}
+
+			return file_get_contents($spool);
+		}
+
+		private function _setCronContents($contents, $user)
+		{
+			$tmpFile = tempnam($this->domain_fs_path() . "/tmp", "apnscp");
+			$pwd = $this->user_getpwnam($user);
+			if (!$pwd) {
+				return error("getpwnam() failed for user `%s'", $user);
+			}
+
+			$fp = fopen($tmpFile, "a");
+			if (!flock($fp, LOCK_EX | LOCK_NB)) {
+				fclose($fp);
+
+				return error("failed to lock cron resource for `%s'", $user);
+			}
+			ftruncate($fp, 0);
+			fwrite($fp, $contents . "\n");
+			flock($fp, LOCK_UN);
+			fclose($fp);
+			chmod($tmpFile, 0644);
+			$sudo = new Util_Process_Sudo();
+			$sudo->setUser($user . '@' . $this->domain);
+			$retData = $sudo->run("crontab %s ",
+				'/tmp/' . basename($tmpFile));
+			unlink($tmpFile);
+
+			return $retData['success'] ? true :
+				error("failed to set cron contents for `%s': %s", $user, $retData['error']);
 		}
 
 		public function add_raw($line, $user = null)
@@ -308,6 +418,7 @@
 					$new[] = $line;
 				}
 			}
+
 			return $this->_setCronContents(join("\n", $new), $user);
 		}
 
@@ -321,6 +432,7 @@
 			$user = null
 		) {
 			deprecated_func("use add_job()");
+
 			return $this->add_job($min, $hour, $dom, $month, $dow, $cmd, $user);
 		}
 
@@ -333,7 +445,7 @@
 		 * @param mixed       $month month (1-12)
 		 * @param mixed       $dow   0-7 day of week
 		 * @param string      $cmd   command
-		 * @param string|null $user optional user to runas
+		 * @param string|null $user  optional user to runas
 		 *
 		 * @return bool
 		 */
@@ -350,6 +462,7 @@
 				if ($this->auth_is_demo()) {
 					return error("cronjob forbidden in demo");
 				}
+
 				return $this->query(
 					"crontab_add_job",
 					$min,
@@ -398,6 +511,7 @@
 			// list_jobs() won't include
 			$contents = rtrim($this->_getCronContents($user));
 			$contents .= "\n" . $min . " " . $hour . " " . $dom . " " . $month . " " . $dow . " " . $cmd . "\n";
+
 			return $this->_setCronContents($contents, $user);
 		}
 
@@ -437,6 +551,7 @@
 					warn("similar job scheduled: `%s'", $cmd);
 				}
 			}
+
 			return false;
 		}
 
@@ -471,6 +586,7 @@
 			$user = null
 		) {
 			deprecated_func("use delete_job()");
+
 			return $this->delete_job($min, $hour, $dom, $month, $dow, $cmd, $user);
 
 		}
@@ -556,6 +672,7 @@
 			/** and cleanup */
 			fclose($tmpfp);
 			fclose($fp);
+
 			return unlink($spool) && copy($tempFile, $spool) &&
 				unlink($tempFile) && chgrp($spool, (int)$pwd['uid']) &&
 				chown($spool, (int)$pwd['gid']) && chmod($spool, 0600);
@@ -570,6 +687,68 @@
 		public function reload()
 		{
 			return $this->toggle_status(-1);
+		}
+
+		/**
+		 * Toggle cronjob status
+		 *
+		 * Possible modes:
+		 *    -1: reload
+		 *     0: kill and remove
+		 *     1: enable
+		 *
+		 * @param int $status status flag [-1,0,1]
+		 * @return bool
+		 */
+		public function toggle_status($status)
+		{
+			if (!IS_CLI) {
+				return $this->query("crontab_toggle_status", (int)$status);
+			}
+			if (!$this->getServiceValue("ssh", "enabled")) {
+				return error("prerequisite ssh not satisfied");
+			} else if ($status != -1 && $status != 0 && $status != 1) {
+				return error("%s: invalid args passed to %s", $status, __FUNCTION__);
+			}
+			$pid_file = $this->domain_fs_path() . self::CRON_PID;
+			$kill_cmd = '/bin/kill -%s `cat ' . $pid_file . '`';
+			switch ($status) {
+				case 1:
+					if (!file_exists($this->domain_fs_path() . '/usr/sbin/crond')) {
+						return error("crond missing from filesystem template");
+					}
+					$cmd = '/bin/sh -c \'nice -20 /usr/sbin/crond\'';
+					$status = Util_Process::exec('/usr/sbin/chroot %s %s',
+						$this->domain_fs_path(),
+						$cmd,
+						array(
+							'mute_stderr' => false
+						)
+					);
+
+					return $status['success'];
+				case 0:
+					if (!file_exists($pid_file)) {
+						return error("%s: file not found", self::CRON_PID);
+					}
+					$status = Util_Process::exec($kill_cmd,
+						9);
+					if (version_compare(platform_version(), '4.5') < 0) {
+						unlink($this->domain_fs_path() . '/usr/sbin/crond');
+						unlink($this->domain_fs_path() . '/usr/bin/crontab');
+					}
+
+					return $status['success'];
+				case -1:
+					if (!file_exists($pid_file)) {
+						return error("%s: file not found", self::CRON_PID);
+					}
+					$status = Util_Process::exec($kill_cmd, 'HUP');
+
+					return $status['success'];
+				default:
+					return error($status . ": invalid parameter passed");
+			}
 		}
 
 		/**
@@ -596,6 +775,7 @@
 				$users[] = $file;
 			}
 			closedir($dh);
+
 			return $users;
 		}
 
@@ -660,7 +840,69 @@
 			$this->_permit_user_real($usernew);
 
 			$this->restart();
+
 			return true;
+		}
+
+		protected function _deny_user_real($user)
+		{
+			$file = $this->domain_fs_path() . '/etc/cron.deny';
+			if (!file_exists($file)) {
+				touch($file);
+			}
+			$fp = fopen($file, 'w+');
+			$users = array();
+			while (false !== ($line = fgets($fp))) {
+				$line = trim($line);
+				if ($line === $user) {
+					continue;
+				}
+				$users[] = $line;
+			}
+			$users[] = $user;
+			ftruncate($fp, 0);
+			rewind($fp);
+			fwrite($fp, join($users, "\n"));
+			fclose($fp);
+
+			return true;
+		}
+
+		protected function _permit_user_real($user)
+		{
+			$file = $this->domain_fs_path() . '/etc/cron.deny';
+			if (!file_exists($file)) {
+				return true;
+			}
+			$fp = fopen($file, 'w+');
+			$users = array();
+			while (false !== ($line = fgets($fp))) {
+				$line = trim($line);
+				if ($line == $user) {
+					continue;
+				}
+				$users[] = $line;
+			}
+			ftruncate($fp, 0);
+			rewind($fp);
+			fwrite($fp, join($users, "\n"));
+			fclose($fp);
+
+			return true;
+		}
+
+		public function restart()
+		{
+			if (!$this->getServiceValue('ssh', 'enabled')) {
+				return error("crond not enabled for account");
+			}
+			if ($this->enabled()) {
+				$this->toggle_status(0);
+			} else {
+				warn("crond was not running");
+			}
+
+			return $this->toggle_status(1);
 		}
 
 		/**
@@ -682,6 +924,7 @@
 			if (!$uid || $uid < User_Module::MIN_UID) {
 				return error("user `%s' is system user or does not exist", $user);
 			}
+
 			return $this->_deny_user_real($user);
 		}
 
@@ -708,217 +951,8 @@
 					warn("user `%s' does not exist", $user);
 				}
 			}
+
 			return $this->_permit_user_real($user);
-		}
-
-		public function restart()
-		{
-			if (!$this->getServiceValue('ssh', 'enabled')) {
-				return error("crond not enabled for account");
-			}
-			if ($this->enabled()) {
-				$this->toggle_status(0);
-			} else {
-				warn("crond was not running");
-			}
-			return $this->toggle_status(1);
-		}
-
-		/**
-		 * Toggle cronjob status
-		 *
-		 * Possible modes:
-		 *    -1: reload
-		 *     0: kill and remove
-		 *     1: enable
-		 *
-		 * @param int $status status flag [-1,0,1]
-		 * @return bool
-		 */
-		public function toggle_status($status)
-		{
-			if (!IS_CLI) {
-				return $this->query("crontab_toggle_status", (int)$status);
-			}
-			if (!$this->getServiceValue("ssh", "enabled")) {
-				return error("prerequisite ssh not satisfied");
-			} else if ($status != -1 && $status != 0 && $status != 1) {
-				return error("%s: invalid args passed to %s", $status, __FUNCTION__);
-			}
-			$pid_file = $this->domain_fs_path() . self::CRON_PID;
-			$kill_cmd = '/bin/kill -%s `cat ' . $pid_file . '`';
-			switch ($status) {
-				case 1:
-					if (!file_exists($this->domain_fs_path() . '/usr/sbin/crond')) {
-						return error("crond missing from filesystem template");
-					}
-					$cmd = '/bin/sh -c \'nice -20 /usr/sbin/crond\'';
-					$status = Util_Process::exec('/usr/sbin/chroot %s %s',
-						$this->domain_fs_path(),
-						$cmd,
-						array(
-							'mute_stderr' => false
-						)
-					);
-					return $status['success'];
-				case 0:
-					if (!file_exists($pid_file)) {
-						return error("%s: file not found", self::CRON_PID);
-					}
-					$status = Util_Process::exec($kill_cmd,
-						9);
-					if (version_compare(platform_version(), '4.5') < 0) {
-						unlink($this->domain_fs_path() . '/usr/sbin/crond');
-						unlink($this->domain_fs_path() . '/usr/bin/crontab');
-					}
-					return $status['success'];
-				case -1:
-					if (!file_exists($pid_file)) {
-						return error("%s: file not found", self::CRON_PID);
-					}
-					$status = Util_Process::exec($kill_cmd, 'HUP');
-					return $status['success'];
-				default:
-					return error($status . ": invalid parameter passed");
-			}
-		}
-
-		protected function _deny_user_real($user)
-		{
-			$file = $this->domain_fs_path() . '/etc/cron.deny';
-			if (!file_exists($file)) {
-				touch($file);
-			}
-			$fp = fopen($file, 'w+');
-			$users = array();
-			while (false !== ($line = fgets($fp))) {
-				$line = trim($line);
-				if ($line === $user) {
-					continue;
-				}
-				$users[] = $line;
-			}
-			$users[] = $user;
-			ftruncate($fp, 0);
-			rewind($fp);
-			fwrite($fp, join($users, "\n"));
-			fclose($fp);
-			return true;
-		}
-
-		protected function _permit_user_real($user)
-		{
-			$file = $this->domain_fs_path() . '/etc/cron.deny';
-			if (!file_exists($file)) {
-				return true;
-			}
-			$fp = fopen($file, 'w+');
-			$users = array();
-			while (false !== ($line = fgets($fp))) {
-				$line = trim($line);
-				if ($line == $user) {
-					continue;
-				}
-				$users[] = $line;
-			}
-			ftruncate($fp, 0);
-			rewind($fp);
-			fwrite($fp, join($users, "\n"));
-			fclose($fp);
-			return true;
-		}
-
-		private function validUser($user)
-		{
-			$uid = $this->user_get_uid_from_username($user);
-			return $uid && $uid > User_Module::MIN_UID;
-		}
-
-		/**
-		 * Get absolute path to crontab spool file
-		 *
-		 * @return string
-		 */
-		private function get_spool_file($user = null)
-		{
-			if (!$user || ($this->permission_level & PRIVILEGE_USER)) {
-				$user = $this->username;
-			}
-			return $this->domain_fs_path() . self::CRON_SPOOL . '/' . $user;
-		}
-
-		/**
-		 * Parse crontab @token into corresponding time
-		 *
-		 * @param $token @token [@reboot, @yearly, @weekly, @monthly, @daily, @hourly]
-		 * @return array
-		 */
-		private function _parseCronToken($token)
-		{
-			$min = $hour = $dom = $month = $dow = '';
-			$hash = $this->site_id % 60;
-			$hash2 = $this->site_id % 24;
-			$expand = array(0 => $hash, 1 => $hash2, 2 => '*', 3 => '*', 4 => '*');
-			switch ($token) {
-				case '@reboot':
-					return array($token, '', '', '', '');
-				case '@yearly':
-				case '@annually':
-					$expand[3] = date('M');
-					return $expand;
-				case '@weekly':
-					$expand[4] = '0';
-					return $expand;
-				case '@monthly':
-					$expand[2] = '1';
-					return $expand;
-				case '@daily':
-					return $expand;
-				case '@hourly':
-					$expand[1] = '*';
-					return $expand;
-				default:
-					warn("unknown crond token `$token'");
-					return $expand;
-
-			}
-		}
-
-		private function _getCronContents($user)
-		{
-			$spool = $this->get_spool_file($user);
-
-			if (!file_exists($spool)) {
-				return "";
-			}
-			return file_get_contents($spool);
-		}
-
-		private function _setCronContents($contents, $user)
-		{
-			$tmpFile = tempnam($this->domain_fs_path() . "/tmp", "apnscp");
-			$pwd = $this->user_getpwnam($user);
-			if (!$pwd) {
-				return error("getpwnam() failed for user `%s'", $user);
-			}
-
-			$fp = fopen($tmpFile, "a");
-			if (!flock($fp, LOCK_EX | LOCK_NB)) {
-				fclose($fp);
-				return error("failed to lock cron resource for `%s'", $user);
-			}
-			ftruncate($fp, 0);
-			fwrite($fp, $contents . "\n");
-			flock($fp, LOCK_UN);
-			fclose($fp);
-			chmod($tmpFile, 0644);
-			$sudo = new Util_Process_Sudo();
-			$sudo->setUser($user . '@' . $this->domain);
-			$retData = $sudo->run("crontab %s ",
-				'/tmp/' . basename($tmpFile));
-			unlink($tmpFile);
-			return $retData['success'] ? true :
-				error("failed to set cron contents for `%s': %s", $user, $retData['error']);
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

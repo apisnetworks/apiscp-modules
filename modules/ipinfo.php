@@ -32,9 +32,9 @@
 			parent::__construct();
 
 			$this->exportedFunctions = array(
-				'*'                      => PRIVILEGE_SITE,
-				'release_ip'             => PRIVILEGE_ADMIN,
-				'ip_allocated'           => PRIVILEGE_ADMIN,
+				'*'            => PRIVILEGE_SITE,
+				'release_ip'   => PRIVILEGE_ADMIN,
+				'ip_allocated' => PRIVILEGE_ADMIN,
 			);
 		}
 
@@ -238,6 +238,11 @@
 			return gethostbyaddr($ip) !== $ip;
 		}
 
+		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
+		{
+			return true;
+		}
+
 		/**
 		 * Announce an IP address via ARP
 		 *
@@ -255,6 +260,7 @@
 				$iface,
 				$ip
 			);
+
 			return $ret['success'];
 		}
 
@@ -270,14 +276,11 @@
 			if (!file_exists(static::NAMEBASED_INTERFACE_FILE)) {
 				warn("missing interface file `%s', assuming main iface is `%s'",
 					static::NAMEBASED_INTERFACE_FILE, $iface);
+
 				return $iface;
 			}
 			$iface = file_get_contents(static::NAMEBASED_INTERFACE_FILE);
-			return trim($iface);
-		}
 
-		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
-		{
-			return true;
+			return trim($iface);
 		}
 	}

@@ -60,7 +60,8 @@
 				'lservice_memory_usage'  => PRIVILEGE_ALL,
 				'changelog'              => PRIVILEGE_ALL,
 				'run'                    => PRIVILEGE_SITE,
-				'notify_installed'       => PRIVILEGE_ADMIN
+				'notify_installed'       => PRIVILEGE_ADMIN,
+				'list_commands'          => PRIVILEGE_ALL
 			);
 		}
 
@@ -85,6 +86,7 @@
 			if (!IS_CLI) {
 				return $this->query('misc_apnscpd_memory_usage');
 			}
+
 			return memory_get_usage();
 		}
 
@@ -96,6 +98,7 @@
 			if ($this->is_mounted('procfs')) {
 				return $this->unmount_service('procfs');
 			}
+
 			return $this->mount_service('procfs');
 		}
 
@@ -112,6 +115,7 @@
 				$svc,
 				array(0, 1)
 			);
+
 			return $proc['errno'] == 0;
 		}
 
@@ -134,7 +138,26 @@
 			if ($proc['errno'] != 0) {
 				return false;
 			}
+
 			return $this->_edit_mount_map($svc, 0);
+		}
+
+		private function _edit_mount_map($svc, $mount)
+		{
+			$sysconf = '/etc/sysconfig/vmount-' . $svc;
+			touch($sysconf);
+			$sites = explode("\n", trim(file_get_contents($sysconf)));
+			$idx = array_search($this->site, $sites, true);
+			if ($mount && $idx === false) {
+				$sites[] = $this->site;
+			} else if (!$mount && $idx !== false) {
+				unset($sites[$idx]);
+			} else {
+				return -1;
+			}
+			file_put_contents($sysconf, join("\n", $sites));
+
+			return 1;
 		}
 
 		public function mount_service($svc)
@@ -197,6 +220,7 @@
 				$res[] = $match;
 			}
 			$cache->set($key, $res);
+
 			return $res;
 		}
 
@@ -210,6 +234,7 @@
 			if (!$conf_new['ssh']['enabled']) {
 				$this->_delete();
 			}
+
 			return;
 		}
 
@@ -244,9 +269,9 @@
 					$url,
 					'PURGE',
 					array(
-						'adapter'    => $adapter,
-						'store_body' => false,
-						'timeout' => 5,
+						'adapter'         => $adapter,
+						'store_body'      => false,
+						'timeout'         => 5,
 						'connect_timeout' => 3
 					)
 				);
@@ -265,24 +290,8 @@
 			} else {
 				dlog("Failed to cache Laravel configuration - %s", $ret['stderr']);
 			}
-			return true;
-		}
 
-		private function _edit_mount_map($svc, $mount)
-		{
-			$sysconf = '/etc/sysconfig/vmount-' . $svc;
-			touch($sysconf);
-			$sites = explode("\n", trim(file_get_contents($sysconf)));
-			$idx = array_search($this->site, $sites, true);
-			if ($mount && $idx === false) {
-				$sites[] = $this->site;
-			} else if (!$mount && $idx !== false) {
-				unset($sites[$idx]);
-			} else {
-				return -1;
-			}
-			file_put_contents($sysconf, join("\n", $sites));
-			return 1;
+			return true;
 		}
 
 		/**
@@ -304,5 +313,22 @@
 			$mail->send(new \Lararia\Mail\PanelInstalled($args));
 
 			return true;
+		}
+
+		/**
+		 * Get all available module commands
+		 *
+		 * @return array
+		 */
+		public function list_commands(): array
+		{
+			$fns = [];
+			foreach (\apnscpFunctionInterceptor::list_all_modules() as $module) {
+				$moduleFns = $this->getApnscpFunctionInterceptor()->authorized_functions($module);
+				asort($moduleFns);
+				$fns[$module] = $moduleFns;
+			}
+
+			return $fns;
 		}
 	}

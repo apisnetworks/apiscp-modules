@@ -87,6 +87,7 @@
 				);
 			}
 			$cache->set($cachekey, $bandwidth, 43200);
+
 			return $bandwidth;
 		}
 
@@ -186,10 +187,12 @@
 				);
 			}
 			$cache->set($cachekey, $services, 43200);
+
 			return $services;
 		}
 
-		public function enabled(): bool {
+		public function enabled(): bool
+		{
 			return (bool)$this->getServiceValue('bandwidth', 'enabled');
 		}
 
@@ -214,16 +217,6 @@
 			}
 		}
 
-		public function _edit_user(string $userold, string $usernew, array $oldpwd)
-		{
-			if ($userold === $usernew) {
-				return;
-			}
-			// update
-			$this->_change_extendedinfo($userold, $usernew);
-			return true;
-		}
-
 		/**
 		 * Update extendedinfo tag for bandwidth on changes
 		 *
@@ -239,7 +232,19 @@
 			$db->query("UPDATE bandwidth_extendedinfo SET info = '" .
 				pg_escape_string($newinfo) . "' WHERE site_id = " . $this->site_id .
 				" AND info = '" . pg_escape_string($oldinfo) . "'");
+
 			return $db->affected_rows() > 0;
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			if ($userold === $usernew) {
+				return;
+			}
+			// update
+			$this->_change_extendedinfo($userold, $usernew);
+
+			return true;
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

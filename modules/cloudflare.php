@@ -73,6 +73,7 @@
 			$prefs['cloudflare']['user'] = $resp['user_key'];
 			$prefs['cloudflare']['email'] = $resp['cloudflare_email'];
 			$this->common_save_preferences($prefs);
+
 			return $resp['user_api_key'];
 		}
 
@@ -82,6 +83,7 @@
 			if (!isset($prefs['cloudflare']) || !isset($prefs['cloudflare']['key'])) {
 				return false;
 			}
+
 			return $prefs['cloudflare'];
 		}
 
@@ -93,6 +95,7 @@
 		private function _getProviderAPI()
 		{
 			$api = new Cloudflare\Provider(self::$_API_KEY);
+
 			return $api;
 		}
 
@@ -100,6 +103,7 @@
 		{
 			$subscription = $this->billing_get_hosting_subscription();
 			$pos = strpos($subscription, '-');
+
 			return $pos ? substr($subscription, ++$pos) : null;
 		}
 
@@ -122,10 +126,12 @@
 			if (is_array($resp) && $resp['error']) {
 				$msg = "API communication error: " . $resp['error'];
 				Error_Reporter::report($msg);
+
 				return $msg;
 			}
 			if (!isset($resp->msg)) {
 				Error_Reporter::report(var_export($resp, true));
+
 				return error("arg is not a valid CF response");
 			}
 
@@ -147,6 +153,7 @@
 			if (!$this->_isSuccess($resp)) {
 				return array();
 			}
+
 			return (array)$resp->response;
 		}
 
@@ -262,6 +269,7 @@
 						);
 					}
 				}
+
 				return info("DNS records have been set for %s. Only these hostnames will forward to CF.",
 					join(", ", $subdomains)
 				);
@@ -271,6 +279,7 @@
 			}
 			$ns = join(", ", $matches[0]);
 			info("zone setup complete - change the nameservers to %s to finalize your setup", $ns);
+
 			return $matches[0];
 		}
 
@@ -294,6 +303,7 @@
 			for ($i = 0, $rng = strlen($chars) - 1; $i < $n; $i++) {
 				$tmp[] = $chars[mt_rand(0, $rng)];
 			}
+
 			return join("", $tmp);
 		}
 
@@ -351,6 +361,7 @@
 						$ip);
 				}
 			}
+
 			return info("CF no longer manages DNS for zone `%s', change nameservers for domain back to %s",
 				$zone,
 				join(", ", $this->dns_get_hosting_nameservers($zone))
@@ -367,6 +378,7 @@
 					$this->_getFailureReason($resp));
 			}
 			$ret = $this->_parse($resp);
+
 			return $ret;
 		}
 
@@ -384,6 +396,7 @@
 			if (!$info) {
 				return false;
 			}
+
 			return (bool)$info['zone_hosted'];
 		}
 
@@ -404,6 +417,7 @@
 				return false;
 			}
 			$api = new Cloudflare\Api($cred['email'], $cred['key']);
+
 			return $api;
 		}
 	}

@@ -20,7 +20,12 @@
 	class Email_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable, \Module\Skeleton\Contracts\Proxied
 	{
 		const DEPENDENCY_MAP = [
-			'siteinfo', 'ipinfo', 'ipinfo6', 'users', 'aliases', 'dns'
+			'siteinfo',
+			'ipinfo',
+			'ipinfo6',
+			'users',
+			'aliases',
+			'dns'
 		];
 		const MAILDIR_HOME = \Opcenter\Mail\Storage::MAILDIR_HOME;
 		const MAILBOX_SPECIAL = 's';
@@ -59,28 +64,28 @@
 		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'address_exists'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'add_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'add_vacation_backend'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'create_maildir_backend'          => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'get_spool_size_backend'          => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'address_exists'          => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'add_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'add_vacation_backend'    => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'create_maildir_backend'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'get_spool_size_backend'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				/** Vacation methods */
-				'add_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'set_vacation'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'set_vacation_options'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_vacation_options'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'vacation_exists'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'enable_vacation'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'remove_vacation'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_vacation_message'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'change_vacation_message'         => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_webmail_location'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'webmail_apps'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'create_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'remove_maildir'                  => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'get_records'                     => PRIVILEGE_SITE,
-				'*'                               => PRIVILEGE_SITE,
-				'get_provider'                    => PRIVILEGE_ALL
+				'add_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'set_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'set_vacation_options'    => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_vacation_options'    => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'vacation_exists'         => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'enable_vacation'         => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'remove_vacation'         => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_vacation_message'    => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'change_vacation_message' => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_webmail_location'    => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'webmail_apps'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'create_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'remove_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_records'             => PRIVILEGE_SITE,
+				'*'                       => PRIVILEGE_SITE,
+				'get_provider'            => PRIVILEGE_ALL
 			);
 		}
 
@@ -157,7 +162,8 @@
 			} else if ($filter == self::MAILBOX_SPECIAL) {
 
 			} else if ($filter == self::MAILBOX_SINGLE) {
-				$filter_clause = 'email_lookup."user" ' . (false !== strpos($address, '%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
+				$filter_clause = 'email_lookup."user" ' . (false !== strpos($address,
+						'%') ? 'LIKE' : '=') . ' \'' . pg_escape_string($address) . '\'';
 			} else if ($filter == self::MAILBOX_ENABLED) {
 				$filter_clause = 'enabled = 1::bit';
 			} else if ($filter == self::MAILBOX_DISABLED) {
@@ -208,6 +214,7 @@
 					'destination' => $row->destination
 				);
 			}
+
 			return $mailboxes;
 		}
 
@@ -219,29 +226,8 @@
 			}
 			$pgdb = \PostgreSQL::initialize();
 			$pgdb->query('UPDATE email_lookup SET enabled = 1::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
-			return $pgdb->affected_rows() > 0;
-		}
 
-		/**
-		 * Verify service is enabled
-		 * @param null|string $which
-		 * @return bool
-		 */
-		public function enabled(string $which = null): bool {
-			// @TODO rename sendmail to smtp service
-			if (platform_is('7.5')) {
-				$which = $which === 'smtp_relay' ? 'smtp' : $which;
-			} else {
-				$which = $which === 'smtp' ? 'smtp_relay' : $which;
-			}
-			if ($which && $which !== 'smtp' && $which !== 'smtp_relay' && $which !== 'imap' && $which !== 'pop3') {
-				return error("unknown service `%s'", $which);
-			}
-			if ($which) {
-				$which = platform_is('7.5') ? 'mail' : 'sendmail';
-				return (bool)$this->getServiceValue($which, 'enabled');
-			}
-			return $this->enabled('smtp') && $this->enabled('imap');
+			return $pgdb->affected_rows() > 0;
 		}
 
 		/**
@@ -257,11 +243,11 @@
 		 *
 		 * IMPORTANT: a mailbox may not be remapped into a catchall here
 		 *
-		 * @param string $olduser
-		 * @param string $olddomain
-		 * @param string $newuser
-		 * @param string $newdomain
-		 * @param string $newdestination
+		 * @param string      $olduser
+		 * @param string      $olddomain
+		 * @param string      $newuser
+		 * @param string      $newdomain
+		 * @param string      $newdestination
 		 * @param string|null $newtype
 		 * @return bool
 		 */
@@ -397,7 +383,22 @@
 			if ($pgdb->num_rows() < 1) {
 				return null;
 			}
+
 			return $pgdb->fetch_object()->type;
+		}
+
+		private function _shutdown_save_mailboxes()
+		{
+			if (!IS_ISAPI) {
+				$this->save_mailboxes();
+			}
+			static $called;
+			if (isset($called)) {
+				return;
+			}
+			$called = 1;
+
+			return register_shutdown_function(array($this, 'save_mailboxes'));
 		}
 
 		/**
@@ -426,6 +427,7 @@
 				$email[] = array_map('trim', $row);
 			}
 			$path .= '/email_addr';
+
 			return (bool)file_put_contents($path, serialize($email), LOCK_EX);
 		}
 
@@ -484,6 +486,7 @@
 		public function get_mailbox($user, $domain)
 		{
 			$address = $this->list_mailboxes(self::MAILBOX_SINGLE, $user, $domain);
+
 			return $address ? array_pop($address) : array();
 		}
 
@@ -525,6 +528,7 @@
 			}
 			unset($contents[$key]);
 			file_put_contents($subscriptions, join("\n", $contents) . "\n");
+
 			return \Opcenter\Filesystem::chogp($subscriptions, $this->user_id, $this->group_id, 0600);
 
 		}
@@ -545,6 +549,7 @@
 			$file = $this->domain_info_path() . '/' . $file;
 			if (!file_exists($file)) {
 				warn("mailbox backup `%s' not found", basename($file));
+
 				return -1;
 			}
 			$db = \PostgreSQL::initialize();
@@ -566,9 +571,11 @@
 							 */
 							$rec .= '::bit';
 						}
+
 						return $rec;
 					}
 				}
+
 				return "'" . pg_escape_string($rec) . "'";
 			};
 			$db = \PostgreSQL::initialize()->getHandler();
@@ -605,6 +612,7 @@
 					}
 				}
 			}
+
 			return true;
 		}
 
@@ -622,6 +630,7 @@
 		public function transport_exists($domain)
 		{
 			$q = \PostgreSQL::initialize()->query("SELECT site_id FROM domain_lookup WHERE domain = '" . pg_escape_string($domain) . "'");
+
 			return $q->num_rows() > 0 && $q->fetch_object()->site_id == $this->site_id;
 		}
 
@@ -642,6 +651,7 @@
 			if (!array_key_exists($username, $this->user_get_users())) {
 				return error("Invalid user `%s'", $username);
 			}
+
 			return $this->query(
 				'email_get_spool_size_backend',
 				$this->domain_fs_path() . '/home/' . $username . '/' . self::MAILDIR_HOME
@@ -664,39 +674,21 @@
 			if (!$proc['success']) {
 				return false;
 			}
+
 			return intval($proc['output']) * 1024;
 		}
 
 		/**
-		 * Set vacation options
-		 *
-		 * @param array $options
-		 * @return bool
-		 */
-		public function set_vacation_options(array $options): bool {
-			$driver = \Opcenter\Mail\Vacation::get($this->getAuthContext());
-			foreach ($driver->getDefaults() as $k => $v) {
-				if (isset($options[$k]) && !$driver->setOption($k, $options[$k])) {
-					unset($options[$k]);
-				}
-			}
-			$pref = \Preferences::factory($this->getAuthContext());
-			$pref->unlock(\apnscpFunctionInterceptor::factory($this->getAuthContext()));
-			$pref->offsetSet(self::VACATION_PREFKEY, $options);
-			if (!$this->inContext()) {
-				\Preferences::reload();
-			}
-			return true;
-		}
-
-		/**
 		 * Get vacation options
+		 *
 		 * @return array
 		 */
-		public function get_vacation_options(): array {
+		public function get_vacation_options(): array
+		{
 			$prefs = array_get(\Preferences::factory($this->getAuthContext()), self::VACATION_PREFKEY, []);
 			$mb = \Opcenter\Mail\Vacation::get($this->getAuthContext());
 			$defaults = $mb->getDefaults();
+
 			return array_merge($defaults, array_intersect_key($prefs, $defaults));
 		}
 
@@ -717,6 +709,7 @@
 			$svc = \Opcenter\Mail\Vacation::getActiveService();
 			$class = 'Vacation\\Providers\\' . $svc . '\\Options\\Message';
 			$fqns = \Opcenter\Mail\Vacation::appendNamespace($class);
+
 			return (new $fqns)->getFromUser($user);
 		}
 
@@ -729,8 +722,10 @@
 		 * @param array|null $flags
 		 * @return bool|mixed|void
 		 */
-		public function add_vacation($response, $user = null, array $flags = null) {
+		public function add_vacation($response, $user = null, array $flags = null)
+		{
 			deprecated_func('use set_vacation()');
+
 			return $this->enable_vacation($response, $user, $flags);
 		}
 
@@ -738,7 +733,7 @@
 		 * Enable vacation auto-responder
 		 *
 		 * @param null|string $user
-		 * @param array|null $flags optional flags
+		 * @param array|null  $flags optional flags
 		 * @return bool|mixed|void
 		 */
 		public function enable_vacation($user = null, array $flags = null)
@@ -764,7 +759,32 @@
 			if ($flags) {
 				$this->set_vacation_options($flags);
 			}
+
 			return $driver->enable();
+		}
+
+		/**
+		 * Set vacation options
+		 *
+		 * @param array $options
+		 * @return bool
+		 */
+		public function set_vacation_options(array $options): bool
+		{
+			$driver = \Opcenter\Mail\Vacation::get($this->getAuthContext());
+			foreach ($driver->getDefaults() as $k => $v) {
+				if (isset($options[$k]) && !$driver->setOption($k, $options[$k])) {
+					unset($options[$k]);
+				}
+			}
+			$pref = \Preferences::factory($this->getAuthContext());
+			$pref->unlock(\apnscpFunctionInterceptor::factory($this->getAuthContext()));
+			$pref->offsetSet(self::VACATION_PREFKEY, $options);
+			if (!$this->inContext()) {
+				\Preferences::reload();
+			}
+
+			return true;
 		}
 
 		public function vacation_exists($user = null)
@@ -793,19 +813,22 @@
 
 		/**
 		 * Change existing vacation message
-		 * @param string        $response
-		 * @param string|null   $user
-		 * @param array|null    $flags
+		 *
+		 * @param string      $response
+		 * @param string|null $user
+		 * @param array|null  $flags
 		 * @return bool
 		 */
 		public function change_vacation_message($response, $user = null, array $flags = [])
 		{
 			deprecated_func('use set_vacation');
+
 			return $this->enable_vacation($response, $user, $flags);
 		}
 
 		/**
 		 * Disable vacation status
+		 *
 		 * @param string|null user
 		 * @return bool
 		 */
@@ -829,6 +852,7 @@
 			}
 
 			$driver = \Opcenter\Mail\Vacation::get($user);
+
 			return $driver->disable();
 		}
 
@@ -867,6 +891,7 @@
 				}
 
 			}
+
 			return true;
 		}
 
@@ -923,11 +948,13 @@
 					if (!is_array($rec)) {
 						warn("error retrieving mx records for `%s'", $hostname);
 						Error_Reporter::report("unable to remove record for `%s'", $hostname);
+
 						return $ok;
 					} else {
 						if (!count($rec)) {
 							// MX record exists remotely but not on the server
 							info("no MX records found for hostname `%s'", $hostname);
+
 							return $ok;
 						}
 					}
@@ -940,6 +967,7 @@
 					if ($ip && $ip != $myip) {
 						warn("MX record for `%s' points to third-party server and thus will not be removed from local DNS",
 							$domain);
+
 						return -1;
 					}
 					// purge MX record from DNS
@@ -957,7 +985,36 @@
 					}
 				}
 			}
+
 			return $ok;
+		}
+
+		/**
+		 * Get DNS records
+		 *
+		 * @param string $domain
+		 * @return array
+		 */
+		public function get_records(string $domain): array
+		{
+			$myip = $this->site_ip_address();
+			$ttl = $this->dns_get_default('ttl');
+
+			return [
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'mail', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '10 mail.' . $domain]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '20 mail.' . $domain]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => '', 'ttl' => $ttl, 'rr' => 'txt', 'parameter' => '"v=spf1 a mx ~all"']),
+				/* webmail */
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'horde', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+				new \Opcenter\Dns\Record($domain,
+					['name' => 'roundcube', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+			];
 		}
 
 		public function add_virtual_transport($domain, $subdomain = '')
@@ -976,6 +1033,7 @@
 				if ($site != $this->site_id) {
 					return error("table entry `%s' owned by another site (%d)", $transport, $site);
 				}
+
 				return true;
 			}
 
@@ -1061,6 +1119,7 @@
 				if (!$user) {
 					return error("catch-all for $domain already exists");
 				}
+
 				return error('%s@%s: address exists', $user, $domain);
 			}
 			$mailbox = ltrim(str_replace(array('/', '..'), '.', $mailbox), '.');
@@ -1126,6 +1185,7 @@
 			}
 			$pgdb = \PostgreSQL::initialize();
 			$pgdb->query('UPDATE email_lookup SET enabled = 0::bit FROM domain_lookup WHERE "user" = \'' . pg_escape_string($account) . '\' ' . $where . ';');
+
 			return $pgdb->affected_rows() > 0;
 		}
 
@@ -1174,6 +1234,7 @@
 				$this->dns_add_record($this->domain, $subdomain, 'A', $ip);
 				info("added DNS for %s.%s to `%s'", $subdomain, $this->domain, $ip);
 			}
+
 			return info("webmail location changed from `%s.%s' to `%s.%s'",
 					$oldsubdomain, $this->domain, $subdomain, $this->domain) || true;
 		}
@@ -1187,9 +1248,42 @@
 				}
 				$apps = $this->query('email_webmail_apps');
 				$cache->set('em.webmail', $apps);
+
 				return $apps;
 			}
+
 			return array_merge($this->_webmailSubdomains(), $this->_loadCustomWebmail());
+		}
+
+		private function _webmailSubdomains()
+		{
+			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
+				return $v['subdomain'];
+			}, $this->_webmail));
+		}
+
+		private function _loadCustomWebmail()
+		{
+			$file = $this->_customWebmailFile();
+			$apps = array();
+			if (!file_exists($file)) {
+				return $apps;
+			}
+			$apps = array_merge($apps, Util_Conf::parse_ini($file));
+
+			return $apps;
+		}
+
+		private function _customWebmailFile()
+		{
+			return $this->domain_info_path() . '/webmail';
+		}
+
+		private function _webmailPaths()
+		{
+			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
+				return $v['path'];
+			}, $this->_webmail));
 		}
 
 		public function get_webmail_location($app)
@@ -1202,6 +1296,7 @@
 			if (!isset($webmail[$app])) {
 				return error("unknown webmail app `%s'", $app);
 			}
+
 			return $webmail[$app];
 		}
 
@@ -1225,6 +1320,7 @@
 				return false;
 			}
 			$this->add_mailbox('postmaster', $this->domain, $this->user_id);
+
 			return true;
 		}
 
@@ -1246,19 +1342,13 @@
 
 			// use imap as a marker for email creation
 			$svc = 'imap';
-			if ((new Util_Pam($this->getAuthContext()))->check($user, $svc)) {
-				if ($this->address_exists($user, $this->domain)) {
-					info("mailbox %s@%s already exists", $user, $this->domain);
-				} else if (!$this->add_mailbox($user, $this->domain, $pwd['uid'])) {
-					return error("failed to create email address %s@%s", $user, $this->domain);
-				}
-			}
 
 			$path = $this->domain_fs_path() . DIRECTORY_SEPARATOR . $pwd['home'] .
 				DIRECTORY_SEPARATOR . self::MAILDIR_HOME;
 			if (!is_dir($path)) {
 				Opcenter\Filesystem::mkdir($path, $pwd['uid'], $this->group_id, 0700, false);
-				\Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($this->file_unmake_path($path), $pwd['uid'], $pwd['gid']);
+				\Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($this->file_unmake_path($path),
+					$pwd['uid'], $pwd['gid']);
 				file_put_contents($path . '/subscriptions', 'INBOX', FILE_APPEND);
 			}
 
@@ -1270,12 +1360,15 @@
 				}
 
 			}
+
 			return true;
 		}
 
 		public function _reload($why = null)
 		{
 			if ($why == "letsencrypt") {
+				// build HAProxy template
+
 				// update ssl certs
 				Util_Process::exec('/sbin/service dovecot restart');
 				// restart necessary to load new cert
@@ -1293,16 +1386,9 @@
 			}
 		}
 
-		public function create_maildir($mailbox)
-		{
-			if (!IS_CLI) {
-				return $this->query('email_create_maildir', $mailbox);
-			}
-			return $this->create_maildir_backend($this->username, $mailbox);
-		}
-
 		/**
 		 * Create
+		 *
 		 * @param $user
 		 * @param $mailbox
 		 * @return bool|void
@@ -1326,33 +1412,18 @@
 			if (!is_dir($chkrpath)) {
 				return error("mail home `%s' does not exist", $chkvpath);
 			}
-			return \Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($path, $pwd['uid'], $pwd['gid']);
+
+			return \Opcenter\Mail\Storage::bindTo($this->domain_fs_path())->createMaildir($path, $pwd['uid'],
+				$pwd['gid']);
 		}
 
-		/**
-		 * Get DNS records
-		 *
-		 * @param string $domain
-		 * @return array
-		 */
-		public function get_records(string $domain): array {
-			$myip = $this->site_ip_address();
-			$ttl = $this->dns_get_default('ttl');
-			return [
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'mail', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
-				new \Opcenter\Dns\Record($domain,
-					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '10 mail.' . $domain]),
-				new \Opcenter\Dns\Record($domain,
-					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '20 mail.' . $domain]),
-				new \Opcenter\Dns\Record($domain,
-					['name' => '', 'ttl' => $ttl, 'rr' => 'txt', 'parameter' => '"v=spf1 a mx ~all"']),
-				/* webmail */
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'horde', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'roundcube', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
-			];
+		public function create_maildir($mailbox)
+		{
+			if (!IS_CLI) {
+				return $this->query('email_create_maildir', $mailbox);
+			}
+
+			return $this->create_maildir_backend($this->username, $mailbox);
 		}
 
 		public function _delete()
@@ -1366,6 +1437,50 @@
 				$this->_removeMTA($ip);
 			}
 			$this->_removeIMAP($this->site);
+		}
+
+		private function _removeMTA($ip)
+		{
+			$hosts = file(Dns_Module::HOSTS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+			$regex = Regex::compile(
+				Regex::EMAIL_MTA_IP_RECORD,
+				array(
+					'ip' => preg_quote($ip, '/')
+				)
+			);
+
+			$new = array();
+			$found = false;
+			foreach ($hosts as $host) {
+				if (preg_match($regex, $host)) {
+					$found = true;
+					continue;
+				}
+				$new[] = $host;
+			}
+			$new[] = "";
+			if (!$found) {
+				return -1;
+			}
+
+			/**
+			 * it's here for future consideration, but likely unnecessary
+			 * $proc = new Util_Process_Schedule("1 minute");
+			 * $proc->run(self::POSTFIX_CMD . ' reload');
+			 */
+			return file_put_contents(Dns_Module::HOSTS_FILE, join(PHP_EOL, $new), LOCK_EX) !== false;
+		}
+
+		private function _removeIMAP($site)
+		{
+			$path = self::DOVECOT_SSL_CONFIG_DIR . '/' . $site;
+			$extensions = array('conf', 'crt', 'key', 'pem');
+			foreach ($extensions as $ext) {
+				$file = $path . '.' . $ext;
+				if (file_exists($file)) {
+					unlink($file);
+				}
+			}
 		}
 
 		public function _edit()
@@ -1471,16 +1586,13 @@
 			}
 			// sweep 2
 			$this->_update_email_aliases($userold, $usernew);
+
 			return true;
 		}
 
-		public function _delete_user(string $user)
+		private function _pam_services()
 		{
-			$pwd = $this->user_getpwnam($user);
-			foreach ($this->list_mailboxes(self::MAILBOX_DESTINATION, $user) as $mailbox) {
-				$this->delete_mailbox($mailbox['user'], $mailbox['domain']);
-			}
-			\Opcenter\Provisioning\Mail::deleteUser($this->site_id, $pwd['uid']);
+			return array('smtp_relay', 'imap');
 		}
 
 		public function user_enabled($user, $svc = null)
@@ -1498,153 +1610,34 @@
 			} else if ($svc == 'smtp') {
 				$svc = 'smtp_relay';
 			}
+
 			return $enabled && (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
 
-		public function permit_user($user, $svc = null)
+		/**
+		 * Verify service is enabled
+		 *
+		 * @param null|string $which
+		 * @return bool
+		 */
+		public function enabled(string $which = null): bool
 		{
-			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
-				return error("service " . $svc . " is unknown (imap, smtp)");
+			// @TODO rename sendmail to smtp service
+			if (platform_is('7.5')) {
+				$which = $which === 'smtp_relay' ? 'smtp' : $which;
+			} else {
+				$which = $which === 'smtp' ? 'smtp_relay' : $which;
+			}
+			if ($which && $which !== 'smtp' && $which !== 'smtp_relay' && $which !== 'imap' && $which !== 'pop3') {
+				return error("unknown service `%s'", $which);
+			}
+			if ($which) {
+				$which = platform_is('7.5') ? 'mail' : 'sendmail';
+
+				return (bool)$this->getServiceValue($which, 'enabled');
 			}
 
-			if ($this->auth_is_demo()) {
-				return error("Email disabled for demo account");
-			}
-
-			$pam = new Util_Pam($this->getAuthContext());
-			if (!$svc) {
-				$pam->add($user, 'imap');
-				$svc = 'smtp_relay';
-			} else if ($svc == 'smtp') {
-				$svc = 'smtp_relay';
-			} else if (platform_is('7.5')) {
-				//
-				$mirror = $svc === 'imap' ? 'pop3' : 'imap';
-				$pam->add($user, $mirror);
-			}
-			return $pam->add($user, $svc);
-		}
-
-		public function deny_user($user, $svc = null)
-		{
-			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay' && $svc !== 'pop3') {
-				return error("service " . $svc . " not in list");
-			}
-			$pam = new Util_Pam($this->getAuthContext());
-			if (!$svc) {
-				$pam->remove($user, 'smtp');
-				$svc = 'imap';
-			} else if ($svc == 'smtp') {
-				$svc = 'smtp_relay';
-			}
-			// v7.5 doesn't differentiate between IMAP/POP3 yet
-			if ($svc === 'imap' && platform_is('7.5')) {
-				$pam->remove($user, 'pop3');
-			} else if ($svc === 'pop3' && platform_is('7.5')) {
-				$pam->remove($user, 'imap');
-			}
-			return $pam->remove($user, $svc);
-		}
-
-		public function list_virtual_transports()
-		{
-			$virtual = array();
-			$res = \PostgreSQL::initialize()->query("SELECT domain FROM domain_lookup WHERE site_id = " . $this->site_id);
-			while (null !== ($row = $res->fetch_object())) {
-				$virtual[] = trim($row->domain);
-			}
-			return $virtual;
-		}
-
-		private function _shutdown_save_mailboxes()
-		{
-			if (!IS_ISAPI) {
-				$this->save_mailboxes();
-			}
-			static $called;
-			if (isset($called)) {
-				return;
-			}
-			$called = 1;
-			return register_shutdown_function(array($this, 'save_mailboxes'));
-		}
-
-		private function _webmailSubdomains()
-		{
-			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
-				return $v['subdomain'];
-			}, $this->_webmail));
-		}
-
-		private function _loadCustomWebmail()
-		{
-			$file = $this->_customWebmailFile();
-			$apps = array();
-			if (!file_exists($file)) {
-				return $apps;
-			}
-			$apps = array_merge($apps, Util_Conf::parse_ini($file));
-			return $apps;
-		}
-
-		private function _customWebmailFile()
-		{
-			return $this->domain_info_path() . '/webmail';
-		}
-
-		private function _webmailPaths()
-		{
-			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
-				return $v['path'];
-			}, $this->_webmail));
-		}
-
-		private function _removeMTA($ip)
-		{
-			$hosts = file(Dns_Module::HOSTS_FILE, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-			$regex = Regex::compile(
-				Regex::EMAIL_MTA_IP_RECORD,
-				array(
-					'ip' => preg_quote($ip, '/')
-				)
-			);
-
-			$new = array();
-			$found = false;
-			foreach ($hosts as $host) {
-				if (preg_match($regex, $host)) {
-					$found = true;
-					continue;
-				}
-				$new[] = $host;
-			}
-			$new[] = "";
-			if (!$found) {
-				return -1;
-			}
-			/**
-			 * it's here for future consideration, but likely unnecessary
-			 * $proc = new Util_Process_Schedule("1 minute");
-			 * $proc->run(self::POSTFIX_CMD . ' reload');
-			 */
-			return file_put_contents(Dns_Module::HOSTS_FILE, join(PHP_EOL, $new), LOCK_EX) !== false;
-		}
-
-		private function _removeIMAP($site)
-		{
-			$path = self::DOVECOT_SSL_CONFIG_DIR . '/' . $site;
-			$extensions = array('conf', 'crt', 'key', 'pem');
-			foreach ($extensions as $ext) {
-				$file = $path . '.' . $ext;
-				if (file_exists($file)) {
-					unlink($file);
-				}
-			}
-		}
-
-		private function _pam_services()
-		{
-			return array('smtp_relay', 'imap');
+			return $this->enabled('smtp') && $this->enabled('imap');
 		}
 
 		/**
@@ -1693,7 +1686,19 @@
 				}
 
 			}
+
 			return $changed;
+		}
+
+		public function list_virtual_transports()
+		{
+			$virtual = array();
+			$res = \PostgreSQL::initialize()->query("SELECT domain FROM domain_lookup WHERE site_id = " . $this->site_id);
+			while (null !== ($row = $res->fetch_object())) {
+				$virtual[] = trim($row->domain);
+			}
+
+			return $virtual;
 		}
 
 		private function _addMTA($ip)
@@ -1713,7 +1718,64 @@
 
 			$hosts[] = $ip . ' internal-multihome';
 			$hosts[] = "";
+
 			return file_put_contents(Dns_Module::HOSTS_FILE, join(PHP_EOL, $hosts), LOCK_EX) !== false;
+		}
+
+		public function _delete_user(string $user)
+		{
+			$pwd = $this->user_getpwnam($user);
+			foreach ($this->list_mailboxes(self::MAILBOX_DESTINATION, $user) as $mailbox) {
+				$this->delete_mailbox($mailbox['user'], $mailbox['domain']);
+			}
+			\Opcenter\Provisioning\Mail::deleteUser($this->site_id, $pwd['uid']);
+		}
+
+		public function permit_user($user, $svc = null)
+		{
+			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay') {
+				return error("service " . $svc . " is unknown (imap, smtp)");
+			}
+
+			if ($this->auth_is_demo()) {
+				return error("Email disabled for demo account");
+			}
+
+			$pam = new Util_Pam($this->getAuthContext());
+			if (!$svc) {
+				$pam->add($user, 'imap');
+				$svc = 'smtp_relay';
+			} else if ($svc == 'smtp') {
+				$svc = 'smtp_relay';
+			} else if (platform_is('7.5')) {
+				//
+				$mirror = $svc === 'imap' ? 'pop3' : 'imap';
+				$pam->add($user, $mirror);
+			}
+
+			return $pam->add($user, $svc);
+		}
+
+		public function deny_user($user, $svc = null)
+		{
+			if ($svc && $svc != 'smtp' && $svc != 'imap' && $svc != 'smtp_relay' && $svc !== 'pop3') {
+				return error("service " . $svc . " not in list");
+			}
+			$pam = new Util_Pam($this->getAuthContext());
+			if (!$svc) {
+				$pam->remove($user, 'smtp');
+				$svc = 'imap';
+			} else if ($svc == 'smtp') {
+				$svc = 'smtp_relay';
+			}
+			// v7.5 doesn't differentiate between IMAP/POP3 yet
+			if ($svc === 'imap' && platform_is('7.5')) {
+				$pam->remove($user, 'pop3');
+			} else if ($svc === 'pop3' && platform_is('7.5')) {
+				$pam->remove($user, 'imap');
+			}
+
+			return $pam->remove($user, $svc);
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
@@ -1721,13 +1783,15 @@
 			return true;
 		}
 
-		public function _housekeeping() {
+		public function _housekeeping()
+		{
 			$dummyfile = webapp_path('webmail/dummyset.php');
 			$dest = '/var/www/html/dummyset.php';
 			if (!file_exists($dest) || fileinode($dummyfile) !== fileinode($dest)) {
 				file_exists($dest) && unlink($dest);
 				link($dummyfile, $dest);
 			}
+
 			return true;
 		}
 	}

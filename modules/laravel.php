@@ -103,7 +103,8 @@
 			}
 
 			$lock = $this->parseLock($opts['verlock'], $opts['version']);
-			$ret = $this->_execComposer($docroot, 'create-project --prefer-dist laravel/laravel %(docroot)s \'%(version)s\'',
+			$ret = $this->_execComposer($docroot,
+				'create-project --prefer-dist laravel/laravel %(docroot)s \'%(version)s\'',
 				[
 					'docroot' => $docroot,
 					'version' => $lock
@@ -111,6 +112,7 @@
 			);
 			if (!$ret['success']) {
 				$this->file_delete($docroot, true);
+
 				return error("failed to download laravel/laravel package: %s %s",
 					$ret['stderr'], $ret['stdout']
 				);
@@ -118,6 +120,7 @@
 
 			if (null === ($docroot = $this->remapPublic($hostname, $path))) {
 				$this->file_delete($this->getDocumentRoot($hostname, $path), true);
+
 				return error("Failed to remap Laravel to public/, manually remap from `%s' - Laravel setup is incomplete!",
 					$docroot);
 			}
@@ -142,7 +145,7 @@
 				}
 				$dbpass = $this->suggestPassword();
 				$credentials = array(
-					'db'     => $db,
+					'db'       => $db,
 					'user'     => $dbuser,
 					'password' => $dbpass
 				);
@@ -172,6 +175,7 @@
 				if (isset($credentials['user']) && $this->mysql_user_exists($credentials['user'], 'localhost')) {
 					$this->mysql_delete_user($credentials['user'], 'localhost');
 				}
+
 				return error("Failed to install Laravel: %s", $e->getMessage());
 			} finally {
 				\Error_Reporter::exception_upgrade($oldex);
@@ -191,10 +195,10 @@
 			$this->fortify($hostname, $path, 'max');
 
 			$params = array(
-				'version'     => $this->get_version($hostname, $path),
-				'hostname'    => $hostname,
-				'autoupdate'  => (bool)$opts['autoupdate'],
-				'options'     => array_except($opts, 'version'),
+				'version'    => $this->get_version($hostname, $path),
+				'hostname'   => $hostname,
+				'autoupdate' => (bool)$opts['autoupdate'],
+				'options'    => array_except($opts, 'version'),
 			);
 			$this->map('add', $docroot, $params);
 			$this->fixRewriteBase($docroot);
@@ -204,10 +208,10 @@
 				\Lararia\Bootstrapper::minstrap();
 				\Illuminate\Support\Facades\Mail::to($email)->
 				send((new \Module\Support\Webapps\Mailer('install.laravel', [
-					'uri'      => $args['uri'],
-					'proto'    => $args['proto'],
-					'appname'  => static::APP_NAME,
-					'approot'  => $approot
+					'uri'     => $args['uri'],
+					'proto'   => $args['proto'],
+					'appname' => static::APP_NAME,
+					'approot' => $approot
 				]))->setAppName(static::APP_NAME));
 			}
 
@@ -216,6 +220,30 @@
 			}
 
 			return info("Laravel installed on %s", $args['uri']);
+		}
+
+		protected function checkVersion(array &$options): bool
+		{
+			if (!parent::checkVersion($options)) {
+				return false;
+			}
+			$phpversion = $this->php_version();
+
+			$cap = null;
+			if (version_compare($phpversion, '5.6.4', '<')) {
+				$cap = '5.3';
+			} else if (version_compare($phpversion, '7.0.0', '<')) {
+				$cap = '5.4';
+			} else if (version_compare($phpversion, '7.1.3', '<')) {
+				$cap = '5.5';
+			}
+
+			if ($cap && version_compare($options['version'], $cap, '>=')) {
+				info("PHP version `%s' detected, capping Laravel to %s", $phpversion, $cap);
+				$options['version'] = $cap;
+			}
+
+			return true;
 		}
 
 		/**
@@ -238,298 +266,9 @@
 					return '>' . $version;
 				default:
 					warn("unknown lock type `%s' - restricting to `%s'", $lockType, $version);
+
 					return $version;
 			}
-		}
-
-		private function setConfiguration(string $approot, string $docroot, array $config) {
-			$envcfg = (new \Opcenter\Provisioning\ConfigurationWriter("webapps.laravel.env", \Opcenter\SiteConfiguration::import($this->getAuthContext())))
-				->compile($config);
-			$this->file_put_file_contents("${approot}/.env", (string)$envcfg);
-			return $this->buildConfig($approot, $docroot);
-		}
-
-		/**
-		 * Rebuild config and force frontend cache
-		 *
-		 * @param string $approot
-		 * @param string $docroot
-		 * @return bool
-		 */
-		private function buildConfig(string $approot, string $docroot): bool
-		{
-			$ret = $this->_exec($approot, 'artisan config:cache');
-			if (!$ret['success']) {
-				return error("config rebuild failed: %s", coalesce($ret['stderr'], $ret['stdout']));
-			}
-			if (!($uri = $this->web_get_hostname_from_docroot($docroot))) {
-				return error("no URI specified, cannot deduce URI from docroot `%s'", $docroot);
-			}
-			$uri = $this->web_normalize_hostname($uri);
-			$ctx = stream_context_create(array(
-				'http' =>
-					array(
-						'timeout' => 5,
-						'method'  => 'HEAD',
-						'header'  => [
-							"User-agent: apnscp Internal check",
-						    "Host: ${uri}"
-						],
-						'protocol_version' => '1.1'
-					)
-			));
-			return (bool)get_headers('http://' . $this->site_ip_address(), 0, $ctx) ?:
-				warn("failed to cache configuration directly, visit `%s' to cache configuration", $uri);
-		}
-
-		public function get_versions(): array
-		{
-			$key = 'laravel.verflat';
-			$cache = \Cache_Global::spawn();
-			if (false !== ($versions = $cache->get($key))) {
-				return $versions;
-			}
-			$versions = array_column(array_filter($this->_getVersions(), function($ver) {
-				return false === strpos($ver['version_normalized'], '-') && $ver['version'][0] === 'v';
-			}), 'version_normalized');
-			natsort($versions);
-			array_walk($versions, function(&$ver) {
-				$ver = join('.', array_slice(explode('.', $ver), 0, 3));
-			});
-
-			$cache->set($key, $versions);
-			return $versions;
-		}
-
-		/**
-		 * Uninstall Laravel from a location
-		 *
-		 * @param        $hostname
-		 * @param string $path
-		 * @param string $delete remove all files under docroot
-		 * @return bool
-		 */
-		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
-		{
-			return parent::uninstall($hostname, $path, $delete);
-		}
-
-		/**
-		 * Location is a valid Laravel install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid(string $hostname, string $path = ''): bool
-		{
-			if ($hostname[0] === '/') {
-				if (!($path = realpath($this->domain_fs_path($hostname)))) {
-					return false;
-				}
-				$approot = \dirname($path);
-			} else {
-				$approot = $this->getAppRoot($hostname, $path);
-				if (!$approot) {
-					return false;
-				}
-				$approot = $this->domain_fs_path($approot);
-			}
-
-			return file_exists($approot . '/artisan');
-		}
-
-		/**
-		 * Get database configuration for a blog
-		 *
-		 * @param string $hostname domain or subdomain of wp blog
-		 * @param string $path     optional path
-		 * @return array|bool
-		 */
-		public function db_config(string $hostname, string $path = '')
-		{
-			$this->web_purge();
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('failed to determine Laravel');
-			}
-			$code = '$cfg = (include("./bootstrap/cache/config.php"))["database"]; $db=$cfg["connections"][$cfg["default"]]; ' .
-				'print serialize(array("user" => $db["username"], "password" => $db["password"], "db" => $db["database"], ' .
-				'"host" => $db["host"], "prefix" => $db["prefix"]));';
-			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
-			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
-
-			if (!$ret['success']) {
-				return error("failed to obtain Laravel configuration for `%s'", $docroot);
-			}
-			$data = \Util_PHP::unserialize($ret['stdout']);
-
-			return $data;
-		}
-
-		/**
-		 * Check if version is latest or get latest version
-		 *
-		 * @param null|string $version
-		 * @param string|null $branchcomp
-		 * @return bool
-		 */
-		public function is_current(string $version = null, string $branchcomp = null)
-		{
-			return parent::is_current($version, $branchcomp);
-		}
-
-		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return string version number
-		 */
-		public function get_version(string $hostname, string $path = ''): ?string
-		{
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$approot = $this->getAppRoot($hostname, $path);
-			$path = $this->domain_fs_path($approot . '/vendor/composer/installed.json');
-
-			if (!file_exists($path) || !($json = json_decode(file_get_contents($path), true))) {
-				return null;
-			}
-			foreach ($json as $pkg) {
-				if ($pkg['name'] === 'laravel/framework') {
-					return \Opcenter\Versioning::asPatch($pkg['version_normalized']);
-				}
-			}
-
-			return null;
-		}
-
-		/**
-		 * Update Laravel to latest version
-		 *
-		 * @param string $hostname domain or subdomain under which WP is installed
-		 * @param string $path     optional subdirectory
-		 * @param string $version version to upgrade
-		 * @return bool
-		 */
-		public function update(string $hostname, string $path = '', string $version = null): bool
-		{
-			$docroot = $this->getDocumentRoot($hostname, $path);
-			if (!$docroot) {
-				return error('update failed');
-			}
-			$approot = $this->getAppRoot($hostname, $path);
-			$ret = $this->_execComposer($approot, 'update laravel/framework');
-			parent::setInfo($docroot, [
-				'version' => $this->get_version($hostname, $path) ?? $version,
-				'failed'  => !$ret['success']
-			]);
-			return $ret['success'] ?: error($ret['stderr']);
-		}
-
-		public function update_all(string $hostname, string $path = '', string $version = null): bool
-		{
-			return $this->update($hostname, $path, $version) || error('failed to update all components');
-		}
-
-		/**
-		 * Update Laravel plugins
-		 *
-		 * @param string $hostname domain or subdomain
-		 * @param string $path     optional path within host
-		 * @param array  $plugins
-		 * @return bool
-		 */
-		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
-		{
-			return parent::update_plugins($hostname, $path, $plugins);
-		}
-
-		/**
-		 * Update Laravel themes
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path     optional path under hostname
-		 * @param array  $themes
-		 * @return bool
-		 */
-		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
-		{
-			return parent::update_themes($hostname, $path, $themes);
-		}
-
-		/**
-		 * Web application supports fortification
-		 *
-		 * @param string|null $mode optional mode (min, max)
-		 * @return bool
-		 */
-		public function has_fortification(string $mode = null): bool
-		{
-			return parent::has_fortification($mode);
-		}
-
-		/**
-		 * Restrict write-access by the app
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @param string $mode
-		 * @return bool
-		 */
-		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
-		{
-			return parent::fortify($hostname, $path, $mode);
-		}
-
-		/**
-		 * Relax permissions to allow write-access
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return bool
-		 * @internal param string $mode
-		 */
-		public function unfortify(string $hostname, string $path = ''): bool
-		{
-			return parent::unfortify($hostname, $path);
-		}
-
-		/**
-		 * Inject custom bootstrapper
-		 *
-		 * @param $approot
-		 * @return bool|int|void
-		 */
-		protected function _fixCache($approot)
-		{
-			$file = $this->domain_fs_path() . '/' . $approot . '/app/ApplicationWrapper.php';
-			$tmpfile = tempnam($this->domain_fs_path() . '/tmp', 'appwrapper');
-			if (!copy(resource_path('storehouse/laravel/ApplicationWrapper.php'), $tmpfile)) {
-				return warn('failed to copy optimized cache bootstrap');
-			}
-			if (!posix_getuid()) {
-				chown($tmpfile, File_Module::UPLOAD_UID);
-			}
-
-			$this->file_endow_upload(basename($tmpfile));
-			$this->file_copy($this->file_unmake_path($tmpfile), $approot . '/app/ApplicationWrapper.php');
-			unlink($tmpfile);
-			$file = dirname(dirname($file)) . '/bootstrap/app.php';
-			if (!file_exists($file)) {
-				return error('unable to alter app.php - file is missing (Laravel corrupted?)');
-			}
-			$contents = file_get_contents($file);
-			$contents = preg_replace('/new\sIlluminate\\\\Foundation\\\\Application/m', 'new App\\ApplicationWrapper',
-				$contents);
-
-			if (file_put_contents($file, $contents) < 1) {
-				return false;
-			}
-			$ret = $this->_execComposer($approot, 'dumpautoload -o');
-			return $ret['success'];
 		}
 
 		private function _execComposer($path = null, $cmd, array $args = array())
@@ -575,6 +314,176 @@
 			return $cli;
 		}
 
+		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		{
+			return $this->getAppRootReal($hostname, $path);
+		}
+
+		/**
+		 * Inject custom bootstrapper
+		 *
+		 * @param $approot
+		 * @return bool|int|void
+		 */
+		protected function _fixCache($approot)
+		{
+			$file = $this->domain_fs_path() . '/' . $approot . '/app/ApplicationWrapper.php';
+			$tmpfile = tempnam($this->domain_fs_path() . '/tmp', 'appwrapper');
+			if (!copy(resource_path('storehouse/laravel/ApplicationWrapper.php'), $tmpfile)) {
+				return warn('failed to copy optimized cache bootstrap');
+			}
+			if (!posix_getuid()) {
+				chown($tmpfile, File_Module::UPLOAD_UID);
+			}
+
+			$this->file_endow_upload(basename($tmpfile));
+			$this->file_copy($this->file_unmake_path($tmpfile), $approot . '/app/ApplicationWrapper.php');
+			unlink($tmpfile);
+			$file = dirname(dirname($file)) . '/bootstrap/app.php';
+			if (!file_exists($file)) {
+				return error('unable to alter app.php - file is missing (Laravel corrupted?)');
+			}
+			$contents = file_get_contents($file);
+			$contents = preg_replace('/new\sIlluminate\\\\Foundation\\\\Application/m', 'new App\\ApplicationWrapper',
+				$contents);
+
+			if (file_put_contents($file, $contents) < 1) {
+				return false;
+			}
+			$ret = $this->_execComposer($approot, 'dumpautoload -o');
+
+			return $ret['success'];
+		}
+
+		private function setConfiguration(string $approot, string $docroot, array $config)
+		{
+			$envcfg = (new \Opcenter\Provisioning\ConfigurationWriter("webapps.laravel.env",
+				\Opcenter\SiteConfiguration::import($this->getAuthContext())))
+				->compile($config);
+			$this->file_put_file_contents("${approot}/.env", (string)$envcfg);
+
+			return $this->buildConfig($approot, $docroot);
+		}
+
+		/**
+		 * Rebuild config and force frontend cache
+		 *
+		 * @param string $approot
+		 * @param string $docroot
+		 * @return bool
+		 */
+		private function buildConfig(string $approot, string $docroot): bool
+		{
+			$ret = $this->_exec($approot, 'artisan config:cache');
+			if (!$ret['success']) {
+				return error("config rebuild failed: %s", coalesce($ret['stderr'], $ret['stdout']));
+			}
+			if (!($uri = $this->web_get_hostname_from_docroot($docroot))) {
+				return error("no URI specified, cannot deduce URI from docroot `%s'", $docroot);
+			}
+			$uri = $this->web_normalize_hostname($uri);
+			$ctx = stream_context_create(array(
+				'http' =>
+					array(
+						'timeout'          => 5,
+						'method'           => 'HEAD',
+						'header'           => [
+							"User-agent: apnscp Internal check",
+							"Host: ${uri}"
+						],
+						'protocol_version' => '1.1'
+					)
+			));
+
+			return (bool)get_headers('http://' . $this->site_ip_address(), 0, $ctx) ?:
+				warn("failed to cache configuration directly, visit `%s' to cache configuration", $uri);
+		}
+
+		/**
+		 * Restrict write-access by the app
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @param string $mode
+		 * @return bool
+		 */
+		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
+		{
+			return parent::fortify($hostname, $path, $mode);
+		}
+
+		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return string version number
+		 */
+		public function get_version(string $hostname, string $path = ''): ?string
+		{
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$approot = $this->getAppRoot($hostname, $path);
+			$path = $this->domain_fs_path($approot . '/vendor/composer/installed.json');
+
+			if (!file_exists($path) || !($json = json_decode(file_get_contents($path), true))) {
+				return null;
+			}
+			foreach ($json as $pkg) {
+				if ($pkg['name'] === 'laravel/framework') {
+					return \Opcenter\Versioning::asPatch($pkg['version_normalized']);
+				}
+			}
+
+			return null;
+		}
+
+		/**
+		 * Location is a valid Laravel install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid(string $hostname, string $path = ''): bool
+		{
+			if ($hostname[0] === '/') {
+				if (!($path = realpath($this->domain_fs_path($hostname)))) {
+					return false;
+				}
+				$approot = \dirname($path);
+			} else {
+				$approot = $this->getAppRoot($hostname, $path);
+				if (!$approot) {
+					return false;
+				}
+				$approot = $this->domain_fs_path($approot);
+			}
+
+			return file_exists($approot . '/artisan');
+		}
+
+		public function get_versions(): array
+		{
+			$key = 'laravel.verflat';
+			$cache = \Cache_Global::spawn();
+			if (false !== ($versions = $cache->get($key))) {
+				return $versions;
+			}
+			$versions = array_column(array_filter($this->_getVersions(), function ($ver) {
+				return false === strpos($ver['version_normalized'], '-') && $ver['version'][0] === 'v';
+			}), 'version_normalized');
+			natsort($versions);
+			array_walk($versions, function (&$ver) {
+				$ver = join('.', array_slice(explode('.', $ver), 0, 3));
+			});
+
+			$cache->set($key, $versions);
+
+			return $versions;
+		}
+
 		/**
 		 * Get all current major versions
 		 *
@@ -602,13 +511,149 @@
 			return $versions;
 		}
 
+		/**
+		 * Uninstall Laravel from a location
+		 *
+		 * @param        $hostname
+		 * @param string $path
+		 * @param string $delete remove all files under docroot
+		 * @return bool
+		 */
+		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
+		{
+			return parent::uninstall($hostname, $path, $delete);
+		}
+
+		/**
+		 * Get database configuration for a blog
+		 *
+		 * @param string $hostname domain or subdomain of wp blog
+		 * @param string $path     optional path
+		 * @return array|bool
+		 */
+		public function db_config(string $hostname, string $path = '')
+		{
+			$this->web_purge();
+			$docroot = $this->getAppRoot($hostname, $path);
+			if (!$docroot) {
+				return error('failed to determine Laravel');
+			}
+			$code = '$cfg = (include("./bootstrap/cache/config.php"))["database"]; $db=$cfg["connections"][$cfg["default"]]; ' .
+				'print serialize(array("user" => $db["username"], "password" => $db["password"], "db" => $db["database"], ' .
+				'"host" => $db["host"], "prefix" => $db["prefix"]));';
+			$cmd = 'cd %(path)s && php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) . ' -r %(code)s';
+			$ret = $this->pman_run($cmd, array('path' => $docroot, 'code' => $code));
+
+			if (!$ret['success']) {
+				return error("failed to obtain Laravel configuration for `%s'", $docroot);
+			}
+			$data = \Util_PHP::unserialize($ret['stdout']);
+
+			return $data;
+		}
+
+		/**
+		 * Check if version is latest or get latest version
+		 *
+		 * @param null|string $version
+		 * @param string|null $branchcomp
+		 * @return bool
+		 */
+		public function is_current(string $version = null, string $branchcomp = null)
+		{
+			return parent::is_current($version, $branchcomp);
+		}
+
+		public function update_all(string $hostname, string $path = '', string $version = null): bool
+		{
+			return $this->update($hostname, $path, $version) || error('failed to update all components');
+		}
+
+		/**
+		 * Update Laravel to latest version
+		 *
+		 * @param string $hostname domain or subdomain under which WP is installed
+		 * @param string $path     optional subdirectory
+		 * @param string $version  version to upgrade
+		 * @return bool
+		 */
+		public function update(string $hostname, string $path = '', string $version = null): bool
+		{
+			$docroot = $this->getDocumentRoot($hostname, $path);
+			if (!$docroot) {
+				return error('update failed');
+			}
+			$approot = $this->getAppRoot($hostname, $path);
+			$ret = $this->_execComposer($approot, 'update laravel/framework');
+			parent::setInfo($docroot, [
+				'version' => $this->get_version($hostname, $path) ?? $version,
+				'failed'  => !$ret['success']
+			]);
+
+			return $ret['success'] ?: error($ret['stderr']);
+		}
+
+		/**
+		 * Update Laravel plugins
+		 *
+		 * @param string $hostname domain or subdomain
+		 * @param string $path     optional path within host
+		 * @param array  $plugins
+		 * @return bool
+		 */
+		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
+		{
+			return parent::update_plugins($hostname, $path, $plugins);
+		}
+
+		/**
+		 * Update Laravel themes
+		 *
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @param array  $themes
+		 * @return bool
+		 */
+		public function update_themes(string $hostname, string $path = '', array $themes = array()): bool
+		{
+			return parent::update_themes($hostname, $path, $themes);
+		}
+
+		/**
+		 * Web application supports fortification
+		 *
+		 * @param string|null $mode optional mode (min, max)
+		 * @return bool
+		 */
+		public function has_fortification(string $mode = null): bool
+		{
+			return parent::has_fortification($mode);
+		}
+
+		/**
+		 * Relax permissions to allow write-access
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return bool
+		 * @internal param string $mode
+		 */
+		public function unfortify(string $hostname, string $path = ''): bool
+		{
+			return parent::unfortify($hostname, $path);
+		}
+
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
 		{
 			return false;
 		}
 
-		public function install_plugin(string $hostname, string $path = '', string $plugin, string $version = 'stable'): bool
-		{
+		public function install_plugin(
+			string $hostname,
+			string $path = '',
+			string $plugin,
+			string $version = 'stable'
+		): bool {
 			return false;
 		}
 
@@ -632,29 +677,6 @@
 			return parent::install_theme($hostname, $path, $theme, $version);
 		}
 
-		protected function checkVersion(array &$options): bool
-		{
-			if (!parent::checkVersion($options)) {
-				return false;
-			}
-			$phpversion = $this->php_version();
-
-			$cap = null;
-			if (version_compare($phpversion, '5.6.4', '<')) {
-				$cap = '5.3';
-			} else if (version_compare($phpversion, '7.0.0', '<')) {
-				$cap = '5.4';
-			} else if (version_compare($phpversion, '7.1.3', '<')) {
-				$cap = '5.5';
-			}
-
-			if ($cap && version_compare($options['version'], $cap, '>=')) {
-				info("PHP version `%s' detected, capping Laravel to %s", $phpversion, $cap);
-				$options['version'] = $cap;
-			}
-			return true;
-		}
-
 		public function change_admin(string $hostname, string $path = '', array $fields): bool
 		{
 			return false;
@@ -665,13 +687,9 @@
 			return null;
 		}
 
-		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string {
-			return parent::next_version($version, $maximalbranch);
-		}
-
-		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
 		{
-			return $this->getAppRootReal($hostname, $path);
+			return parent::next_version($version, $maximalbranch);
 		}
 
 

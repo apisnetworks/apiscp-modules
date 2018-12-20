@@ -21,19 +21,7 @@
 		const CACHE_STORAGE_DURATION = 7200;
 		const CACHE_PREFIX = 'watch.';
 
-		public $exportedFunctions;
-
-		public function __construct()
-		{
-			parent::__construct();
-			if (version_compare(platform_version(), '4.5', '<')) {
-				$this->exportedFunctions = array();
-				return;
-			}
-			$this->exportedFunctions = array(
-				'*' => PRIVILEGE_SITE | PRIVILEGE_USER
-			);
-		}
+		public $exportedFunctions = ['*' => PRIVILEGE_SITE | PRIVILEGE_USER];
 
 		/**
 		 * Export a checkpoint
@@ -47,6 +35,7 @@
 			if (!$id) {
 				return error("export failed");
 			}
+
 			return base64_encode(serialize($res));
 		}
 
@@ -63,7 +52,13 @@
 			if (!$map) {
 				return array();
 			}
+
 			return $map;
+		}
+
+		private function _getWatchCachePrefix()
+		{
+			return self::CACHE_PREFIX;
 		}
 
 		/**
@@ -91,15 +86,21 @@
 					$cache->getResultMessage()
 				);
 			}
+
 			return $hash;
+		}
+
+		private function _makeKeyFromResults($results)
+		{
+			return base_convert($results['ts'] + $results['inode'], 10, 36);
 		}
 
 		/**
 		 * Unattended file change calcuation
 		 *
 		 * @param        $path
-		 * @param        $id1 initial reference token (@see watch)
-		 * @param string $mode   whether to lock or unlock changed files
+		 * @param        $id1  initial reference token (@see watch)
+		 * @param string $mode whether to lock or unlock changed files
 		 * @return bool
 		 *
 		 */
@@ -125,6 +126,7 @@
 				'File Change Report (' . $this->domain . ')',
 				$report
 			);
+
 			return $diff;
 		}
 
@@ -169,7 +171,48 @@
 					$cache->getResultMessage()
 				);
 			}
+
 			return substr($key, strlen($this->_getWatchCachePrefix()));
+		}
+
+		/**
+		 *
+		 * @param string $path resolved shadow path
+		 * @return array
+		 */
+		private function _watch_generate($path): array
+		{
+			if (!is_readable($path)) {
+				error("path `%s' is not readable by other", $this->file_unmake_shadow_path($path));
+
+				return array();
+			}
+			$dh = opendir($path);
+			if (!$dh) {
+				return array();
+			}
+			while (false !== ($file = readdir($dh))) {
+				if ($file === "..") {
+					continue;
+				}
+				$filepath = $path . '/' . $file;
+				$size = filesize($filepath);
+				$mtime = filemtime($filepath);
+				$ctime = filectime($filepath);
+				if ($file !== "." && is_dir($filepath)) {
+					$arr[$file] = $this->_watch_generate($filepath);
+				} else {
+					$arr[$file] = array(
+						'size'  => $size,
+						'mtime' => $mtime,
+						'ctime' => $ctime
+					);
+				}
+			}
+			closedir($dh);
+
+			return $arr;
+
 		}
 
 		/**
@@ -196,16 +239,44 @@
 					$res1['path'],
 					$res2['path']
 				);
-			} else {
-				if ($res1['inode'] != $res2['inode']) {
-					warn("inode mismatch on `%s' but path same, irregular results possible", $res1['path']);
-				}
+			} else if ($res1['inode'] != $res2['inode']) {
+				warn("inode mismatch on `%s' but path same, irregular results possible", $res1['path']);
 			}
 			if ($res1['ts'] > $res2['ts']) {
 				warn("tokens passed in reverse order - items shown are original values");
 			}
 			// files that have changed
 			$changed = Util_PHP::array_diff_assoc_recursive($res2['map'], $res1['map']);
+
+			return $changed;
+		}
+
+		private function _generateChangeReport($path, $files)
+		{
+			$files = $this->_collapseChanges($path, $files);
+			$msg = "Hello, " . "\r\n" .
+				"The following paths were noted as changed: " . "\r\n\r\n";
+			foreach ($files as $file => $modes) {
+				$msg .= "\t" . $file . ": " . join(", ", array_keys($modes)) . "\r\n";
+			}
+
+			return $msg;
+
+		}
+
+		private function _collapseChanges($path, $files)
+		{
+			$p = $path;
+			$changed = array();
+			foreach ($files as $f => $l) {
+				if (is_array($l)) {
+					$changed = array_merge($changed, $this->_collapseChanges($p . DIRECTORY_SEPARATOR . $f, $l));
+				} else {
+					$changed[$p][$f] = $l;
+				}
+
+			}
+
 			return $changed;
 		}
 
@@ -230,10 +301,8 @@
 			$uid = $stat['uid'];
 			if ($stat['uid'] < User_Module::MIN_UID) {
 				return error("uid of `%s' is a system uid `%d'", $path, $stat['uid']);
-			} else {
-				if (($this->permission_level & PRIVILEGE_USER) && $uid != $this->user_id) {
-					return error("cannot lockdown docroots unowned by this user");
-				}
+			} else if (($this->permission_level & PRIVILEGE_USER) && $uid !== $this->user_id) {
+				return error("cannot lockdown docroots unowned by this user");
 			}
 			$username = $this->user_get_username_from_uid($uid);
 			$proposed = $this->_collapseChanges($path, $diff);
@@ -266,6 +335,7 @@
 
 			if ($mode === 'lock') {
 				$this->file_chown($filtered, $username);
+
 				return $this->file_set_acls($filtered, null);
 			}
 
@@ -284,87 +354,28 @@
 					chgrp($f, $this->group_id);
 				}
 			}
+
+			$filteredFiles = array_filter($filtered,
+				function ($f) {
+					return substr($f, -2) !== '/.';
+				});
+			$filteredDirs = array_diff($filtered, $filteredFiles);
 			$users = array(
-				array('apache' => 7),
-				array('apache' => 'drwx'),
-				array($username => 7),
-				array($username => 'drwx')
+				['apache' => 7],
+				[$username => 7],
 			);
-			return $this->file_set_acls($filtered, $users);
-		}
-
-		private function _getWatchCachePrefix()
-		{
-			return self::CACHE_PREFIX;
-		}
-
-		private function _makeKeyFromResults($results)
-		{
-			return base_convert($results['ts'] + $results['inode'], 10, 36);
-		}
-
-		/**
-		 *
-		 * @param string $path resolved shadow path
-		 * @return array|bool|void
-		 */
-		private function _watch_generate($path)
-		{
-			if (!is_readable($path)) {
-				error("path `%s' is not readable by other", $this->file_unmake_shadow_path($path));
-				return array();
+			$ret = $this->file_set_acls($filteredFiles, $users);
+			if ($ret && $filteredDirs) {
+				// setfacl yelps if [d]efault flag applied and file is not a directory
+				// "Only directories can have default ACLs" is translated, so two 2 rounds
+				$users = array_merge($users, [
+					['apache' => 'drwx'],
+					[$username => 'drwx']
+				]);
+				$ret &= $this->file_set_acls($filteredDirs, $users);
 			}
-			$dh = opendir($path);
-			if (!$dh) {
-				return array();
-			}
-			while (false !== ($file = readdir($dh))) {
-				if ($file === "..") {
-					continue;
-				}
-				$filepath = $path . '/' . $file;
-				$size = filesize($filepath);
-				$mtime = filemtime($filepath);
-				$ctime = filectime($filepath);
-				if ($file !== "." && is_dir($filepath)) {
-					$arr[$file] = $this->_watch_generate($filepath);
-				} else {
-					$arr[$file] = array(
-						'size'  => $size,
-						'mtime' => $mtime,
-						'ctime' => $ctime
-					);
-				}
-			}
-			closedir($dh);
-			return $arr;
 
-		}
+			return $ret;
 
-		private function _generateChangeReport($path, $files)
-		{
-			$files = $this->_collapseChanges($path, $files);
-			$msg = "Hello, " . "\r\n" .
-				"The following files were noted as changed: " . "\r\n\r\n";
-			foreach ($files as $file => $modes) {
-				$msg .= "\t" . $file . ": " . join(", ", array_keys($modes)) . "\r\n";
-			}
-			return $msg;
-
-		}
-
-		private function _collapseChanges($path, $files)
-		{
-			$p = $path;
-			$changed = array();
-			foreach ($files as $f => $l) {
-				if (is_array($l)) {
-					$changed = array_merge($changed, $this->_collapseChanges($p . DIRECTORY_SEPARATOR . $f, $l));
-				} else {
-					$changed[$p][$f] = $l;
-				}
-
-			}
-			return $changed;
 		}
 	}

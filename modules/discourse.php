@@ -24,6 +24,14 @@
 		use \Module\Support\Webapps\Traits\PublicRelocatable {
 			getAppRoot as getAppRootReal;
 		}
+
+		const DEFAULT_RUBY = '2.5.3';
+
+		const MINIMUM_INTERPRETERS = [
+			'0'           => '2.4.2',
+			'2.2.0.beta5' => '2.5.2'
+		];
+
 		const APP_NAME = 'Discourse';
 		const DEFAULT_VERSION_LOCK = 'major';
 		const VERSION_CHECK_URL = 'https://api.github.com/repos/discourse/discourse/tags?per_page=1000';
@@ -32,7 +40,7 @@
 		public function __construct()
 		{
 			parent::__construct();
-			$this->exportedFunctions['restart'] = PRIVILEGE_SITE|PRIVILEGE_USER;
+			$this->exportedFunctions['restart'] = PRIVILEGE_SITE | PRIVILEGE_USER;
 		}
 
 		public function plugin_status(string $hostname, string $path = '', string $plugin = null)
@@ -48,18 +56,6 @@
 		public function disable_all_plugins(string $hostname, string $path = ''): bool
 		{
 			return error('not supported');
-		}
-
-		/**
-		 * Get all available Discourse versions
-		 *
-		 * @return array
-		 */
-		public function get_versions(): array
-		{
-			$versions = $this->_getVersions();
-
-			return array_column($versions, 'version');
 		}
 
 		/**
@@ -89,8 +85,8 @@
 		}
 
 		/**
-		 * @param string $hostname
-		 * @param string $path
+		 * @param string       $hostname
+		 * @param string       $path
 		 * @param string|array $fields
 		 * @return mixed
 		 */
@@ -108,25 +104,26 @@
 			if (\count($values) === 1) {
 				return array_pop($values);
 			}
+
 			return $values;
 		}
 
-		public function set_configuration(string $hostname, string $path, array $params = []) {
-			if (!IS_CLI) {
-				return $this->query('discourse_set_configuration', $hostname, $path, $params);
-			}
-			$config = $this->getAppRoot($hostname, $path) . '/config/discourse.conf';
-			$ini = \Opcenter\Map::load($this->domain_fs_path($config), 'wd', 'inifile')->section(null);
-
-			foreach ($params as $k => $v) {
-				$ini[$k] = $v;
-			}
-			return true;
-
+		/**
+		 * Get app root for Discourse
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return null|string
+		 */
+		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		{
+			return $this->getAppRootReal($hostname, $path);
 		}
 
 		/**
 		 * Install Discourse into a pre-existing location
+		 *
+		 * @TODO disable cgroup OOM killer on 1 GB sites?
 		 *
 		 * @param string $hostname domain or subdomain to install Laravel
 		 * @param string $path     optional path under hostname
@@ -135,7 +132,8 @@
 		 */
 		public function install(string $hostname, string $path = '', array $opts = array()): bool
 		{
-			if (/*!is_debug() && */!IS_CLI) {
+			if (/*!is_debug() && */
+			!IS_CLI) {
 				return $this->query('discourse_install', $hostname, $path, $opts);
 			}
 			if (!$this->pgsql_enabled()) {
@@ -145,12 +143,17 @@
 				return error("[ssh] => user_daemons must be set to true in config.ini");
 			}
 			$available = null;
-			if (!$this->hasMemoryAllowance(1024, $available)) {
+			if (!$this->hasMemoryAllowance(2048, $available)) {
 				return error("Discourse requires at least 1024 MB memory, `%s' MB provided for account", $available);
 			}
 			if (!$this->hasStorageAllowance(2048, $available)) {
 				return error("Discourse requires ~2 GB free. Only %.2f MB free.", $available);
+			}
 
+			if ($this->getServiceValue('cgroup', 'enabled') && ($limit = $this->getServiceValue('cgroup',
+					'proclimit')) < 100) {
+				return error("Resource limits enforced. proclimit `%d' is below minimum value 100. Change via cgroup,proclimit",
+					$limit);
 			}
 
 			if (!platform_is('7.5')) {
@@ -194,7 +197,7 @@
 				return false;
 			}
 
-			$this->validateRuby('lts', $opts['user'] ?? null);
+			$this->validateRuby(self::DEFAULT_RUBY, $opts['user'] ?? null);
 
 			if (!empty($opts['ssl']) && !parent::configureSsl($hostname)) {
 				return false;
@@ -226,9 +229,9 @@
 			}
 			$dbpass = $this->suggestPassword();
 			$dbconfig = [
-				'db' => $db,
-				'user' => $dbuser,
-				'password' => $dbpass,
+				'db'              => $db,
+				'user'            => $dbuser,
+				'password'        => $dbpass,
 				'max_connections' => 10
 			];
 			if (!$this->setupDatabase($dbconfig, 'pgsql')) {
@@ -242,13 +245,13 @@
 				$wrapper->git_clone(static::DISCOURSE_REPO, $docroot,
 					[
 						'recursive' => null,
-						'depth' => 0,
-						'branch' => 'v' . $opts['version']
+						'depth'     => 0,
+						'branch'    => 'v' . $opts['version']
 					]);
-				$wrapper->ruby_make_default('lts', $docroot);
-				$wrapper->ruby_do('lts', $docroot, 'gem install --no-rdoc --no-ri passenger bundler');
-				$wrapper->ruby_do('lts', $docroot, 'bundle install -j' . max(4,(int)NPROC+1));
-				foreach(['pg_trgm', 'hstore'] as $extension) {
+				$wrapper->ruby_make_default(self::DEFAULT_RUBY, $docroot);
+				$wrapper->ruby_do('', $docroot, 'gem install --no-rdoc --no-ri passenger bundler');
+				$wrapper->ruby_do('', $docroot, 'bundle install -j' . max(4, (int)NPROC + 1));
+				foreach (['pg_trgm', 'hstore'] as $extension) {
 					$this->pgsql_add_extension($db, $extension);
 				}
 				if (!$wrapper->crontab_user_permitted($opts['user'] ?? $this->username)) {
@@ -267,6 +270,7 @@
 				if ($this->pgsql_user_exists($dbuser)) {
 					$this->pgsql_delete_user($dbuser, '127.0.0.1');
 				}
+
 				return error("failed to install Discourse %s: %s", $args['version'], $e->getMessage());
 			} finally {
 				\Error_Reporter::exception_upgrade($oldex);
@@ -300,10 +304,10 @@
 			$passenger->setMaxPoolSize(3);
 			$passenger->setMinInstances(3);
 			$passenger->setEnvironment([
-				'RUBY_GLOBAL_METHOD_CACHE_SIZE' => 131072,
-				'LD_PRELOAD'                    => '/usr/lib64/libjemalloc.so.1',
-				'RUBY_GC_HEAP_GROWTH_MAX_SLOTS' => 40000,
-				'RUBY_GC_HEAP_INIT_SLOTS'       => 400000,
+				'RUBY_GLOBAL_METHOD_CACHE_SIZE'       => 131072,
+				'LD_PRELOAD'                          => '/usr/lib64/libjemalloc.so.1',
+				'RUBY_GC_HEAP_GROWTH_MAX_SLOTS'       => 40000,
+				'RUBY_GC_HEAP_INIT_SLOTS'             => 400000,
 				'RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR' => 1.5
 			]);
 			$config = $approot . '/config/discourse.conf';
@@ -314,11 +318,11 @@
 			}
 
 			$configurables = [
-				'db_name' => $dbconfig['db'],
-				'db_username' => $dbconfig['user'],
-				'db_password' => $dbconfig['password'],
-				'hostname' => $hostname,
-				'db_host' => '127.0.0.1',
+				'db_name'          => $dbconfig['db'],
+				'db_username'      => $dbconfig['user'],
+				'db_password'      => $dbconfig['password'],
+				'hostname'         => $hostname,
+				'db_host'          => '127.0.0.1',
 				'developer_emails' => $opts['email']
 			];
 			$this->set_configuration($hostname, $path, $configurables);
@@ -352,11 +356,14 @@
 				$this->migrate($approot, 'production');
 				$this->launchSidekiq($approot, 'production');
 				$this->assetsCompile($approot, 'production');
-				$this->file_put_file_contents($approot . '/Passengerfile.json', $passenger->getExecutableConfiguration());
+				$this->file_put_file_contents($approot . '/Passengerfile.json',
+					$passenger->getExecutableConfiguration());
 				$passenger->start();
 			} catch (\apnscpException $e) {
 				dlog($e->getBacktrace());
-				return error("Error encountered during housekeeping. Discourse may be incomplete: %s", $e->getMessage());
+
+				return error("Error encountered during housekeeping. Discourse may be incomplete: %s",
+					$e->getMessage());
 			} finally {
 				\Error_Reporter::exception_upgrade($exold);
 			}
@@ -404,12 +411,12 @@
 			if (array_get($opts, 'notify', true)) {
 				\Lararia\Bootstrapper::minstrap();
 				\Illuminate\Support\Facades\Mail::to($opts['email'])->
-					send((new \Module\Support\Webapps\Mailer('install.discourse', [
-						'email'    => $opts['email'],
-						'uri'      => rtrim($fqdn . '/' . $path, '/'),
-						'proto'    => empty($opts['ssl']) ? 'http://' : 'https://',
-						'appname'  => static::APP_NAME
-					]))->setAppName(static::APP_NAME));
+				send((new \Module\Support\Webapps\Mailer('install.discourse', [
+					'email'   => $opts['email'],
+					'uri'     => rtrim($fqdn . '/' . $path, '/'),
+					'proto'   => empty($opts['ssl']) ? 'http://' : 'https://',
+					'appname' => static::APP_NAME
+				]))->setAppName(static::APP_NAME));
 			}
 
 			if (!$opts['squash']) {
@@ -420,136 +427,96 @@
 		}
 
 		/**
-		 * Fake admin to change its credentials
+		 * Verify Node LTS is installed
+		 *
+		 * @param string|null $version optional version to compare against
+		 * @param string|null $user
+		 * @return bool
+		 */
+		protected function validateRuby(string $version = 'lts', string $user = null): bool
+		{
+			if ($user) {
+				$afi = \apnscpFunctionInterceptor::factory(Auth::context($user, $this->site));
+			}
+			$wrapper = $afi ?? $this;
+			// @TODO accept newer Rubies if present
+			if (!$wrapper->ruby_installed($version) && !$wrapper->ruby_install($version)) {
+				return error('failed to install Ruby %s', $version);
+			}
+			$ret = $wrapper->ruby_do($version, null, 'gem install passenger rake --no-ri --no-rdoc');
+			if (!$ret['success']) {
+				return error('failed to install Passenger gem: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
+			}
+			$home = $this->user_get_home($user);
+			$stat = $this->file_stat($home);
+			if (!$stat || !$this->file_chmod($home, decoct($stat['permissions']) | 0001)) {
+				return error("failed to query user home directory `%s' for user `%s'", $home, $user);
+			}
+
+			return true;
+		}
+
+		/**
+		 * Get installed version
 		 *
 		 * @param string $hostname
 		 * @param string $path
-		 * @return bool
-		 * @throws PostgreSQLError
+		 * @return string version number
 		 */
-		private function createAdmin(string $hostname, string $path): bool
+		public function get_version(string $hostname, string $path = ''): ?string
 		{
-			if (!$approot = $this->getAppRoot($hostname, $path)) {
-				return false;
-			}
-			if (!$db = $this->connectDB($hostname, $path)) {
-				return error("Failed to connect to Discourse database");
-			}
-			if ($db->query("SELECT FROM users WHERE id = 1")->num_rows() > 0) {
-				return warn("Admin user (id = 1) already present, not creating");
-			}
-			$hash = hash('sha256', (string)random_int(PHP_INT_MIN, PHP_INT_MAX));
-			$q1 = 'INSERT INTO users (id, admin, created_at, updated_at, trust_level, username, username_lower, password_hash, salt, ip_address) VALUES(1, \'t\', NOW(), NOW(), 1, ' .
-				pg_escape_literal($this->username) . ',' .
-				strtolower(pg_escape_literal($this->username)) . ',' .
-				pg_escape_literal(hash_hmac('sha256', (string)random_int(PHP_INT_MIN, PHP_INT_MAX), $hash)) . ',' .
-				pg_escape_literal(substr($hash, 0, 32)) . ', ' . pg_escape_literal(\Auth::client_ip()) . ')';
-			$q2 = 'INSERT INTO user_emails (id, user_id, created_at, updated_at, email, "primary") VALUES(1, 1, NOW(), NOW(), ' . pg_escape_literal($this->common_get_email()) . ', \'t\')';
-			// @todo PDO
-			return $db->query($q1)->affected_rows() && $db->query($q2)->affected_rows();
-
-
-		}
-
-		public function build() {
-			if (!is_debug()) {
-				return true;
-			}
-			$approot = $this->getAppRoot($this->domain, '');
-			$docroot = $this->getDocumentRoot($this->domain, '');
-			$context = null;
-
-			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($docroot, $context);
-			$passenger = \Module\Support\Webapps\Passenger::instantiateContexted($context, [$approot, 'ruby']);
-			$passenger->createLayout();
-			$passenger->setEngine('standalone');
-			$command = $passenger->getExecutableConfiguration();
-			//
-			echo $command, "\n";
-			dd($passenger->getExecutable(), $passenger->getDirectives());
-
-
-		}
-
-		/**
-		 * Launch Sidekiq process
-		 *
-		 * @param string $approot
-		 * @param string $mode
-		 * @return bool
-		 */
-		protected function launchSidekiq(string $approot, string $mode = 'production'): bool {
-			if ($this->sidekiqRunning($approot)) {
-				return true;
-			}
-			$job = [
-				'@reboot', null, null, null, null,
-				'/bin/bash -ic ' .
-				escapeshellarg($this->getSidekiqJob($approot, 'production'))
-			];
-			if (!$this->crontab_exists(...$job)) {
-				$this->crontab_add_job(...$job);
-			}
-			$ret = $this->_exec($approot, $this->getSidekiqCommand($approot),
-				[
-					'approot' => $approot
-				],
-				[
-				'RAILS_ENV' => $mode
-			]);
-			return $ret['success'] ?: error("Failed to launch Sidekiq, check log/sidekiq.log");
-		}
-
-		/**
-		 * Get Sidekiq cronjob
-		 *
-		 * @param string $approot
-		 * @param string $env
-		 * @return string
-		 */
-		private function getSidekiqJob(string $approot, $env = 'production') {
-			return 'cd ' . $approot . ' && env RAILS_ENV=production ' . $this->getSidekiqCommand($approot);
-		}
-
-		/**
-		 * Get Sidekiq command
-		 *
-		 * @param string $approot
-		 * @return string
-		 */
-		private function getSidekiqCommand(string $approot) {
-			return 'bundle exec sidekiq -L log/sidekiq.log -P tmp/sidekiq.pid -q critical -q low -q default -d -c5';
-		}
-
-		protected function killSidekiq(string $approot): bool
-		{
-			if (null === ($pid = $this->sidekiqRunning($approot))) {
-				return false;
-			}
-
-			return $this->pman_kill($pid);
-		}
-
-		protected function sidekiqRunning(string $approot): ?int {
-			$pidfile = $this->domain_fs_path($approot . '/tmp/sidekiq.pid');
-			if (!file_exists($pidfile)) {
+			if (!$this->valid($hostname, $path)) {
 				return null;
 			}
+			$approot = $this->getAppRoot($hostname, $path);
+			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
+			$ret = $wrapper->ruby_do(null, $approot,
+				'ruby -e \'require "./%(path)s" ; puts Discourse::VERSION::STRING;\'',
+				['path' => 'lib/version.rb']
+			);
 
-			$pid = (int)file_get_contents($pidfile);
-			return \Opcenter\Process::pidMatches($pid, 'ruby') ? $pid : null;
+			return $ret['success'] ? trim($ret['output']) : null;
 		}
 
 		/**
-		 * Get app root for Discourse
+		 * Location is a valid Discourse install
 		 *
-		 * @param string $hostname
+		 * @param string $hostname or $docroot
 		 * @param string $path
-		 * @return null|string
+		 * @return bool
 		 */
-		protected function getAppRoot(string $hostname, string $path = ''): ?string
+		public function valid(string $hostname, string $path = ''): bool
 		{
-			return $this->getAppRootReal($hostname, $path);
+			if ($hostname[0] === '/') {
+				if (!($path = realpath($this->domain_fs_path($hostname)))) {
+					return false;
+				}
+				$approot = \dirname($path);
+			} else {
+				$approot = $this->getAppRoot($hostname, $path);
+				if (!$approot) {
+					return false;
+				}
+				$approot = $this->domain_fs_path($approot);
+			}
+
+			return file_exists($approot . '/lib/discourse.rb');
+		}
+
+		public function set_configuration(string $hostname, string $path, array $params = [])
+		{
+			if (!IS_CLI) {
+				return $this->query('discourse_set_configuration', $hostname, $path, $params);
+			}
+			$config = $this->getAppRoot($hostname, $path) . '/config/discourse.conf';
+			$ini = \Opcenter\Map::load($this->domain_fs_path($config), 'wd', 'inifile')->section(null);
+
+			foreach ($params as $k => $v) {
+				$ini[$k] = $v;
+			}
+
+			return true;
+
 		}
 
 		/**
@@ -564,38 +531,10 @@
 			return $this->rake($approot, 'db:migrate', $appenv);
 		}
 
-		public function restart(string $hostname, string $path): bool
+		private function rake(string $approot, string $task, string $appenv = 'production'): bool
 		{
-			if (!$approot = $this->getAppRoot($hostname, $path)) {
-				return false;
-			}
-			return \Module\Support\Webapps\Passenger::instantiateContexted($this->getAuthContext(), [$approot, 'ruby'])->restart();
-		}
-
-		/**
-		 * Compile assets
-		 *
-		 * @param string $approot
-		 * @param string $appenv
-		 *
-		 * @return bool
-		 */
-		private function assetsCompile(string $approot, string $appenv = 'production'): bool {
-			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
-			if (!$wrapper->node_installed('lts')) {
-				$wrapper->node_install('lts');
-				$wrapper->node_make_default('lts', $approot);
-			}
-			$ret = $wrapper->node_do('lts', 'npm install -g uglify-js@2');
-			if (!$ret['success']) {
-				return error('Failed to install uglifyjs: %s', $ret['error']);
-			}
-			return $this->rake($approot, 'assets:precompile');
-		}
-
-		private function rake(string $approot, string $task, string $appenv = 'production'): bool {
-			$ret = $this->_exec($approot, 'bundle exec rake -j' . min(4, (int)NPROC + 1) .' ' . $task, [
-				'PATH' => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin/',
+			$ret = $this->_exec($approot, 'bundle exec rake -j' . min(4, (int)NPROC + 1) . ' ' . $task, [
+				'PATH'      => getenv('PATH') . PATH_SEPARATOR . '~/node_modules/.bin/',
 				'RAILS_ENV' => $appenv
 			]);
 
@@ -617,7 +556,7 @@
 				2 => []
 			];
 
-			$args = array_key_map(function ($k, $v) use($args) {
+			$args = array_key_map(function ($k, $v) use ($args) {
 				return ($args[$k] ?? []) + $v;
 			}, $baseArgs);
 
@@ -640,6 +579,400 @@
 			}
 
 			return $ret;
+		}
+
+		/**
+		 * Launch Sidekiq process
+		 *
+		 * @param string $approot
+		 * @param string $mode
+		 * @return bool
+		 */
+		protected function launchSidekiq(string $approot, string $mode = 'production'): bool
+		{
+			if ($this->sidekiqRunning($approot)) {
+				return true;
+			}
+			$job = [
+				'@reboot',
+				null,
+				null,
+				null,
+				null,
+				'/bin/bash -ic ' .
+				escapeshellarg($this->getSidekiqJob($approot, 'production'))
+			];
+			if (!$this->crontab_exists(...$job)) {
+				$this->crontab_add_job(...$job);
+			}
+			$ret = $this->_exec($approot, $this->getSidekiqCommand($approot),
+				[
+					'approot' => $approot
+				],
+				[
+					'RAILS_ENV' => $mode
+				]);
+
+			return $ret['success'] ?: error("Failed to launch Sidekiq, check log/sidekiq.log");
+		}
+
+		protected function sidekiqRunning(string $approot): ?int
+		{
+			$pidfile = $this->domain_fs_path($approot . '/tmp/sidekiq.pid');
+			if (!file_exists($pidfile)) {
+				return null;
+			}
+
+			$pid = (int)file_get_contents($pidfile);
+
+			return \Opcenter\Process::pidMatches($pid, 'ruby') ? $pid : null;
+		}
+
+		/**
+		 * Get Sidekiq cronjob
+		 *
+		 * @param string $approot
+		 * @param string $env
+		 * @return string
+		 */
+		private function getSidekiqJob(string $approot, $env = 'production')
+		{
+			return 'cd ' . $approot . ' && env RAILS_ENV=production ' . $this->getSidekiqCommand($approot);
+		}
+
+		/**
+		 * Get Sidekiq command
+		 *
+		 * @param string $approot
+		 * @return string
+		 */
+		private function getSidekiqCommand(string $approot)
+		{
+			return 'bundle exec sidekiq -L log/sidekiq.log -P tmp/sidekiq.pid -q critical -q low -q default -d -c5';
+		}
+
+		/**
+		 * Compile assets
+		 *
+		 * @param string $approot
+		 * @param string $appenv
+		 *
+		 * @return bool
+		 */
+		private function assetsCompile(string $approot, string $appenv = 'production'): bool
+		{
+			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
+			if (!$wrapper->node_installed('lts')) {
+				$wrapper->node_install('lts');
+				$wrapper->node_make_default('lts', $approot);
+			}
+			$ret = $wrapper->node_do('lts', 'npm install -g uglify-js@2');
+			if (!$ret['success']) {
+				return error('Failed to install uglifyjs: %s', $ret['error']);
+			}
+
+			return $this->rake($approot, 'assets:precompile');
+		}
+
+		public function build()
+		{
+			if (!is_debug()) {
+				return true;
+			}
+			$approot = $this->getAppRoot($this->domain, '');
+			$docroot = $this->getDocumentRoot($this->domain, '');
+			$context = null;
+
+			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($docroot, $context);
+			$passenger = \Module\Support\Webapps\Passenger::instantiateContexted($context, [$approot, 'ruby']);
+			$passenger->createLayout();
+			$passenger->setEngine('standalone');
+			$command = $passenger->getExecutableConfiguration();
+			//
+			echo $command, "\n";
+			dd($passenger->getExecutable(), $passenger->getDirectives());
+
+
+		}
+
+		public function restart(string $hostname, string $path): bool
+		{
+			if (!$approot = $this->getAppRoot($hostname, $path)) {
+				return false;
+			}
+
+			return \Module\Support\Webapps\Passenger::instantiateContexted($this->getAuthContext(),
+				[$approot, 'ruby'])->restart();
+		}
+
+		/**
+		 * Install and activate plugin
+		 *
+		 * @param string $hostname domain or subdomain of wp install
+		 * @param string $path     optional path component of wp install
+		 * @param string $plugin   plugin name
+		 * @param string $version  optional plugin version
+		 * @return bool
+		 */
+		public function install_plugin(
+			string $hostname,
+			string $path = '',
+			string $plugin,
+			string $version = 'stable'
+		): bool {
+			return error('not supported');
+		}
+
+		/**
+		 * Get configuration from a webapp
+		 *
+		 * @param        $hostname
+		 * @param string $path
+		 * @param string $delete remove all files under docroot
+		 * @return bool
+		 */
+		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
+		{
+			$approot = $this->getAppRoot($hostname, $path);
+			// @xxx f'ugly
+			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
+			if ($wrapper !== $this->getApnscpFunctionInterceptor()) {
+				$wrapper->discourse_uninstall($hostname, $path, 'proc');
+			} else if ($delete !== 'proc') {
+				$this->getApnscpFunctionInterceptor()->discourse_uninstall($hostname, $path, 'proc');
+			}
+			if ($delete === 'proc') {
+				$this->kill($hostname, $path);
+				// will fail if run as Apache, ignore
+				$this->pman_run('cd %(approot)s && /bin/bash -ic %(cmd)s',
+					['approot' => $approot, 'cmd' => 'passenger stop']);
+				if ($this->redis_exists($hostname)) {
+					$this->redis_delete($hostname);
+				}
+				$this->killSidekiq($approot);
+				foreach ($this->crontab_filter_by_command($approot) as $job) {
+					$this->crontab_delete_job(
+						$job['minute'],
+						$job['hour'],
+						$job['day_of_month'],
+						$job['month'],
+						$job['day_of_week'],
+						$job['cmd']
+					);
+				}
+
+				return true;
+			}
+
+			return parent::uninstall($hostname, $path, $delete);
+		}
+
+		protected function killSidekiq(string $approot): bool
+		{
+			if (null === ($pid = $this->sidekiqRunning($approot))) {
+				return false;
+			}
+
+			return $this->pman_kill($pid);
+		}
+
+		/**
+		 * Check if version is latest or get latest version
+		 *
+		 * @param null|string $version
+		 * @param string|null $branchcomp
+		 * @return bool
+		 */
+		public function is_current(string $version = null, string $branchcomp = null)
+		{
+			return parent::is_current($version, $branchcomp);
+		}
+
+		/**
+		 * Change Discourse admin credentials
+		 *
+		 * Common fields include: password, email, username, name
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @param array  $fields
+		 * @return bool
+		 */
+		public function change_admin(string $hostname, string $path = '', array $fields): bool
+		{
+			if (/*!is_debug() && */
+			!IS_CLI) {
+				return $this->query('discourse_change_admin', $hostname, $path, $fields);
+			}
+
+			$docroot = $this->getAppRoot($hostname, $path);
+			if (!$docroot) {
+				return warn('failed to change administrator information');
+			}
+
+			$admin = $this->get_admin($hostname, $path);
+
+			if (!$admin) {
+				return error('cannot determine admin of Discourse install');
+			}
+
+			if (isset($fields['password'])) {
+				if (!\Opcenter\Auth\Password::strong($fields['password'])) {
+					return false;
+				}
+				$config = Opcenter\Map::read($this->domain_fs_path($docroot . '/config/application.rb'),
+					'inifile')->section(null)->quoted(true);
+				$itr = (int)($config['config.pbkdf2_iterations'] ?? 64000);
+				$algo = $config['config.pbkdf2_algorithm'] ?? 'sha256';
+				$fields['salt'] = bin2hex(openssl_random_pseudo_bytes(16));
+				$fields['password_hash'] = hash_pbkdf2($algo, $fields['password'], $fields['salt'], $itr);
+			}
+
+			if (isset($fields['username'])) {
+				$fields['username_lower'] = strtolower($fields['username']);
+			}
+			if (isset($fields['name'])) {
+				$fields['name'] = $fields['name'];
+			}
+			$db = $this->connectDB($hostname, $path);
+			if (!empty($fields['email'])) {
+				if (!preg_match(Regex::EMAIL, $fields['email'])) {
+					return error("Invalid email address `%s'", $fields['email']);
+				}
+				$db->query("UPDATE user_emails SET email = " . pg_escape_literal($fields['email']) . " WHERE user_id = 1 AND \"primary\" = 't'");
+			}
+			$q = "UPDATE users SET id = id";
+			foreach (['password_hash', 'salt', 'username', 'username_lower', 'name'] as $field) {
+				if (!isset($fields[$field])) {
+					continue;
+				}
+				$q .= ", {$field} = '" . $db->escape_string($fields[$field]) . "'";
+			}
+			$q .= " WHERE id = 1";
+			if (false === $db->query($q) || $db->affected_rows() < 1) {
+				return error("Failed to change admin user `%s'", $admin);
+			}
+			if (isset($fields['email'])) {
+				info('user login changed to %s', $fields['email']);
+			}
+			if (isset($fields['password'])) {
+				info("user `%s' password changed", $fields['email'] ?? $admin);
+			}
+
+			return true;
+		}
+
+		/**
+		 * Get the primary admin for a WP instance
+		 *
+		 * @param string      $hostname
+		 * @param null|string $path
+		 * @return string admin or false on failure
+		 */
+		public function get_admin(string $hostname, string $path = ''): ?string
+		{
+			if (!$pgsql = $this->connectDB($hostname, $path)) {
+				return null;
+			}
+
+			$rs = $pgsql->query('SELECT username FROM users WHERE id = 1');
+			if (!$rs || $rs->num_rows() < 1) {
+				return null;
+			}
+
+			return $rs->fetch_object()->username;
+		}
+
+		/**
+		 * Update core, plugins, and themes atomically
+		 *
+		 * @param string $hostname subdomain or domain
+		 * @param string $path     optional path under hostname
+		 * @param string $version
+		 * @return bool
+		 */
+		public function update_all(string $hostname, string $path = '', string $version = null): bool
+		{
+			return $this->update($hostname, $path, $version) || error('failed to update all components');
+		}
+
+		/**
+		 * Update Discourse to latest version
+		 *
+		 * @param string $hostname domain or subdomain under which WP is installed
+		 * @param string $path     optional subdirectory
+		 * @param string $version
+		 * @return bool
+		 */
+		public function update(string $hostname, string $path = '', string $version = null): bool
+		{
+			$approot = $this->getAppRoot($hostname, $path);
+			if (!$approot) {
+				return error('update failed');
+			}
+
+			if (!$version) {
+				$version = \Opcenter\Versioning::nextVersion($this->get_versions(),
+					$this->get_version($hostname, $path));
+			} else if (!\Opcenter\Versioning::valid($version)) {
+				return error('invalid version number, %s', $version);
+			}
+
+			if (!$this->git_valid($approot)) {
+				parent::setInfo($this->getDocumentRoot($hostname, $path), [
+					'failed' => true
+				]);
+
+				return error("Cannot upgrade Discourse - not a valid git repository");
+			}
+			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
+			$minimum = null;
+			if (!$this->versionCheck($approot, $version, $minimum)) {
+				parent::setInfo($this->getDocumentRoot($hostname, $path), [
+					'failed' => true
+				]);
+
+				return error("Configured Ruby version `%s' does not meet minimum requirement `%s' for Discourse v%s",
+					$wrapper->ruby_version_from_path($approot), $minimum, $version
+				);
+			}
+			$wrapper->git_fetch($approot);
+			$wrapper->git_fetch($approot, ['tags' => null]);
+			$ret = $wrapper->git_checkout($approot, "v${version}");
+			if ($ret) {
+				// use default Ruby wrapper
+				$wrapper->ruby_do('', $approot, 'bundle install -j' . min(4, (int)NPROC + 1));
+				if (!$this->assetsCompile($approot)) {
+					warn("Failed to compile assets");
+				}
+				$this->migrate($approot);
+			}
+
+			if ($version !== ($newver = $wrapper->discourse_get_version($hostname, $path))) {
+				report("Upgrade failed, reported version `%s' is not requested version `%s'", $newver, $version);
+			}
+			parent::setInfo($this->getDocumentRoot($hostname, $path), [
+				'version' => $version,
+				'failed'  => !$ret
+			]);
+
+			if (!$ret) {
+				return error("failed to update Discourse");
+			}
+
+			return $wrapper->discourse_restart($hostname, $path);
+		}
+
+		/**
+		 * Get all available Discourse versions
+		 *
+		 * @return array
+		 */
+		public function get_versions(): array
+		{
+			$versions = $this->_getVersions();
+
+			return array_column($versions, 'version');
 		}
 
 		/**
@@ -690,327 +1023,26 @@
 		}
 
 		/**
-		 * Install and activate plugin
+		 * Ruby interpreter meets minimum version requirement
 		 *
-		 * @param string $hostname domain or subdomain of wp install
-		 * @param string $path     optional path component of wp install
-		 * @param string $plugin   plugin name
-		 * @param string $version  optional plugin version
+		 * @param string $approot          app root
+		 * @param string $discourseVersion requested Discourse version
+		 * @param null   $minVersion
 		 * @return bool
 		 */
-		public function install_plugin(
-			string $hostname,
-			string $path = '',
-			string $plugin,
-			string $version = 'stable'
-		): bool {
-			return error('not supported');
-		}
-
-		/**
-		 * Get configuration from a webapp
-		 *
-		 * @param        $hostname
-		 * @param string $path
-		 * @param string $delete remove all files under docroot
-		 * @return bool
-		 */
-		public function uninstall(string $hostname, string $path = '', string $delete = 'all'): bool
+		private function versionCheck(string $approot, string $discourseVersion, &$minVersion = null): bool
 		{
-			$approot = $this->getAppRoot($hostname, $path);
-			// @xxx f'ugly
 			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
-			if ($wrapper !== $this->getApnscpFunctionInterceptor()) {
-				$wrapper->discourse_uninstall($hostname, $path, 'proc');
-			}  else if ($delete !== 'proc') {
-				$this->getApnscpFunctionInterceptor()->discourse_uninstall($hostname, $path, 'proc');
-			}
-			if ($delete === 'proc') {
-				$this->kill($hostname, $path);
-				// will fail if run as Apache, ignore
-				$this->pman_run('cd %(approot)s && /bin/bash -ic %(cmd)s', ['approot' => $approot, 'cmd' => 'passenger stop']);
-				if ($this->redis_exists($hostname)) {
-					$this->redis_delete($hostname);
+			$version = $wrapper->ruby_version_from_path($approot);
+			$minVersion = '2.0';
+			foreach (self::MINIMUM_INTERPRETERS as $a => $b) {
+				if ($discourseVersion < $a) {
+					break;
 				}
-				$this->killSidekiq($approot);
-				foreach ($this->crontab_filter_by_command($approot) as $job) {
-					$this->crontab_delete_job(
-						$job['minute'],
-						$job['hour'],
-						$job['day_of_month'],
-						$job['month'],
-						$job['day_of_week'],
-						$job['cmd']
-					);
-				}
-				return true;
-			}
-			return parent::uninstall($hostname, $path, $delete);
-		}
-
-		/**
-		 * Location is a valid Discourse install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid(string $hostname, string $path = ''): bool
-		{
-			if ($hostname[0] === '/') {
-				if (!($path = realpath($this->domain_fs_path($hostname)))) {
-					return false;
-				}
-				$approot = \dirname($path);
-			} else {
-				$approot = $this->getAppRoot($hostname, $path);
-				if (!$approot) {
-					return false;
-				}
-				$approot = $this->domain_fs_path($approot);
+				$minVersion = $b;
 			}
 
-			return file_exists($approot . '/lib/discourse.rb');
-		}
-
-		/**
-		 * Get database configuration for Discourse
-		 *
-		 * @param string $hostname domain or subdomain of wp blog
-		 * @param string $path     optional path
-		 * @return bool|array
-		 */
-		public function db_config(string $hostname, string $path = '')
-		{
-			if (!IS_CLI) {
-				return $this->query("discourse_db_config", $hostname, $path);
-			}
-
-			$approot = $this->getAppRoot($hostname, $path);
-
-			if (!$approot) {
-				error('failed to determine Discourse app root - ' . $approot);
-				return [];
-			}
-			$config = $approot . '/config/discourse.conf';
-
-			if (!file_exists($this->domain_fs_path($config))) {
-				error('failed to locate Discourse config in ' . $approot);
-				return [];
-			}
-			$ini = \Opcenter\Map::load($this->domain_fs_path($config), 'r', 'inifile')->section(null);
-
-			return [
-				'db' => $ini['db_name'],
-				'host' => $ini['db_host'],
-				'user' => $ini['db_username'],
-				'password' => $ini['db_password'],
-				'prefix' => '',
-				'type' => 'pgsql'
-			];
-		}
-
-		/**
-		 * Check if version is latest or get latest version
-		 *
-		 * @param null|string $version
-		 * @param string|null $branchcomp
-		 * @return bool
-		 */
-		public function is_current(string $version = null, string $branchcomp = null)
-		{
-			return parent::is_current($version, $branchcomp);
-		}
-
-		/**
-		 * Change Discourse admin credentials
-		 *
-		 * Common fields include: password, email, username, name
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @param array  $fields
-		 * @return bool
-		 */
-		public function change_admin(string $hostname, string $path = '', array $fields): bool
-		{
-			if (/*!is_debug() && */!IS_CLI) {
-				return $this->query('discourse_change_admin', $hostname, $path, $fields);
-			}
-
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return warn('failed to change administrator information');
-			}
-
-			$admin = $this->get_admin($hostname, $path);
-
-			if (!$admin) {
-				return error('cannot determine admin of Discourse install');
-			}
-
-			if (isset($fields['password'])) {
-				if (!\Opcenter\Auth\Password::strong($fields['password'])) {
-					return false;
-				}
-				$config = Opcenter\Map::read($this->domain_fs_path($docroot . '/config/application.rb'), 'inifile')->section(null)->quoted(true);
-				$itr = (int)($config['config.pbkdf2_iterations'] ?? 64000);
-				$algo = $config['config.pbkdf2_algorithm'] ?? 'sha256';
-				$fields['salt'] = bin2hex(openssl_random_pseudo_bytes(16));
-				$fields['password_hash'] = hash_pbkdf2($algo, $fields['password'], $fields['salt'], $itr);
-			}
-
-			if (isset($fields['username'])) {
-				$fields['username_lower'] = strtolower($fields['username']);
-			}
-			if (isset($fields['name'])) {
-				$fields['name'] = $fields['name'];
-			}
-			$db = $this->connectDB($hostname, $path);
-			if (!empty($fields['email'])) {
-				if (!preg_match(Regex::EMAIL, $fields['email'])) {
-					return error("Invalid email address `%s'", $fields['email']);
-				}
-				$db->query("UPDATE user_emails SET email = " . pg_escape_literal($fields['email'])  . " WHERE user_id = 1 AND \"primary\" = 't'");
-			}
-			$q = "UPDATE users SET id = id";
-			foreach (['password_hash', 'salt', 'username', 'username_lower', 'name'] as $field) {
-				if (!isset($fields[$field])) {
-					continue;
-				}
-				$q .= ", {$field} = '" . $db->escape_string($fields[$field]) . "'";
-			}
-			$q .= " WHERE id = 1";
-			if (false === $db->query($q) || $db->affected_rows() < 1) {
-				return error("Failed to change admin user `%s'", $admin);
-			}
-			if (isset($fields['email'])) {
-				info('user login changed to %s', $fields['email']);
-			}
-			if (isset($fields['password'])) {
-				info("user `%s' password changed", $fields['email'] ?? $admin);
-			}
-
-			return true;
-		}
-
-		/**
-		 * Get the primary admin for a WP instance
-		 *
-		 * @param string      $hostname
-		 * @param null|string $path
-		 * @return string admin or false on failure
-		 */
-		public function get_admin(string $hostname, string $path = ''): ?string
-		{
-			if (!$pgsql = $this->connectDB($hostname, $path)) {
-				return null;
-			}
-
-			$rs = $pgsql->query('SELECT username FROM users WHERE id = 1');
-			if (!$rs || $rs->num_rows() < 1) {
-				return null;
-			}
-
-			return $rs->fetch_object()->username;
-		}
-
-		private function connectDB($hostname, $path): ?PostgreSQL
-		{
-			$dbconfig = $this->db_config($hostname, $path);
-			$host = $dbconfig['host'] === 'localhost.localdomain' ? '127.0.0.1' : $dbconfig['host'];
-			if (empty($dbconfig['user'])) {
-				return null;
-			}
-			return \PostgreSQL::stub()->connect($host, $dbconfig['user'], $dbconfig['password'], $dbconfig['db']) ?: null;
-
-		}
-
-		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return string version number
-		 */
-		public function get_version(string $hostname, string $path = ''): ?string
-		{
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$approot = $this->getAppRoot($hostname, $path);
-			$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
-			$ret = $wrapper->ruby_do(null, $approot, 'ruby -e \'require "./%(path)s" ; puts Discourse::VERSION::STRING;\'',
-				['path' => 'lib/version.rb']
-			);
-			return $ret['success'] ? trim($ret['output']) : null;
-		}
-
-		/**
-		 * Update core, plugins, and themes atomically
-		 *
-		 * @param string $hostname subdomain or domain
-		 * @param string $path     optional path under hostname
-		 * @param string $version
-		 * @return bool
-		 */
-		public function update_all(string $hostname, string $path = '', string $version = null): bool
-		{
-			return $this->update($hostname, $path, $version) || error('failed to update all components');
-		}
-
-		/**
-		 * Update Discourse to latest version
-		 *
-		 * @param string $hostname domain or subdomain under which WP is installed
-		 * @param string $path     optional subdirectory
-		 * @param string $version
-		 * @return bool
-		 */
-		public function update(string $hostname, string $path = '', string $version = null): bool
-		{
-			$approot = $this->getAppRoot($hostname, $path);
-			if (!$approot) {
-				return error('update failed');
-			}
-
-			if (!$version) {
-				$version = \Opcenter\Versioning::nextVersion($this->get_versions(),
-					$this->get_version($hostname, $path));
-			} else if (!\Opcenter\Versioning::valid($version)) {
-				return error('invalid version number, %s', $version);
-			}
-
-			if ($this->git_valid($approot)) {
-				$wrapper = $this->getApnscpFunctionInterceptorFromDocroot($approot);
-				$wrapper->git_fetch($approot);
-				$wrapper->git_fetch($approot, ['tags' => null]);
-				$ret = $wrapper->git_checkout($approot, "v${version}");
-				if ($ret) {
-					// use default Ruby wrapper
-					$wrapper->ruby_do('', $approot, 'bundle install -j' . min(4, (int)NPROC + 1));
-					if (!$this->assetsCompile($approot)) {
-						warn("Failed to compile assets");
-					}
-					$this->migrate($approot);
-				}
-			} else {
-				$ret = error("Cannot upgrade Discourse - not a valid git repository");
-
-			}
-			if (!$version !== ($newver = $wrapper->get_version($hostname, $path))) {
-				report("Upgrade failed, reported version `%s' is not requested version `%s'", $newver, $version);
-			}
-			parent::setInfo($this->getDocumentRoot($hostname, $path), [
-				'version' => $newver,
-				'failed'  => !$ret
-			]);
-
-			if (!$ret) {
-				return error("failed to update Discourse");
-			}
-
-			return $wrapper->discourse_restart($hostname, $path);
+			return version_compare($version, $minVersion, '>=');
 		}
 
 		/**
@@ -1099,32 +1131,88 @@
 		}
 
 		/**
-		 * Verify Node LTS is installed
+		 * Fake admin to change its credentials
 		 *
-		 * @param string|null $version optional version to compare against
-		 * @param string|null $user
+		 * @param string $hostname
+		 * @param string $path
 		 * @return bool
+		 * @throws PostgreSQLError
 		 */
-		protected function validateRuby(string $version = 'lts', string $user = null): bool
+		private function createAdmin(string $hostname, string $path): bool
 		{
-			if ($user) {
-				$afi = \apnscpFunctionInterceptor::factory(Auth::context($user, $this->site));
+			if (!$approot = $this->getAppRoot($hostname, $path)) {
+				return false;
 			}
-			$wrapper = $afi ?? $this;
-			if (!$wrapper->ruby_installed($version) && !$wrapper->ruby_install($version)) {
-				return error('failed to install Ruby %s', $version);
+			if (!$db = $this->connectDB($hostname, $path)) {
+				return error("Failed to connect to Discourse database");
 			}
-			$ret = $wrapper->ruby_do($version, null, 'gem install passenger rake --no-ri --no-rdoc');
-			if (!$ret['success']) {
-				return error('failed to install Passenger gem: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
+			if ($db->query("SELECT FROM users WHERE id = 1")->num_rows() > 0) {
+				return warn("Admin user (id = 1) already present, not creating");
 			}
-			$home = $this->user_get_home($user);
-			$stat = $this->file_stat($home);
-			if (!$stat || !$this->file_chmod($home, decoct($stat['permissions']) | 0001)) {
-				return error("failed to query user home directory `%s' for user `%s'", $home, $user);
+			$hash = hash('sha256', (string)random_int(PHP_INT_MIN, PHP_INT_MAX));
+			$q1 = 'INSERT INTO users (id, admin, created_at, updated_at, trust_level, username, username_lower, password_hash, salt, ip_address) VALUES(1, \'t\', NOW(), NOW(), 1, ' .
+				pg_escape_literal($this->username) . ',' .
+				strtolower(pg_escape_literal($this->username)) . ',' .
+				pg_escape_literal(hash_hmac('sha256', (string)random_int(PHP_INT_MIN, PHP_INT_MAX), $hash)) . ',' .
+				pg_escape_literal(substr($hash, 0, 32)) . ', ' . pg_escape_literal(\Auth::client_ip()) . ')';
+			$q2 = 'INSERT INTO user_emails (id, user_id, created_at, updated_at, email, "primary") VALUES(1, 1, NOW(), NOW(), ' . pg_escape_literal($this->common_get_email()) . ', \'t\')';
+
+			// @todo PDO
+			return $db->query($q1)->affected_rows() && $db->query($q2)->affected_rows();
+
+
+		}
+
+		private function connectDB($hostname, $path): ?PostgreSQL
+		{
+			$dbconfig = $this->db_config($hostname, $path);
+			$host = $dbconfig['host'] === 'localhost.localdomain' ? '127.0.0.1' : $dbconfig['host'];
+			if (empty($dbconfig['user'])) {
+				return null;
 			}
 
-			return true;
+			return \PostgreSQL::stub()->connect($host, $dbconfig['user'], $dbconfig['password'],
+				$dbconfig['db']) ?: null;
+
+		}
+
+		/**
+		 * Get database configuration for Discourse
+		 *
+		 * @param string $hostname domain or subdomain of wp blog
+		 * @param string $path     optional path
+		 * @return bool|array
+		 */
+		public function db_config(string $hostname, string $path = '')
+		{
+			if (!IS_CLI) {
+				return $this->query("discourse_db_config", $hostname, $path);
+			}
+
+			$approot = $this->getAppRoot($hostname, $path);
+
+			if (!$approot) {
+				error('failed to determine Discourse app root - ' . $approot);
+
+				return [];
+			}
+			$config = $approot . '/config/discourse.conf';
+
+			if (!file_exists($this->domain_fs_path($config))) {
+				error('failed to locate Discourse config in ' . $approot);
+
+				return [];
+			}
+			$ini = \Opcenter\Map::load($this->domain_fs_path($config), 'r', 'inifile')->section(null);
+
+			return [
+				'db'       => $ini['db_name'],
+				'host'     => $ini['db_host'],
+				'user'     => $ini['db_username'],
+				'password' => $ini['db_password'],
+				'prefix'   => '',
+				'type'     => 'pgsql'
+			];
 		}
 	}
 

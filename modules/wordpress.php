@@ -95,7 +95,7 @@
 				return false;
 			}
 			$args = [
-				'mode' => 'download',
+				'mode'    => 'download',
 				'version' => $opts['version']
 			];
 
@@ -223,9 +223,200 @@
 			return info('WordPress installed - confirmation email with login info sent to %s', $opts['email']);
 		}
 
+		private function _exec($path = null, $cmd, array $args = array())
+		{
+			// client may override tz, propagate to bin
+			$tz = date_default_timezone_get();
+			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
+				' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::WP_CLI;
+			if (!is_array($args)) {
+				$args = array_slice(func_get_args(), 2);
+			}
+			$user = $this->username;
+			if ($path) {
+				$cmd = '--path=%(path)s ' . $cmd;
+				$args['path'] = $path;
+				$user = $this->getDocrootUser($path);
+			}
+			$cmd = $cli . ' ' . $cmd;
+			// $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php
+			$ret = $this->pman_run($cmd, $args, ['SERVER_NAME' => $this->domain], ['user' => $user]);
+			if (0 === strpos(coalesce($ret['stderr'], $ret['stdout']), 'Error:')) {
+				// move stdout to stderr on error for consistency
+				$ret['success'] = false;
+				if (!$ret['stderr']) {
+					$ret['stderr'] = $ret['stdout'];
+				}
+
+			}
+
+			return $ret;
+		}
+
+		private function _generateNewConfig($domain, $docroot, $dbcredentials, array $ftpcredentials = array())
+		{
+			// generate db
+			if (!isset($ftpcredentials['user'])) {
+				$ftpcredentials['user'] = $this->username . '@' . $this->domain;
+			}
+			if (!isset($ftpcredentials['host'])) {
+				$ftpcredentials['host'] = 'localhost';
+			}
+			if (!isset($ftpcredentials['password'])) {
+				$ftpcredentials['password'] = '';
+			}
+
+			$xtraphp = '<<EOF ' . "\n" .
+				'// defer updates to CP' . "\n" .
+				"define('WP_AUTO_UPDATE_CORE', false); " . "\n" .
+				"define('FTP_USER',%(ftpuser)s);" . "\n" .
+				"define('FTP_HOST', %(ftphost)s);" . "\n" .
+				($ftpcredentials['password'] ?
+					"define('FTP_PASS', %(ftppass)s);" : '') . "\n" .
+				"define( 'WP_POST_REVISIONS', 5);" . "\n" .
+				'EOF';
+			$args = array(
+				'mode'     => 'config',
+				'db'       => $dbcredentials['db'],
+				'password' => $dbcredentials['password'],
+				'user'     => $dbcredentials['user'],
+				'ftpuser'  => $ftpcredentials['user'],
+				'ftphost'  => 'localhost',
+				'ftppass'  => $ftpcredentials['password'],
+			);
+
+
+			$ret = $this->_exec($docroot,
+				'core %(mode)s --dbname=%(db)s --dbpass=%(password)s --dbuser=%(user)s --dbhost=localhost --extra-php ' . $xtraphp,
+				$args);
+			if (!$ret['success']) {
+				return error('failed to generate configuration, error: %s', coalesce($ret['stderr'], $ret['stdout']));
+			}
+
+			return true;
+		}
+
+		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return string version number
+		 */
+		public function get_version(string $hostname, string $path = ''): ?string
+		{
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$docroot = $this->getAppRoot($hostname, $path);
+			$ret = $this->_exec($docroot, 'core version');
+			if (!$ret['success']) {
+				return null;
+			}
+
+			return trim($ret['stdout']);
+
+		}
+
+		/**
+		 * Location is a valid WP install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid(string $hostname, string $path = ''): bool
+		{
+			if ($hostname[0] === '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->getAppRoot($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_exists($docroot . '/wp-config.php') || $this->file_exists($docroot . '/wp-config-sample.php');
+		}
+
+		/**
+		 * Restrict write-access by the app
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @param string $mode
+		 * @return bool
+		 */
+		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
+		{
+			if (!parent::fortify($hostname, $path, $mode)) {
+				return false;
+			}
+			$docroot = $this->getAppRoot($hostname, $path);
+			if ($mode === 'min') {
+				// allow direct access on min to squelch FTP dialog
+				$this->shareOwnershipSystemCheck($docroot);
+			} else {
+				// flipping from min to max, reset file check
+				$this->assertOwnershipSystemCheck($docroot);
+			}
+
+			return true;
+		}
+
+		/**
+		 * Share ownership of a WordPress install allowing WP write-access in min fortification
+		 *
+		 * @param string $docroot
+		 * @return int num files changed
+		 */
+		protected function shareOwnershipSystemCheck(string $docroot): int
+		{
+			$changed = 0;
+			$options = $this->getOptions($docroot);
+			if (!array_get($options, 'fortify', 'min')) {
+				return $changed;
+			}
+			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
+			foreach ($this->controlFiles as $file) {
+				$path = $docroot . $file;
+				if (!file_exists($this->domain_fs_path() . $path)) {
+					continue;
+				}
+				$this->file_chown($path, \Web_Module::WEB_USERNAME);
+				$this->file_set_acls($path, $user, 6);
+				$changed++;
+			}
+
+			return $changed;
+		}
+
+		/**
+		 * Change ownership over to WordPress admin
+		 *
+		 * @param string $docroot
+		 * @return int num files changed
+		 */
+		protected function assertOwnershipSystemCheck(string $docroot): int
+		{
+			$changed = 0;
+			$options = $this->getOptions($docroot);
+			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
+			foreach ($this->controlFiles as $file) {
+				$path = $docroot . $file;
+				if (!file_exists($this->domain_fs_path() . $path)) {
+					continue;
+				}
+				$this->file_chown($path, $user);
+				$changed++;
+			}
+
+			return $changed;
+		}
 
 		/**
 		 * Enumerate plugin states
+		 *
 		 * @param string      $hostname
 		 * @param string      $path
 		 * @param string|null $plugin optional plugin
@@ -255,22 +446,26 @@
 				}
 				$pluginmeta[$name] = [
 					'version' => $version,
-					'next' => \Opcenter\Versioning::nextVersion($versions, $version),
-					'max' => $this->pluginInfo($name)['version'] ?? end($versions)
+					'next'    => \Opcenter\Versioning::nextVersion($versions, $version),
+					'max'     => $this->pluginInfo($name)['version'] ?? end($versions)
 				];
 				// dev version may be present
-				$pluginmeta[$name]['current'] = version_compare((string)array_get($pluginmeta, "${name}.max", '99999999.999'), (string)$version, '<=') ?:
+				$pluginmeta[$name]['current'] = version_compare((string)array_get($pluginmeta, "${name}.max",
+					'99999999.999'), (string)$version, '<=') ?:
 					(bool)\Opcenter\Versioning::current($versions, $version);
 			}
+
 			return $plugin ? $pluginmeta[$plugin] ?? error("unknown plugin `%s'", $plugin) : $pluginmeta;
 		}
 
-		protected function pluginVersions(string $plugin): ?array {
+		protected function pluginVersions(string $plugin): ?array
+		{
 			$info = $this->pluginInfo($plugin);
 			if (!$info || empty($info['versions'])) {
 				return null;
 			}
 			array_forget($info, 'versions.trunk');
+
 			return array_keys($info['versions']);
 		}
 
@@ -280,7 +475,8 @@
 		 * @param string $plugin
 		 * @return array
 		 */
-		protected function pluginInfo(string $plugin): array {
+		protected function pluginInfo(string $plugin): array
+		{
 			$cache = \Cache_Super_Global::spawn();
 			$key = 'wp.pinfo-' . $plugin;
 			if (false !== ($data = $cache->get($key))) {
@@ -292,6 +488,7 @@
 				uksort($info['versions'], 'version_compare');
 			}
 			$cache->set($key, $info, 86400);
+
 			return $info;
 		}
 
@@ -371,7 +568,7 @@
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $theme
-		 * @param bool $force deactive if necessary
+		 * @param bool   $force deactive if necessary
 		 * @return bool
 		 */
 		public function uninstall_theme(string $hostname, string $path = '', string $theme, bool $force = false): bool
@@ -397,7 +594,6 @@
 
 			return true;
 		}
-
 
 		/**
 		 * Recovery mode to disable all plugins
@@ -461,19 +657,6 @@
 			}
 
 			return \Util_PHP::unserialize(trim($ret['stdout']));
-		}
-
-		/**
-		 * Check if version is latest or get latest version
-		 *
-		 * @param null|string $version    app version
-		 * @param string|null $branchcomp optional branch to compare against
-		 * @return int|string
-		 */
-		public function is_current(string $version = null, string $branchcomp = null)
-		{
-			return parent::is_current($version, $branchcomp);
-
 		}
 
 		/**
@@ -551,49 +734,6 @@
 		}
 
 		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return string version number
-		 */
-		public function get_version(string $hostname, string $path = ''): ?string
-		{
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			$ret = $this->_exec($docroot, 'core version');
-			if (!$ret['success']) {
-				return null;
-			}
-
-			return trim($ret['stdout']);
-
-		}
-
-		/**
-		 * Location is a valid WP install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid(string $hostname, string $path = ''): bool
-		{
-			if ($hostname[0] === '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->getAppRoot($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
-			}
-
-			return $this->file_exists($docroot . '/wp-config.php') || $this->file_exists($docroot . '/wp-config-sample.php');
-		}
-
-		/**
 		 * Update core, plugins, and themes atomically
 		 *
 		 * @param string $hostname subdomain or domain
@@ -611,152 +751,6 @@
 			]);
 
 			return $ret;
-		}
-
-		/**
-		 * Update WordPress to latest version
-		 *
-		 * @param string $hostname domain or subdomain under which WP is installed
-		 * @param string $path     optional subdirectory
-		 * @param string $version
-		 * @return bool
-		 */
-		public function update(string $hostname, string $path = '', string $version = null): bool
-		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('update failed');
-			}
-			$this->assertOwnershipSystemCheck($docroot);
-
-			$cmd = 'core update';
-			$args = [];
-
-			if ($version) {
-				if (!is_scalar($version) || strcspn($version, '.0123456789')) {
-					return error('invalid version number, %s', $version);
-				}
-				$cmd .= ' --version=%(version)s';
-				$args['version'] = $version;
-			}
-
-			$oldversion = $this->get_version($hostname, $path);
-			$ret = $this->_exec($docroot, $cmd, $args);
-
-			if (!$ret['success']) {
-				$output = coalesce($ret['stderr'], $ret['stdout']);
-				if (0 === strpos($output, 'Error: Download failed.')) {
-					return warn('Failed to fetch update - retry update later');
-				}
-
-				return error("update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
-			}
-
-			// Sanity check as WP-CLI is known to fail while producing a 0 exit code
-			if ($oldversion === $this->get_version($hostname, $path) &&
-				!$this->is_current($oldversion, \Opcenter\Versioning::asMajor($oldversion))) {
-				return error('Failed to update WordPress - old version is same as new version - %s! ' .
-					'Diagnostics: (stderr) %s (stdout) %s', $oldversion, $ret['stderr'], $ret['stdout']);
-			}
-
-			info('updating WP database if necessary');
-			$ret = $this->_exec($docroot, 'core update-db');
-			$this->shareOwnershipSystemCheck($docroot);
-
-			if (!$ret['success']) {
-				return warn('failed to update WP database - ' .
-					'login to WP admin panel to manually perform operation');
-			}
-
-			return $ret['success'];
-		}
-
-		/**
-		 * Update WordPress plugins
-		 *
-		 * @param string $hostname domain or subdomain
-		 * @param string $path     optional path within host
-		 * @param array  $plugins
-		 * @return bool
-		 */
-		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
-		{
-			$docroot = $this->getAppRoot($hostname, $path);
-			if (!$docroot) {
-				return error('update failed');
-			}
-			$flags = [];
-			if ($lock = $this->getVersionLock($docroot)) {
-				if ($lock === 'major') {
-					$flags[] = '--minor';
-				} else if ($lock === 'minor') {
-					$flags[] = '--patch';
-				}
-			}
-			$skiplist = $this->getSkiplist($docroot, 'plugin');
-			if (!$plugins) {
-				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
-				$ret = $this->_exec($docroot, 'plugin update --all ' . implode(' ', $flags));
-				if (!$ret['success']) {
-					return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
-				}
-				return $ret['success'];
-			}
-			$status = 1;
-			foreach ($plugins as $plugin)  {
-				$name = $plugin['name'] ?? $plugin;
-				if (isset($skiplist[$name])) {
-					continue;
-				}
-				$version = null;
-				$cmd = 'plugin update %(name)s';
-				$args = [
-					'name' => $name
-				];
-				if (isset($plugin['version'])) {
-					$cmd .= ' --version=%(version)s';
-					$args['version'] = $plugin['version'];
-				}
-				$cmd .= ' '. implode(' ', $flags);
-				$ret = $this->_exec($docroot, $cmd, $args);
-				if (!$ret['success']) {
-					error("failed to update plugin `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));
-				}
-				$status &= $ret['success'];
-			}
-			return (bool)$status;
-		}
-
-		/**
-		 * Get update protection list
-		 *
-		 * @param string $docroot
-		 * @param string $type
-		 * @return array
-		 */
-		public function getSkiplist(string $docroot, string $type) {
-			$skipfile = $this->domain_fs_path($docroot . '/' . self::ASSET_SKIPLIST);
-			$skiplist = [];
-			if ($type && $type !== 'plugin' && $type !== 'theme') {
-				error("Unrecognized skiplist type `%s'", $type);
-				return [];
-			}
-			if (!file_exists($skipfile)) {
-				return $skiplist;
-			}
-
-			$skiplist = (array)file($skipfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-			
-			return array_flip(array_filter(array_map(function ($line) use ($type) {
-				if (false !== ($pos = strpos($line, ':'))) {
-					if (strpos($line, $type . ':') === 0) {
-						return substr($line, $pos+1);
-					}
-				} else {
-					return $line;
-				}
-				return;
-			}, $skiplist)));
 		}
 
 		/**
@@ -820,6 +814,170 @@
 		}
 
 		/**
+		 * Get update protection list
+		 *
+		 * @param string $docroot
+		 * @param string $type
+		 * @return array
+		 */
+		public function getSkiplist(string $docroot, string $type)
+		{
+			$skipfile = $this->domain_fs_path($docroot . '/' . self::ASSET_SKIPLIST);
+			$skiplist = [];
+			if ($type && $type !== 'plugin' && $type !== 'theme') {
+				error("Unrecognized skiplist type `%s'", $type);
+
+				return [];
+			}
+			if (!file_exists($skipfile)) {
+				return $skiplist;
+			}
+
+			$skiplist = (array)file($skipfile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+
+			return array_flip(array_filter(array_map(function ($line) use ($type) {
+				if (false !== ($pos = strpos($line, ':'))) {
+					if (strpos($line, $type . ':') === 0) {
+						return substr($line, $pos + 1);
+					}
+				} else {
+					return $line;
+				}
+
+				return;
+			}, $skiplist)));
+		}
+
+		/**
+		 * Update WordPress plugins
+		 *
+		 * @param string $hostname domain or subdomain
+		 * @param string $path     optional path within host
+		 * @param array  $plugins
+		 * @return bool
+		 */
+		public function update_plugins(string $hostname, string $path = '', array $plugins = array()): bool
+		{
+			$docroot = $this->getAppRoot($hostname, $path);
+			if (!$docroot) {
+				return error('update failed');
+			}
+			$flags = [];
+			if ($lock = $this->getVersionLock($docroot)) {
+				if ($lock === 'major') {
+					$flags[] = '--minor';
+				} else if ($lock === 'minor') {
+					$flags[] = '--patch';
+				}
+			}
+			$skiplist = $this->getSkiplist($docroot, 'plugin');
+			if (!$plugins) {
+				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
+				$ret = $this->_exec($docroot, 'plugin update --all ' . implode(' ', $flags));
+				if (!$ret['success']) {
+					return error("plugin update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
+				}
+
+				return $ret['success'];
+			}
+			$status = 1;
+			foreach ($plugins as $plugin) {
+				$name = $plugin['name'] ?? $plugin;
+				if (isset($skiplist[$name])) {
+					continue;
+				}
+				$version = null;
+				$cmd = 'plugin update %(name)s';
+				$args = [
+					'name' => $name
+				];
+				if (isset($plugin['version'])) {
+					$cmd .= ' --version=%(version)s';
+					$args['version'] = $plugin['version'];
+				}
+				$cmd .= ' ' . implode(' ', $flags);
+				$ret = $this->_exec($docroot, $cmd, $args);
+				if (!$ret['success']) {
+					error("failed to update plugin `%s': %s", $name, coalesce($ret['stderr'], $ret['stdout']));
+				}
+				$status &= $ret['success'];
+			}
+
+			return (bool)$status;
+		}
+
+		/**
+		 * Update WordPress to latest version
+		 *
+		 * @param string $hostname domain or subdomain under which WP is installed
+		 * @param string $path     optional subdirectory
+		 * @param string $version
+		 * @return bool
+		 */
+		public function update(string $hostname, string $path = '', string $version = null): bool
+		{
+			$docroot = $this->getAppRoot($hostname, $path);
+			if (!$docroot) {
+				return error('update failed');
+			}
+			$this->assertOwnershipSystemCheck($docroot);
+
+			$cmd = 'core update';
+			$args = [];
+
+			if ($version) {
+				if (!is_scalar($version) || strcspn($version, '.0123456789')) {
+					return error('invalid version number, %s', $version);
+				}
+				$cmd .= ' --version=%(version)s';
+				$args['version'] = $version;
+			}
+
+			$oldversion = $this->get_version($hostname, $path);
+			$ret = $this->_exec($docroot, $cmd, $args);
+
+			if (!$ret['success']) {
+				$output = coalesce($ret['stderr'], $ret['stdout']);
+				if (0 === strpos($output, 'Error: Download failed.')) {
+					return warn('Failed to fetch update - retry update later');
+				}
+
+				return error("update failed: `%s'", coalesce($ret['stderr'], $ret['stdout']));
+			}
+
+			// Sanity check as WP-CLI is known to fail while producing a 0 exit code
+			if ($oldversion === $this->get_version($hostname, $path) &&
+				!$this->is_current($oldversion, \Opcenter\Versioning::asMajor($oldversion))) {
+				return error('Failed to update WordPress - old version is same as new version - %s! ' .
+					'Diagnostics: (stderr) %s (stdout) %s', $oldversion, $ret['stderr'], $ret['stdout']);
+			}
+
+			info('updating WP database if necessary');
+			$ret = $this->_exec($docroot, 'core update-db');
+			$this->shareOwnershipSystemCheck($docroot);
+
+			if (!$ret['success']) {
+				return warn('failed to update WP database - ' .
+					'login to WP admin panel to manually perform operation');
+			}
+
+			return $ret['success'];
+		}
+
+		/**
+		 * Check if version is latest or get latest version
+		 *
+		 * @param null|string $version    app version
+		 * @param string|null $branchcomp optional branch to compare against
+		 * @return int|string
+		 */
+		public function is_current(string $version = null, string $branchcomp = null)
+		{
+			return parent::is_current($version, $branchcomp);
+
+		}
+
+		/**
 		 * Get theme status
 		 *
 		 * Sample response:
@@ -866,7 +1024,8 @@
 					'max'     => $this->themeInfo($name)['version'] ?? end($versions)
 				];
 				// dev version may be present
-				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max", '99999999.999'), (string)$version, '<=') ?:
+				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max", '99999999.999'),
+					(string)$version, '<=') ?:
 					(bool)\Opcenter\Versioning::current($versions, $version) >= 0;
 			}
 
@@ -875,15 +1034,18 @@
 
 		/**
 		 * Get theme versions
+		 *
 		 * @param string $theme
 		 * @return null|array
 		 */
-		protected function themeVersions($theme): ?array {
+		protected function themeVersions($theme): ?array
+		{
 			$info = $this->themeInfo($theme);
 			if (!$info || empty($info['versions'])) {
 				return null;
 			}
 			array_forget($info, 'versions.trunk');
+
 			return array_keys($info['versions']);
 		}
 
@@ -893,7 +1055,8 @@
 		 * @param string $theme
 		 * @return array|null
 		 */
-		protected function themeInfo(string $theme): ?array {
+		protected function themeInfo(string $theme): ?array
+		{
 			$cache = \Cache_Super_Global::spawn();
 			$key = 'wp.tinfo-' . $theme;
 			if (false !== ($data = $cache->get($key))) {
@@ -905,6 +1068,7 @@
 				uksort($info['versions'], 'version_compare');
 			}
 			$cache->set($key, $info, 86400);
+
 			return $info;
 		}
 
@@ -942,64 +1106,6 @@
 		{
 			return parent::has_fortification($mode);
 		}
-
-		/**
-		 * Restrict write-access by the app
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @param string $mode
-		 * @return bool
-		 */
-		public function fortify(string $hostname, string $path = '', string $mode = 'max'): bool
-		{
-			if (!parent::fortify($hostname, $path, $mode)) {
-				return false;
-			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			if ($mode === 'min') {
-				// allow direct access on min to squelch FTP dialog
-				$this->shareOwnershipSystemCheck($docroot);
-			} else {
-				// flipping from min to max, reset file check
-				$this->assertOwnershipSystemCheck($docroot);
-			}
-
-			return true;
-		}
-
-		protected function _mapFiles(array $files, string $docroot): array
-		{
-			if (file_exists($this->domain_fs_path($docroot . '/wp-content'))) {
-				return parent::_mapFiles($files, $docroot);
-			}
-			$path = $tmp = $docroot;
-			// WP can allow relocation of assets, look for them
-			$ret = $this->pman_run('cd %(docroot)s && php -r %(code)s', [
-				'docroot' => $docroot,
-				'code' => 'set_error_handler(function() { echo defined("WP_CONTENT_DIR") ? constant("WP_CONTENT_DIR") : dirname(__FILE__); die(); }); include("./wp-config.php"); trigger_error("");define("ABS_PATH", "/dev/null");'
-			], null, ['user' => $this->getDocrootUser($docroot)]);
-
-			if ($ret['success']) {
-				$tmp = $ret['stdout'];
-				if (0 === strpos($tmp, $this->domain_fs_path() . '/')) {
-					$tmp = $this->file_unmake_path($tmp);
-				}
-			}
-
-			if ($path !== $tmp) {
-				$relpath = $this->file_convert_absolute_relative($docroot . '/wp-content/', $tmp);
-				foreach ($files as $k => $f) {
-					if (0 !== strpos($f, 'wp-content/')) {
-						continue;
-					}
-					$f = $relpath . substr($f, strlen('wp-content'));
-					$files[$k] = $f;
-				}
-			}
-			return parent::_mapFiles($files, $docroot);
-		}
-
 
 		/**
 		 * Relax permissions to allow write-access
@@ -1042,76 +1148,72 @@
 			return true;
 		}
 
-		private function _exec($path = null, $cmd, array $args = array())
+		/**
+		 * Get all available WordPress versions
+		 *
+		 * @return array versions descending
+		 */
+		public function get_versions(): array
 		{
-			// client may override tz, propagate to bin
-			$tz = date_default_timezone_get();
-			$cli = 'php -d mysqli.default_socket=' . escapeshellarg(ini_get('mysqli.default_socket')) .
-				' -d date.timezone=' . $tz . ' -d memory_limit=128m ' . self::WP_CLI;
-			if (!is_array($args)) {
-				$args = array_slice(func_get_args(), 2);
-			}
-			$user = $this->username;
-			if ($path) {
-				$cmd = '--path=%(path)s ' . $cmd;
-				$args['path'] = $path;
-				$user = $this->getDocrootUser($path);
-			}
-			$cmd = $cli . ' ' . $cmd;
-			// $from_email isn't always set, ensure WP can send via wp-includes/pluggable.php
-			$ret = $this->pman_run($cmd, $args, ['SERVER_NAME' => $this->domain], ['user' => $user]);
-			if (0 === strpos(coalesce($ret['stderr'], $ret['stdout']), 'Error:')) {
-				// move stdout to stderr on error for consistency
-				$ret['success'] = false;
-				if (!$ret['stderr']) {
-					$ret['stderr'] = $ret['stdout'];
-				}
+			$versions = $this->_getVersions();
 
-			}
-
-			return $ret;
+			return array_reverse(array_column($versions, 'version'));
 		}
 
-		private function _generateNewConfig($domain, $docroot, $dbcredentials, array $ftpcredentials = array())
+		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
 		{
-			// generate db
-			if (!isset($ftpcredentials['user'])) {
-				$ftpcredentials['user'] = $this->username . '@' . $this->domain;
+			return parent::next_version($version, $maximalbranch);
+		}
+
+		/**
+		 * Reconfigure a WordPress instance
+		 *
+		 * @param            $field
+		 * @param string     $attribute
+		 * @param array      $new
+		 * @param array|null $old
+		 */
+		public function reconfigure(string $field, string $attribute, array $new, array $old = null)
+		{
+
+		}
+
+		public function get_configuration($field)
+		{
+
+		}
+
+		protected function _mapFiles(array $files, string $docroot): array
+		{
+			if (file_exists($this->domain_fs_path($docroot . '/wp-content'))) {
+				return parent::_mapFiles($files, $docroot);
 			}
-			if (!isset($ftpcredentials['host'])) {
-				$ftpcredentials['host'] = 'localhost';
-			}
-			if (!isset($ftpcredentials['password'])) {
-				$ftpcredentials['password'] = '';
+			$path = $tmp = $docroot;
+			// WP can allow relocation of assets, look for them
+			$ret = $this->pman_run('cd %(docroot)s && php -r %(code)s', [
+				'docroot' => $docroot,
+				'code'    => 'set_error_handler(function() { echo defined("WP_CONTENT_DIR") ? constant("WP_CONTENT_DIR") : dirname(__FILE__); die(); }); include("./wp-config.php"); trigger_error("");define("ABS_PATH", "/dev/null");'
+			], null, ['user' => $this->getDocrootUser($docroot)]);
+
+			if ($ret['success']) {
+				$tmp = $ret['stdout'];
+				if (0 === strpos($tmp, $this->domain_fs_path() . '/')) {
+					$tmp = $this->file_unmake_path($tmp);
+				}
 			}
 
-			$xtraphp = '<<EOF ' . "\n" .
-				'// defer updates to CP' . "\n" .
-				"define('WP_AUTO_UPDATE_CORE', false); " . "\n" .
-				"define('FTP_USER',%(ftpuser)s);" . "\n" .
-				"define('FTP_HOST', %(ftphost)s);" . "\n" .
-				($ftpcredentials['password'] ?
-					"define('FTP_PASS', %(ftppass)s);" : '') . "\n" .
-				'EOF';
-			$args = array(
-				'mode'     => 'config',
-				'db'       => $dbcredentials['db'],
-				'password' => $dbcredentials['password'],
-				'user'     => $dbcredentials['user'],
-				'ftpuser'  => $ftpcredentials['user'],
-				'ftphost'  => 'localhost',
-				'ftppass'  => $ftpcredentials['password'],
-			);
-
-
-			$ret = $this->_exec($docroot,
-				'core %(mode)s --dbname=%(db)s --dbpass=%(password)s --dbuser=%(user)s --dbhost=localhost --extra-php ' . $xtraphp,
-				$args);
-			if (!$ret['success']) {
-				return error('failed to generate configuration, error: %s', coalesce($ret['stderr'], $ret['stdout']));
+			if ($path !== $tmp) {
+				$relpath = $this->file_convert_absolute_relative($docroot . '/wp-content/', $tmp);
+				foreach ($files as $k => $f) {
+					if (0 !== strpos($f, 'wp-content/')) {
+						continue;
+					}
+					$f = $relpath . substr($f, strlen('wp-content'));
+					$files[$k] = $f;
+				}
 			}
 
-			return true;
+			return parent::_mapFiles($files, $docroot);
 		}
 
 		/**
@@ -1150,98 +1252,12 @@
 			$versions = json_decode($contents, true);
 			$versions = $versions['offers'];
 			if (isset($versions[1]['version'], $versions[0]['version'])
-				&& $versions[0]['version'] === $versions[1]['version'])
-			{
+				&& $versions[0]['version'] === $versions[1]['version']) {
 				// WordPress sends most current + version tree
 				array_shift($versions);
 			}
 			$cache->set($key, $versions, 43200);
 
 			return $versions;
-		}
-
-		/**
-		 * Share ownership of a WordPress install allowing WP write-access in min fortification
-		 *
-		 * @param string $docroot
-		 * @return int num files changed
-		 */
-		protected function shareOwnershipSystemCheck(string $docroot): int
-		{
-			$changed = 0;
-			$options = $this->getOptions($docroot);
-			if (!array_get($options, 'fortify', 'min')) {
-				return $changed;
-			}
-			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
-			foreach ($this->controlFiles as $file) {
-				$path = $docroot . $file;
-				if (!file_exists($this->domain_fs_path() . $path)) {
-					continue;
-				}
-				$this->file_chown($path, \Web_Module::WEB_USERNAME);
-				$this->file_set_acls($path, $user, 6);
-				$changed++;
-			}
-
-			return $changed;
-		}
-
-		/**
-		 * Change ownership over to WordPress admin
-		 *
-		 * @param string $docroot
-		 * @return int num files changed
-		 */
-		protected function assertOwnershipSystemCheck(string $docroot): int
-		{
-			$changed = 0;
-			$options = $this->getOptions($docroot);
-			$user = array_get($options, 'user', $this->getDocrootUser($docroot));
-			foreach ($this->controlFiles as $file) {
-				$path = $docroot . $file;
-				if (!file_exists($this->domain_fs_path() . $path)) {
-					continue;
-				}
-				$this->file_chown($path, $user);
-				$changed++;
-			}
-
-			return $changed;
-		}
-
-		/**
-		 * Get all available WordPress versions
-		 *
-		 * @return array versions descending
-		 */
-		public function get_versions(): array
-		{
-			$versions = $this->_getVersions();
-
-			return array_reverse(array_column($versions, 'version'));
-		}
-
-		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string
-		{
-			return parent::next_version($version, $maximalbranch);
-		}
-
-		/**
-		 * Reconfigure a WordPress instance
-		 *
-		 * @param            $field
-		 * @param string     $attribute
-		 * @param array      $new
-		 * @param array|null $old
-		 */
-		public function reconfigure(string $field, string $attribute, array $new, array $old = null)
-		{
-
-		}
-
-		public function get_configuration($field)
-		{
-
 		}
 	}

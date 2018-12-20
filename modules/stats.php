@@ -49,8 +49,10 @@
 			$buffer = explode("\n", $buffer['output']);
 
 			$j = 0;
+			$results = [];
+			$seenMounts = [];
 			foreach ($buffer as $line) {
-				if (strncmp($line, "/dev/", 5)) {
+				if (0 !== strpos($line, '/dev/')) {
 					continue;
 				}
 				preg_match("/(.*) on (.*) type (.*) \((.*)\)/", $line, $result);
@@ -72,12 +74,12 @@
 							}
 							$ar_buf[0] = $result[1];
 							$mount = $ar_buf[5];
-							if ($mount == "/dev/shm" || $ar_buf[0] == "" ||
+							if ($mount == "/dev/shm" || $ar_buf[0] == "" || isset($seenMounts[$mount]) ||
 								!isset($fsoptions[$mount]) || false !== strpos($fsoptions[$mount], "bind")
 							) {
 								continue;
 							}
-
+							$seenMounts[$mount] = 1;
 							$results[$j] = array();
 							$results[$j]['disk'] = $ar_buf[0];
 							$results[$j]['size'] = (int)$ar_buf[1];
@@ -92,6 +94,7 @@
 					}
 				}
 			}
+
 			return $results;
 		}
 
@@ -165,6 +168,7 @@
 				}
 			}
 			fclose($fp);
+
 			return $sastats;
 		}
 

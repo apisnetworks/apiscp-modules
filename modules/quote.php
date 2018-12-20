@@ -77,6 +77,7 @@
 				SET quote = CONCAT(quote,"\r\n\r\nUpdate ", DATE_FORMAT(NOW(), "%M %d, %Y"), ":\r\n", :quote), 
 					name = :name, site = :site, rating = :rating
 				WHERE invoice = :invoice');
+
 			return $stmt->execute($def);
 
 		}
@@ -99,6 +100,7 @@
 			if ($rs->rowCount() < 1) {
 				return array();
 			}
+
 			return $rs->fetch(PDO::FETCH_ASSOC);
 		}
 
@@ -118,8 +120,10 @@
 			} catch (PDOException $e) {
 				Error_Reporter::report("unable to connect to quote db - falling back" . $e->getMessage());
 				$this->_db = null;
+
 				return error("unable to connect to ticket database - use help@apisnetworks.com");
 			}
+
 			return $this->_db;
 
 		}
@@ -168,6 +172,7 @@
 				:site,
 				:invoice)");
 			Mail::send('matt+feedback@apisnetworks.com', 'Client Testimonial - ' . $site, var_export($def, true));
+
 			return $stmt->execute($def);
 
 		}
@@ -182,6 +187,7 @@
 			if ($rs->rowCount() < 1) {
 				return array();
 			}
+
 			return $rs->fetch(PDO::FETCH_ASSOC);
 		}
 
@@ -207,6 +213,7 @@
 					'site'   => $r->site
 				);
 			}
+
 			return $quotes;
 		}
 

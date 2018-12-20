@@ -68,39 +68,6 @@
 
 		}
 
-		public function get_versions(): array
-		{
-			return $this->_getVersions();
-		}
-
-		/**
-		 * Get all current major versions
-		 *
-		 * @return array
-		 */
-		protected function _getVersions()
-		{
-			$key = 'joomla.versions';
-			$cache = Cache_Super_Global::spawn();
-			if (false !== ($ver = $cache->get($key))) {
-				return $ver;
-			}
-			$proc = Util_Process::exec(
-				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s --refresh versions',
-				array(
-					'repo' => self::JOOMLA_MIRROR
-				)
-			);
-			if (!$proc['success'] || !preg_match_all(Regex::JOOMLA_VERSIONS, $proc['stdout'], $matches)) {
-				error('failed to fetch Joomla versions: %s', $proc['stderr']);
-				return [];
-			}
-			$versions = $matches[1];
-			$cache->set($key, $versions, 43200);
-
-			return $versions;
-		}
-
 		/**
 		 * Install Joomla! into a pre-existing location
 		 *
@@ -293,7 +260,20 @@
 			if (!$opts['squash']) {
 				parent::unsquash($docroot);
 			}
+
 			return info('Joomla! installed - confirmation email with login info sent to %s', $opts['email']);
+		}
+
+		/**
+		 * Get referred name
+		 *
+		 * Referred to as Joomla!, but internally let's track as "joomla"
+		 *
+		 * @return string
+		 */
+		protected function getInternalName(): string
+		{
+			return 'joomla';
 		}
 
 		private function _exec($path = null, $cmd, array $args = array())
@@ -327,6 +307,7 @@
 					$ret['stderr'] = $ret['stdout'];
 				}
 			}
+
 			return $ret;
 		}
 
@@ -357,17 +338,17 @@
 			$tz = date('T');
 			$fullpath = $this->domain_fs_path() . $docroot;
 			$opts = array(
-				'debug'    => 0,
-				'ftp_host' => 'localhost',
-				'ftp_user' => $this->username . '@' . $this->domain,
-				'ftp_root' => $docroot,
-				'sitename' => $opts['title'],
-				'offset'   => $tz,
-				'tmp_path' => $fullpath . '/tmp',
-				'log_path' => $fullpath . '/logs',
-				'sendmail' => '/usr/sbin/sendmail',
-				'mailer'   => 'mail',
-				'smtpport' => 587,
+				'debug'     => 0,
+				'ftp_host'  => 'localhost',
+				'ftp_user'  => $this->username . '@' . $this->domain,
+				'ftp_root'  => $docroot,
+				'sitename'  => $opts['title'],
+				'offset'    => $tz,
+				'tmp_path'  => $fullpath . '/tmp',
+				'log_path'  => $fullpath . '/logs',
+				'sendmail'  => '/usr/sbin/sendmail',
+				'mailer'    => 'mail',
+				'smtpport'  => 587,
 				'force_ssl' => !empty($opts['ssl']) ? 2 : 0,
 			);
 			// pure PHP code
@@ -447,12 +428,14 @@
 			$mysqli = $this->_connectDB($dbconfig);
 			if (!$mysqli) {
 				error('cannot get admin user - failed to connect to database');
+
 				return null;
 			}
 			$q = 'select id, username FROM ' . $dbconfig['prefix'] . 'users ORDER BY registerDate ASC limit 1';
 			$rs = $mysqli->query($q);
 			if (!$rs || $rs->num_rows < 1) {
 				warn('failed to enumerate Joomla administrative users');
+
 				return null;
 			}
 
@@ -574,7 +557,7 @@
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $plugin plugin name
-		 * @param bool $force  delete even if plugin activated
+		 * @param bool   $force  delete even if plugin activated
 		 * @return bool
 		 */
 		public function uninstall_plugin(string $hostname, string $path = '', string $plugin, bool $force = false): bool
@@ -652,88 +635,6 @@
 		}
 
 		/**
-		 * Get installed version
-		 *
-		 * @param string $hostname
-		 * @param string $path
-		 * @return string|null version number
-		 */
-		public function get_version(string $hostname, string $path = ''): ?string
-		{
-			if (!$this->valid($hostname, $path)) {
-				return null;
-			}
-			$docroot = $this->getAppRoot($hostname, $path);
-			$fsroot = $this->domain_fs_path();
-			$path = $fsroot . $docroot;
-			$versigs = array(
-				'/libraries/cms/version/version.php', // 3.x, 2.5.x,
-				'/libraries/joomla/version.php',      // 1.7.x allegedly
-				'/includes/version.php'               // what I found in 1.7.5
-
-			);
-			$file = $path . '/language/en-GB/en-GB.xml';
-			if (file_exists($file)) {
-				$xml = simplexml_load_string(file_get_contents($file));
-				$version = data_get($xml, 'version');
-				if ($version) {
-					return (string)$version[0];
-				}
-			}
-			if (!defined('JPATH_PLATFORM')) {
-				define('JPATH_PLATFORM', 'goddamn sanity checks');
-			}
-			if (!defined('_JEXEC')) {
-				define('_JEXEC', 'this is also a PITA');
-			}
-			$version = null;
-			foreach ($versigs as $sig) {
-				$mypath = $path . $sig;
-				if (!file_exists($mypath)) {
-					continue;
-				}
-				$code = "define('JPATH_PLATFORM', 'foo'); define('_JEXEC', 'bar'); include_once './$sig'; class_exists('JVersion') or exit(1); " .
-					'print (new JVersion)->getShortVersion();';
-				$ret = $this->pman_run('cd %(docroot)s && php -r %(code)s', [
-					'docroot' => $docroot,
-					'path' => $sig,
-					'code' => $code
-				]);
-				if ($ret['success']) {
-					return trim($ret['output']);
-				}
-				break;
-			}
-			if (null === $version) {
-				error('cannot determine Joomla! version - incomplete install?');
-				return null;
-			}
-
-			return $version;
-		}
-
-		/**
-		 * Location is a valid Joomla install
-		 *
-		 * @param string $hostname or $docroot
-		 * @param string $path
-		 * @return bool
-		 */
-		public function valid(string $hostname, string $path = ''): bool
-		{
-			if ($hostname[0] === '/') {
-				$docroot = $hostname;
-			} else {
-				$docroot = $this->getAppRoot($hostname, $path);
-				if (!$docroot) {
-					return false;
-				}
-			}
-
-			return $this->file_exists($docroot . '/libraries/joomla');
-		}
-
-		/**
 		 * Update core, plugins, and themes atomically
 		 *
 		 * @param string $hostname subdomain or domain
@@ -790,7 +691,91 @@
 			return info('Upgrade partially completed. Login to Joomla! admin portal to finish upgrade.');
 		}
 
-		protected function update_real(string $docroot, string $version = null): bool {
+		/**
+		 * Get installed version
+		 *
+		 * @param string $hostname
+		 * @param string $path
+		 * @return string|null version number
+		 */
+		public function get_version(string $hostname, string $path = ''): ?string
+		{
+			if (!$this->valid($hostname, $path)) {
+				return null;
+			}
+			$docroot = $this->getAppRoot($hostname, $path);
+			$fsroot = $this->domain_fs_path();
+			$path = $fsroot . $docroot;
+			$versigs = array(
+				'/libraries/cms/version/version.php', // 3.x, 2.5.x,
+				'/libraries/joomla/version.php',      // 1.7.x allegedly
+				'/includes/version.php'               // what I found in 1.7.5
+
+			);
+			$file = $path . '/language/en-GB/en-GB.xml';
+			if (file_exists($file)) {
+				$xml = simplexml_load_string(file_get_contents($file));
+				$version = data_get($xml, 'version');
+				if ($version) {
+					return (string)$version[0];
+				}
+			}
+			if (!defined('JPATH_PLATFORM')) {
+				define('JPATH_PLATFORM', 'goddamn sanity checks');
+			}
+			if (!defined('_JEXEC')) {
+				define('_JEXEC', 'this is also a PITA');
+			}
+			$version = null;
+			foreach ($versigs as $sig) {
+				$mypath = $path . $sig;
+				if (!file_exists($mypath)) {
+					continue;
+				}
+				$code = "define('JPATH_PLATFORM', 'foo'); define('_JEXEC', 'bar'); include_once './$sig'; class_exists('JVersion') or exit(1); " .
+					'print (new JVersion)->getShortVersion();';
+				$ret = $this->pman_run('cd %(docroot)s && php -r %(code)s', [
+					'docroot' => $docroot,
+					'path'    => $sig,
+					'code'    => $code
+				]);
+				if ($ret['success']) {
+					return trim($ret['output']);
+				}
+				break;
+			}
+			if (null === $version) {
+				error('cannot determine Joomla! version - incomplete install?');
+
+				return null;
+			}
+
+			return $version;
+		}
+
+		/**
+		 * Location is a valid Joomla install
+		 *
+		 * @param string $hostname or $docroot
+		 * @param string $path
+		 * @return bool
+		 */
+		public function valid(string $hostname, string $path = ''): bool
+		{
+			if ($hostname[0] === '/') {
+				$docroot = $hostname;
+			} else {
+				$docroot = $this->getAppRoot($hostname, $path);
+				if (!$docroot) {
+					return false;
+				}
+			}
+
+			return $this->file_exists($docroot . '/libraries/joomla');
+		}
+
+		protected function update_real(string $docroot, string $version = null): bool
+		{
 
 			if ($version) {
 				if (!is_scalar($version) || strcspn($version, '.0123456789')) {
@@ -840,6 +825,40 @@
 			return true;
 		}
 
+		public function get_versions(): array
+		{
+			return $this->_getVersions();
+		}
+
+		/**
+		 * Get all current major versions
+		 *
+		 * @return array
+		 */
+		protected function _getVersions()
+		{
+			$key = 'joomla.versions';
+			$cache = Cache_Super_Global::spawn();
+			if (false !== ($ver = $cache->get($key))) {
+				return $ver;
+			}
+			$proc = Util_Process::exec(
+				'php ' . self::JOOMLA_CLI . ' --repo=%(repo)s --refresh versions',
+				array(
+					'repo' => self::JOOMLA_MIRROR
+				)
+			);
+			if (!$proc['success'] || !preg_match_all(Regex::JOOMLA_VERSIONS, $proc['stdout'], $matches)) {
+				error('failed to fetch Joomla versions: %s', $proc['stderr']);
+
+				return [];
+			}
+			$versions = $matches[1];
+			$cache->set($key, $versions, 43200);
+
+			return $versions;
+		}
+
 		private function _updateJoomlaUpdatePlugin($docroot, $user, $version)
 		{
 			$juext = $this->get_plugin_info('com_joomlaupdate');
@@ -866,6 +885,7 @@
 
 			$ret = $this->_exec($docroot, 'extension:installfile -- . %(plugin)s', array('plugin' => $path));
 			$this->file_delete($path, true);
+
 			return $ret['success'];
 		}
 
@@ -1007,18 +1027,6 @@
 			}
 
 			return true;
-		}
-
-		/**
-		 * Get referred name
-		 *
-		 * Referred to as Joomla!, but internally let's track as "joomla"
-		 *
-		 * @return string
-		 */
-		protected function getInternalName(): string
-		{
-			return 'joomla';
 		}
 
 		public function next_version(string $version, string $maximalbranch = '99999999.99999999.99999999'): ?string

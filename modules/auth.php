@@ -20,7 +20,8 @@
 	class Auth_Module extends Module_Support_Auth implements \Opcenter\Contracts\Hookable
 	{
 		const DEPENDENCY_MAP = [
-			'siteinfo', 'users'
+			'siteinfo',
+			'users'
 		];
 		const API_KEY_LIMIT = 10;
 		const API_USER_SYNC_COMMENT = "apnscp user sync";
@@ -44,26 +45,9 @@
 				'*'                 => PRIVILEGE_ALL,
 				'verify_password'   => PRIVILEGE_SERVER_EXEC | PRIVILEGE_ALL,
 				'change_domain'     => PRIVILEGE_SITE,
-				'change_username'   => PRIVILEGE_SITE|PRIVILEGE_ADMIN,
+				'change_username'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 				'set_temp_password' => PRIVILEGE_ADMIN
 			);
-		}
-
-		private static function _connect_db()
-		{
-			if (!is_null(self::$domain_db) && self::$domain_db->ping()) {
-				return self::$domain_db;
-			}
-			$db = new mysqli();
-			$db->init();
-			if (!$db->real_connect(AUTH_USERNAME_HOST, AUTH_USERNAME_USER, AUTH_USERNAME_PASSWORD)
-				|| !$db->select_db(AUTH_USERNAME_DB)
-			) {
-				return error("Cannot connect to domain server at this time");
-			}
-
-			self::$domain_db = &$db;
-			return $db;
 		}
 
 		/**
@@ -96,6 +80,7 @@
 				return error("cannot change password in demo mode");
 			}
 			$crypted = $this->crypt($password);
+
 			return $this->change_cpassword($crypted, $user, $domain);
 		}
 
@@ -104,10 +89,22 @@
 			return \Opcenter\Auth\Password::strong($password, $user);
 		}
 
+		public function is_demo()
+		{
+			/**
+			 * No demo for admin since it just consists of the ticket interface
+			 */
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				return false;
+			}
+
+			return $this->billing_get_invoice() == 'APNS-HOSTING-1111111111111111';
+		}
+
 		/**
 		 * Encrypt a password using the strongest hash
 		 *
-		 * @param string $password
+		 * @param string      $password
 		 * @param string|null $salt
 		 * @return string
 		 */
@@ -142,12 +139,13 @@
 				parent::sendNotice(
 					'password',
 					[
-						'email' => $email,
-						'ip' => \Auth::client_ip(),
+						'email'    => $email,
+						'ip'       => \Auth::client_ip(),
 						'username' => $user
 					]
 				);
 				\apnscpSession::invalidate_by_user($this->site_id, $user, true);
+
 				return $ret;
 			}
 
@@ -160,6 +158,7 @@
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				if (!($fp = fopen(self::ADMIN_AUTH, 'r+')) || !flock($fp, LOCK_EX | LOCK_NB)) {
 					fclose($fp);
+
 					return error("unable to gain exclusive lock on `%s'", self::ADMIN_AUTH);
 				}
 				$lines = [];
@@ -169,12 +168,14 @@
 				if (false === ($pos = array_search($user, array_column($lines, 0)))) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
+
 					return error("user `%s' does not exist", $user);
 				}
 				$lines[$pos][1] = $cpassword;
 				if (!ftruncate($fp, 0)) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
+
 					return error("failed to truncate `%s'", self::ADMIN_AUTH);
 				}
 				rewind($fp);
@@ -192,19 +193,22 @@
 			}
 
 			$ret = $this->_change_cpassword_raw($cpassword, $user, $domain);
+
 			return $ret;
 		}
 
-		public function is_demo()
+		private function _change_cpassword_raw(string $cpassword, string $user = null, string $domain = null)
 		{
-			/**
-			 * No demo for admin since it just consists of the ticket interface
-			 */
-			if ($this->permission_level & PRIVILEGE_ADMIN) {
-				return false;
+			if (null === $user) {
+				$user = $this->username;
+			}
+			$ret = \Opcenter\Auth\Shadow::bindTo($this->make_domain_fs_path($domain))->set_cpasswd($cpassword, $user);
+			if ($ret) {
+				$pwd = (array)$this->user_getpwnam($user);
+				Util_Account_Hooks::run('edit_user', [$user, $user, $pwd]);
 			}
 
-			return $this->billing_get_invoice() == 'APNS-HOSTING-1111111111111111';
+			return $ret;
 		}
 
 		public function is_inactive()
@@ -215,6 +219,7 @@
 			if ($this->permission_level & (PRIVILEGE_USER | PRIVILEGE_SITE)) {
 				return file_exists(\Opcenter\Account\State::disableMarker($this->site));
 			}
+
 			return false;
 		}
 
@@ -229,7 +234,7 @@
 		 * you are limited to just 10 keys.
 		 *
 		 * @param string $comment optional comment
-		 * @param string $user optional user for site admin
+		 * @param string $user    optional user for site admin
 		 *
 		 * @return string 256-bit SOAP key
 		 */
@@ -286,8 +291,34 @@
 			if ($comment) {
 				$this->set_api_key_comment($key, $comment, $user);
 			}
+
 			return $key;
 		}
+
+		/**
+		 * Assemble additional API key query restrictions
+		 *
+		 * @return array
+		 */
+		private function _getAPIQueryFragment()
+		{
+			$qfrag = array('where' => '1 = 1', 'join' => '');
+			if ($this->permission_level & PRIVILEGE_ADMIN) {
+				$qfrag['where'] = 'api_keys.invoice IS NULL AND site_id IS NULL';
+			} else {
+				$invoice = $this->billing_get_invoice();
+				if (!$invoice) {
+					error("cannot get billing invoice for API key");
+					$qfrag['where'] = '1 = 0';
+
+					return $qfrag;
+				}
+				$qfrag['where'] = "api_keys.invoice = '" . Auth_SOAP::get_api_db()->real_escape_string($invoice) . "'";
+			}
+
+			return $qfrag;
+		}
+		/* }}} */
 
 		/**
 		 * Alter a comment attached to an API key
@@ -320,8 +351,10 @@
 				WHERE `api_key` = '" . strtolower($key) . "'
 				AND " . $qfrag['where'] . "
 				AND `username` = '" . $user . "';");
+
 			return $rs && $db->affected_rows > 0;
 		}
+
 		/* }}} */
 
 		/**
@@ -362,13 +395,13 @@
 				$str = "Corrupted shadow: " . $file . "\r\n" .
 					$this->username . "\r\n";
 				Error_Reporter::report($str . "\r\n" . var_export($data, true));
+
 				return false;
 			}
 			$salt = join('$', explode('$', $data[1]));
+
 			return password_verify($password, $salt);
 		}
-
-		/* }}} */
 
 		/**
 		 * Queries the last login data for the current user.
@@ -386,6 +419,7 @@
 			if (!$login) {
 				return array();
 			}
+
 			return $login[0];
 		}
 
@@ -411,6 +445,7 @@
 					'ip' => Auth::client_ip(),
 					'ts' => Auth::login_time()
 				);
+
 				return $logins;
 			}
 			if (!is_null($limit) && $limit < 100) {
@@ -442,27 +477,6 @@
 
 		}
 
-		public function user_enabled($user, $svc = 'cp')
-		{
-			if (!in_array($svc, $this->_pam_services(), true)) {
-				return error("unknown service `$svc'");
-			}
-			// admin is always permitted to CP
-			if ($svc == "cp" && ($this->permission_level & PRIVILEGE_SITE) &&
-				$user === $this->username
-			) {
-				return true;
-			} else if ($this->permission_level & (PRIVILEGE_ADMIN | PRIVILEGE_RESELLER)) {
-				return true;
-			}
-			return (new Util_Pam($this->getAuthContext()))->check($user, $svc);
-		}
-
-		public function user_permitted($user, $svc = 'cp')
-		{
-			return $this->user_enabled($user, $svc);
-		}
-
 		/**
 		 * Change primary account domain
 		 *
@@ -478,11 +492,12 @@
 						'domain',
 						[
 							'email' => $this->getConfig('siteinfo', 'email'),
-							'ip' => Auth::client_ip()
+							'ip'    => Auth::client_ip()
 						]
 					);
 					$this->_purgeLoginKey($this->username, $olddomain);
 				}
+
 				return $ret;
 			}
 
@@ -519,16 +534,37 @@
 			) {
 				$currentns = join(",", (array)$this->dns_get_authns_from_host($domain));
 				$hostingns = join(",", $this->dns_get_hosting_nameservers($domain));
+
 				return error("domain uses third-party nameservers - %s, change nameservers to %s before promoting " .
 					"this domain to primary domain status", $currentns, $hostingns);
 			}
 			// alternatively use $this->set_config_journal() and require a sync
 			$proc = new Util_Account_Editor($this->getAuthContext()->getAccount());
 			$proc->setConfig('siteinfo', 'domain', $domain)->
-				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('proftpd'), 'ftpserver', 'ftp' . $domain)->
-				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('apache'), 'webserver', 'www.' . $domain)->
-				setConfig(\Opcenter\SiteConfiguration::getModuleRemap('sendmail'), 'mailserver', 'mail.' . $domain);
+			setConfig(\Opcenter\SiteConfiguration::getModuleRemap('proftpd'), 'ftpserver', 'ftp' . $domain)->
+			setConfig(\Opcenter\SiteConfiguration::getModuleRemap('apache'), 'webserver', 'www.' . $domain)->
+			setConfig(\Opcenter\SiteConfiguration::getModuleRemap('sendmail'), 'mailserver', 'mail.' . $domain);
+
 			return $proc->edit();
+		}
+
+		/**
+		 * Purge browser security key
+		 *
+		 * @param string $user
+		 * @param string $domain
+		 * @return bool
+		 */
+		private function _purgeLoginKey($user = "", $domain = "")
+		{
+			// needs to be broken out into separate support function...
+			$userkey = md5($user . $domain);
+			$arrkey = self::LOGIN_KEY . '.' . $userkey;
+			if (\Preferences::exists($arrkey)) {
+				\Preferences::forget($arrkey);
+			}
+
+			return true;
 		}
 
 		/**
@@ -548,11 +584,12 @@
 						'username',
 						[
 							'email' => $email,
-							'ip' => Auth::client_ip()
+							'ip'    => Auth::client_ip()
 						]
 					);
 					$this->_purgeLoginKey($olduser, $this->domain);
 				}
+
 				return $ret;
 			}
 
@@ -566,8 +603,9 @@
 			if ($this->permission_level & PRIVILEGE_ADMIN) {
 				// @todo convert to Opcenter
 
-				if (!($fp = fopen(self::ADMIN_AUTH, 'r+')) || !flock($fp, LOCK_EX|LOCK_NB)) {
+				if (!($fp = fopen(self::ADMIN_AUTH, 'r+')) || !flock($fp, LOCK_EX | LOCK_NB)) {
 					fclose($fp);
+
 					return error("unable to gain exclusive lock on `%s'", self::ADMIN_AUTH);
 				}
 				$lines = [];
@@ -577,6 +615,7 @@
 				if (false !== ($pos = array_search($user, array_column($lines, 0)))) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
+
 					return error("user `%s' already exists", $user);
 				}
 				if (false === ($pos = array_search($this->username, array_column($lines, 0)))) {
@@ -589,10 +628,14 @@
 				if (!ftruncate($fp, 0)) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
+
 					return error("failed to truncate `%s'", self::ADMIN_AUTH);
 				}
 				rewind($fp);
-				fwrite($fp, implode("\n", array_map(function ($a) { return join(':', $a); }, $lines)));
+				fwrite($fp, implode("\n", array_map(function ($a) {
+					return join(':', $a);
+				}, $lines)));
+
 				return flock($fp, LOCK_UN) && fclose($fp);
 			}
 			// make sure user list is not cached
@@ -620,14 +663,59 @@
 			if (!$ret) {
 				return error("failed to change admin user");
 			}
+
 			return true;
+		}
+
+		/**
+		 * Username is unique to a server or across all servers
+		 *
+		 * @param string $user
+		 * @return int -1 if not globally unique
+		 *  0 if not unique on server
+		 *  1 if globally unique and unique on server
+		 */
+		private function _username_unique($user)
+		{
+			$user = strtolower($user);
+			if (Auth::get_admin_from_site_id($user)) {
+				return 0;
+			}
+
+			$db = $this->_connect_db();
+			if (!$db) {
+				return error("cannot connect to db");
+			}
+			$q = "SELECT 1 FROM account_cache where admin = '" .
+				$db->real_escape_string($user) . "'";
+			$rs = $db->query($q);
+
+			return $rs->num_rows > 0 ? -1 : 1;
+		}
+
+		private static function _connect_db()
+		{
+			if (!is_null(self::$domain_db) && self::$domain_db->ping()) {
+				return self::$domain_db;
+			}
+			$db = new mysqli();
+			$db->init();
+			if (!$db->real_connect(AUTH_USERNAME_HOST, AUTH_USERNAME_USER, AUTH_USERNAME_PASSWORD)
+				|| !$db->select_db(AUTH_USERNAME_DB)
+			) {
+				return error("Cannot connect to domain server at this time");
+			}
+
+			self::$domain_db = &$db;
+
+			return $db;
 		}
 
 		/**
 		 * Set a temporary password for an account
 		 *
-		 * @param string $site
-		 * @param int    $limit
+		 * @param string      $site
+		 * @param int         $limit
 		 * @param string|null $password
 		 * @return bool
 		 */
@@ -667,7 +755,8 @@
 				'passwd' => $crypted,
 				'user'   => $user
 			);
-			$accountMeta = \Auth_Info_User::initializeUser($user, \Auth::get_domain_from_site_id($site_id))->getAccount();
+			$accountMeta = \Auth_Info_User::initializeUser($user,
+				\Auth::get_domain_from_site_id($site_id))->getAccount();
 			$editor = new Util_Account_Editor($accountMeta);
 			$ret = $editor->setMode('edit')->setConfig(self::getAuthService(), self::PWOVERRIDE_KEY, true)
 				->setConfig(self::getAuthService(), 'cpasswd', $crypted)->edit();
@@ -683,6 +772,7 @@
 				if (is_resource($fp)) {
 					fclose($fp);
 				}
+
 				return error("failed to lock siteinfo conf");
 			}
 			fwrite($fp, self::PWOVERRIDE_KEY . " = 1\n\n");
@@ -718,260 +808,8 @@
 					$limit
 				);
 			}
+
 			return $password;
-		}
-
-		/**
-		 * array get_api_keys (void)
-		 *
-		 * listing all keys associated to an account:
-		 *  - key: the generated key
-		 *  - last_used: an integer representation of the last date the key was used.
-		 *               If the key was never used, null is set for that value.
-		 * Returns the list of SOAP keys associated to an account
-		 *
-		 * @return array
-		 */
-		public function get_api_keys($user = null)
-		{
-			if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
-				$user = $this->username;
-			} else if ($user && !$this->user_exists($user)) {
-				return error("user `%s' does not exist", $user);
-			}
-			return $this->_get_api_keys_real($user);
-		}
-
-		/**
-		 * Delete SOAP key
-		 *
-		 * The key should be in hexadecimal strictly without dashes,
-		 * case does not matter.
-		 *
-		 * @param string $key key to delete from keyring
-		 * @return bool
-		 */
-		public function delete_api_key($key, $user = null)
-		{
-			$key = str_replace('-', '', strtolower($key));
-			if (!ctype_xdigit($key)) {
-				return error($key . ": invalid key");
-			}
-			// verify key via get_api_keys() since _getAPIQueryFragment()
-			// won't work in a DELETE clause
-			$keys = $this->get_api_keys($user);
-			if (!$keys) {
-				return false;
-			}
-			$found = false;
-			foreach ($keys as $k) {
-				if ($k['key'] === $key) {
-					$found = true;
-					break;
-				}
-			}
-			if (!$found) {
-				return error("unknown key `%s'", $key);
-			}
-			$db = Auth_SOAP::get_api_db();
-			$rs = $db->query("DELETE FROM `api_keys`
-				WHERE `api_key` = '" . strtolower($key) . "'");
-			return (bool)$rs;
-		}
-
-		public function _create()
-		{
-			$this->rebuildMap();
-		}
-
-		public function _edit()
-		{
-			$conf_new = $this->getAuthContext()->getAccount()->new;
-			$conf_old = $this->getAuthContext()->getAccount()->old;
-			$user = array(
-				'old' => $conf_old['siteinfo']['admin_user'],
-				'new' => $conf_new['siteinfo']['admin_user']
-			);
-			$this->rebuildMap();
-			if ($user['old'] === $user['new']) {
-				return;
-			}
-			return $this->_edit_wrapper($user['old'], $user['new']);
-		}
-
-		public function deny_user($user, $svc = 'cp')
-		{
-			return (new Util_Pam($this->getAuthContext()))->remove($user, $svc);
-		}
-
-		/**
-		 * Permit user access to apnscp
-		 *
-		 * @param string $user username
-		 */
-		public function permit_user($user, $svc = 'cp')
-		{
-			if (!in_array($svc, $this->_pam_services())) {
-				return error("unknown service `$svc'");
-			}
-			return (new Util_Pam($this->getAuthContext()))->add($user, $svc);
-		}
-
-		public function _edit_user(string $userold, string $usernew, array $oldpwd)
-		{
-			return $this->_edit_wrapper($userold, $usernew);
-		}
-
-		public function _reset(\Util_Account_Editor &$editor = null)
-		{
-			$module = self::getAuthService();
-			$crypted = $this->_get_site_admin_shadow($this->site_id);
-			if (!$crypted) {
-				fatal("call _reset() in auth from backend");
-			}
-			$params = array(
-				'cpasswd' => $crypted
-			);
-			if ($editor) {
-				foreach ($params as $k => $v) {
-					$editor->setConfig($module, $k, $v);
-				}
-			}
-
-			return array($module => $params);
-
-		}
-
-		protected function _get_api_keys_real($user)
-		{
-			$db = Auth_SOAP::get_api_db();
-			$qfrag = $this->_getAPIQueryFragment();
-			/**
-			 * make sure only 1 key is pulled if account resides elsewhere
-			 * e.g. during migration
-			 */
-			$q = "SELECT `api_key`,
-				UNIX_TIMESTAMP(`last_used`) as last_used,
-				comment
-				FROM `api_keys`
-				" . $qfrag['join'] . "
-				WHERE
-					`username` = '" . $db->escape_string($user) . "' AND " .
-				$qfrag['where'] . " GROUP BY (api_key)";
-			$rs = $db->query($q);
-			if (!$rs) {
-				return error("failed to get keys");
-			}
-			$keys = array();
-			while ($row = $rs->fetch_object()) {
-				$keys[] = array(
-					'key'       => $row->api_key,
-					'last_used' => $row->last_used,
-					'comment'   => $row->comment
-				);
-			}
-			return $keys;
-		}
-
-		/**
-		 * Create salt used by crypt()
-		 *
-		 * @link _crypt_password()
-		 * @return string
-		 */
-		private function _generate_salt()
-		{
-			return \Opcenter\Auth\Shadow::mksalt();
-		}
-
-		/**
-		 * Check if requested hash is supported
-		 *
-		 * @param int|string $version @link crypt(5)
-		 * @return bool
-		 */
-		private function _hash_supported($version)
-		{
-			return \Opcenter\Auth\Shadow::hash_supported((string)$version);
-		}
-
-		private function _change_cpassword_raw(string $cpassword, string $user = null, string $domain = null)
-		{
-			if (null === $user) {
-				$user = $this->username;
-			}
-			$ret = \Opcenter\Auth\Shadow::bindTo($this->make_domain_fs_path($domain))->set_cpasswd($cpassword, $user);
-			if ($ret) {
-				$pwd = (array)$this->user_getpwnam($user);
-				Util_Account_Hooks::run('edit_user', [$user, $user, $pwd]);
-			}
-			return $ret;
-		}
-
-		/**
-		 * Assemble additional API key query restrictions
-		 *
-		 * @return array
-		 */
-		private function _getAPIQueryFragment()
-		{
-			$qfrag = array('where' => '1 = 1', 'join' => '');
-			if ($this->permission_level & PRIVILEGE_ADMIN) {
-				$qfrag['where'] = 'api_keys.invoice IS NULL AND site_id IS NULL';
-			} else {
-				$invoice = $this->billing_get_invoice();
-				if (!$invoice) {
-					error("cannot get billing invoice for API key");
-					$qfrag['where'] = '1 = 0';
-					return $qfrag;
-				}
-				$qfrag['where'] = "api_keys.invoice = '" . Auth_SOAP::get_api_db()->real_escape_string($invoice) . "'";
-			}
-			return $qfrag;
-		}
-
-		/**
-		 * Purge browser security key
-		 *
-		 * @param string $user
-		 * @param string $domain
-		 * @return bool
-		 */
-		private function _purgeLoginKey($user = "", $domain = "")
-		{
-			// needs to be broken out into separate support function...
-			$userkey = md5($user . $domain);
-			$arrkey = self::LOGIN_KEY . '.' . $userkey;
-			if (\Preferences::exists($arrkey)) {
-				\Preferences::forget($arrkey);
-			}
-
-			return true;
-		}
-
-		/**
-		 * Username is unique to a server or across all servers
-		 *
-		 * @param string $user
-		 * @return int -1 if not globally unique
-		 *  0 if not unique on server
-		 *  1 if globally unique and unique on server
-		 */
-		private function _username_unique($user)
-		{
-			$user = strtolower($user);
-			if (Auth::get_admin_from_site_id($user)) {
-				return 0;
-			}
-
-			$db = $this->_connect_db();
-			if (!$db) {
-				return error("cannot connect to db");
-			}
-			$q = "SELECT 1 FROM account_cache where admin = '" .
-				$db->real_escape_string($user) . "'";
-			$rs = $db->query($q);
-			return $rs->num_rows > 0 ? -1 : 1;
 		}
 
 		private function _generate_password()
@@ -1010,20 +848,29 @@
 			if (!$shadow) {
 				fatal("admin `%s' not found for `%s'", $admin, $site);
 			}
+
 			return $shadow;
 		}
 
-		public function _delete()
+		public function _create()
 		{
-			/*
-			 * @todo check if account listed elsewhere, don't delete keys if
-			 */
-			$server = \Auth_Redirect::lookup($this->domain);
-			if (!$server || $server === SERVER_NAME_SHORT) {
-				foreach ($this->get_api_keys() as $key) {
-					$this->delete_api_key($key['key']);
-				}
+			$this->rebuildMap();
+		}
+
+		public function _edit()
+		{
+			$conf_new = $this->getAuthContext()->getAccount()->new;
+			$conf_old = $this->getAuthContext()->getAccount()->old;
+			$user = array(
+				'old' => $conf_old['siteinfo']['admin_user'],
+				'new' => $conf_new['siteinfo']['admin_user']
+			);
+			$this->rebuildMap();
+			if ($user['old'] === $user['new']) {
+				return;
 			}
+
+			return $this->_edit_wrapper($user['old'], $user['new']);
 		}
 
 		/**
@@ -1070,7 +917,62 @@
 			unmute_warn();
 			// flush getpwnam() cache
 			$this->user_flush();
+
 			return true;
+		}
+
+		protected function _get_api_keys_real($user)
+		{
+			$db = Auth_SOAP::get_api_db();
+			$qfrag = $this->_getAPIQueryFragment();
+			/**
+			 * make sure only 1 key is pulled if account resides elsewhere
+			 * e.g. during migration
+			 */
+			$q = "SELECT `api_key`,
+				UNIX_TIMESTAMP(`last_used`) as last_used,
+				comment
+				FROM `api_keys`
+				" . $qfrag['join'] . "
+				WHERE
+					`username` = '" . $db->escape_string($user) . "' AND " .
+				$qfrag['where'] . " GROUP BY (api_key)";
+			$rs = $db->query($q);
+			if (!$rs) {
+				return error("failed to get keys");
+			}
+			$keys = array();
+			while ($row = $rs->fetch_object()) {
+				$keys[] = array(
+					'key'       => $row->api_key,
+					'last_used' => $row->last_used,
+					'comment'   => $row->comment
+				);
+			}
+
+			return $keys;
+		}
+
+		public function user_permitted($user, $svc = 'cp')
+		{
+			return $this->user_enabled($user, $svc);
+		}
+
+		public function user_enabled($user, $svc = 'cp')
+		{
+			if (!in_array($svc, $this->_pam_services(), true)) {
+				return error("unknown service `$svc'");
+			}
+			// admin is always permitted to CP
+			if ($svc == "cp" && ($this->permission_level & PRIVILEGE_SITE) &&
+				$user === $this->username
+			) {
+				return true;
+			} else if ($this->permission_level & (PRIVILEGE_ADMIN | PRIVILEGE_RESELLER)) {
+				return true;
+			}
+
+			return (new Util_Pam($this->getAuthContext()))->check($user, $svc);
 		}
 
 		private function _pam_services()
@@ -1078,7 +980,125 @@
 			return array('cp', 'dav');
 		}
 
-		public function _housekeeping() {
+		public function deny_user($user, $svc = 'cp')
+		{
+			return (new Util_Pam($this->getAuthContext()))->remove($user, $svc);
+		}
+
+		/**
+		 * Permit user access to apnscp
+		 *
+		 * @param string $user username
+		 */
+		public function permit_user($user, $svc = 'cp')
+		{
+			if (!in_array($svc, $this->_pam_services())) {
+				return error("unknown service `$svc'");
+			}
+
+			return (new Util_Pam($this->getAuthContext()))->add($user, $svc);
+		}
+
+		public function _edit_user(string $userold, string $usernew, array $oldpwd)
+		{
+			return $this->_edit_wrapper($userold, $usernew);
+		}
+
+		public function _reset(\Util_Account_Editor &$editor = null)
+		{
+			$module = self::getAuthService();
+			$crypted = $this->_get_site_admin_shadow($this->site_id);
+			if (!$crypted) {
+				fatal("call _reset() in auth from backend");
+			}
+			$params = array(
+				'cpasswd' => $crypted
+			);
+			if ($editor) {
+				foreach ($params as $k => $v) {
+					$editor->setConfig($module, $k, $v);
+				}
+			}
+
+			return array($module => $params);
+
+		}
+
+		public function _delete()
+		{
+			/*
+			 * @todo check if account listed elsewhere, don't delete keys if
+			 */
+			$server = \Auth_Redirect::lookup($this->domain);
+			if (!$server || $server === SERVER_NAME_SHORT) {
+				foreach ($this->get_api_keys() as $key) {
+					$this->delete_api_key($key['key']);
+				}
+			}
+		}
+
+		/**
+		 * array get_api_keys (void)
+		 *
+		 * listing all keys associated to an account:
+		 *  - key: the generated key
+		 *  - last_used: an integer representation of the last date the key was used.
+		 *               If the key was never used, null is set for that value.
+		 * Returns the list of SOAP keys associated to an account
+		 *
+		 * @return array
+		 */
+		public function get_api_keys($user = null)
+		{
+			if (!$user || !($this->permission_level & PRIVILEGE_SITE)) {
+				$user = $this->username;
+			} else if ($user && !$this->user_exists($user)) {
+				return error("user `%s' does not exist", $user);
+			}
+
+			return $this->_get_api_keys_real($user);
+		}
+
+		/**
+		 * Delete SOAP key
+		 *
+		 * The key should be in hexadecimal strictly without dashes,
+		 * case does not matter.
+		 *
+		 * @param string $key key to delete from keyring
+		 * @return bool
+		 */
+		public function delete_api_key($key, $user = null)
+		{
+			$key = str_replace('-', '', strtolower($key));
+			if (!ctype_xdigit($key)) {
+				return error($key . ": invalid key");
+			}
+			// verify key via get_api_keys() since _getAPIQueryFragment()
+			// won't work in a DELETE clause
+			$keys = $this->get_api_keys($user);
+			if (!$keys) {
+				return false;
+			}
+			$found = false;
+			foreach ($keys as $k) {
+				if ($k['key'] === $key) {
+					$found = true;
+					break;
+				}
+			}
+			if (!$found) {
+				return error("unknown key `%s'", $key);
+			}
+			$db = Auth_SOAP::get_api_db();
+			$rs = $db->query("DELETE FROM `api_keys`
+				WHERE `api_key` = '" . strtolower($key) . "'");
+
+			return (bool)$rs;
+		}
+
+		public function _housekeeping()
+		{
 			// convert domain map over to TokyoCabinet
 			$this->rebuildMap();
 			// check if we need reissue
@@ -1102,5 +1122,27 @@
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
 		{
 			return true;
+		}
+
+		/**
+		 * Create salt used by crypt()
+		 *
+		 * @link _crypt_password()
+		 * @return string
+		 */
+		private function _generate_salt()
+		{
+			return \Opcenter\Auth\Shadow::mksalt();
+		}
+
+		/**
+		 * Check if requested hash is supported
+		 *
+		 * @param int|string $version @link crypt(5)
+		 * @return bool
+		 */
+		private function _hash_supported($version)
+		{
+			return \Opcenter\Auth\Shadow::hash_supported((string)$version);
 		}
 	}

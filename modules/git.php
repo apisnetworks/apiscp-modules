@@ -18,7 +18,7 @@
 	 */
 	class Git_Module extends Module_Skeleton
 	{
-		protected $exportedFunctions = ['*' => PRIVILEGE_SITE|PRIVILEGE_USER];
+		protected $exportedFunctions = ['*' => PRIVILEGE_SITE | PRIVILEGE_USER];
 
 		/**
 		 * Clone a repositroy
@@ -28,17 +28,19 @@
 		 * @param array  $opts
 		 * @return bool
 		 */
-		public function clone(string $repo, string $target, array $opts): bool {
+		public function clone(string $repo, string $target, array $opts): bool
+		{
 			$opts = array_key_map(function ($k, $v) {
 				$rhand = '';
 				if ($v !== null) {
 					$rhand = '=' . escapeshellarg((string)$v);
 				}
+
 				return (isset($k[1]) ? '--' : '-') . escapeshellarg($k) . $rhand;
 			}, $opts);
 			$ret = $this->pman_run('git clone ' . implode(' ', $opts) . ' %(repo)s %(target)s',
 				[
-					'repo' => $repo,
+					'repo'   => $repo,
 					'target' => $target
 				]
 			);
@@ -57,6 +59,7 @@
 			if (!IS_CLI) {
 				return $this->query('git_valid', $path);
 			}
+
 			return file_exists($this->domain_fs_path($path . '/.git/HEAD'));
 		}
 
@@ -71,8 +74,10 @@
 			$ret = $this->pman_run('cd %(path)s && git tag', ['path' => $path]);
 			if (!$ret['success']) {
 				error("Failed to enumerate tags");
+
 				return null;
 			}
+
 			return explode("\n", rtrim($ret['stdout']));
 		}
 
@@ -83,12 +88,14 @@
 		 * @param bool   $bare
 		 * @return bool
 		 */
-		public function init(string $path, bool $bare = true): bool {
+		public function init(string $path, bool $bare = true): bool
+		{
 			$ret = $this->pman_run('git init %(bare)s %(path)s',
-			[
-				'bare' => $bare ? '--bare' : null,
-				'path' => $path
-			]);
+				[
+					'bare' => $bare ? '--bare' : null,
+					'path' => $path
+				]);
+
 			return $ret['success'] ?: error($ret['stderr']);
 		}
 
@@ -99,15 +106,18 @@
 		 * @param array  $opts
 		 * @return bool
 		 */
-		public function fetch(string $path, array $opts = []): bool {
+		public function fetch(string $path, array $opts = []): bool
+		{
 			$opts = implode(' ', array_key_map(function ($k, $v) {
 				$k = (isset($k[1]) ? '--' : '-') . escapeshellarg($k);
 				if (null === $v) {
 					return $k;
 				}
+
 				return $k . '=' . escapeshellarg($v);
 			}, $opts));
 			$ret = $this->pman_run("cd %(path)s && git fetch " . $opts, ['path' => $path]);
+
 			return $ret['success'] ?: error("Failed to fetch: %s", $ret['stderr']);
 
 		}
@@ -119,11 +129,13 @@
 		 * @param string $ref
 		 * @return bool
 		 */
-		public function checkout(string $path, string $ref): bool {
+		public function checkout(string $path, string $ref): bool
+		{
 			$ret = $this->pman_run("cd %(path)s && git checkout %(ref)s", [
 				'path' => $path,
-				'ref' => $ref
+				'ref'  => $ref
 			]);
+
 			return $ret['success'] ?: error("Failed to checkout `%s': %s", $ref, $ret['stderr']);
 		}
 	}

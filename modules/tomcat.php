@@ -45,8 +45,25 @@
 		public function system_user(): ?string
 		{
 			$user = $this->_getKey();
+
 			// same user as service name, Helios+ > tomcat
 			return posix_getpwnam($user)['name'] ?? null;
+		}
+
+		/**
+		 * Tomcat service key
+		 *
+		 * @return string
+		 */
+		private function _getKey()
+		{
+			$version = platform_version();
+			if (version_compare($version, '5', '>=')) {
+				// helios
+				return 'tomcat';
+			}
+
+			return 'tomcat4';
 		}
 
 		/**
@@ -72,8 +89,10 @@
 			if (version_compare($version, '4.5', '>=')) {
 				// helios, apollo/aleph
 				$key = $this->_getKey();
+
 				return (bool)$this->getServiceValue($key, 'permit');
 			}
+
 			// older platforms with PostgreSQL enabled imply permit
 			return (bool)$this->sql_enabled('pgsql');
 		}
@@ -127,7 +146,24 @@
 				$version = 'undefined';
 			}
 			$cache->set($key, $version);
+
 			return $version;
+		}
+
+		/**
+		 * Tomcat installation root
+		 *
+		 * @return string
+		 */
+		private function _getPrefix()
+		{
+			$version = platform_version();
+			if (version_compare($version, '5', '>=')) {
+				// aleph, helios+
+				return '/opt/tomcat';
+			} else {
+				return '/opt/tomcat4';
+			}
 		}
 
 		/**
@@ -154,39 +190,8 @@
 			if ($conf_new['enabled']) {
 				link($origlog, $path);
 			}
+
 			return true;
-		}
-
-		/**
-		 * Tomcat service key
-		 *
-		 * @return string
-		 */
-		private function _getKey()
-		{
-			$version = platform_version();
-			if (version_compare($version, '5', '>=')) {
-				// helios
-				return 'tomcat';
-			}
-
-			return 'tomcat4';
-		}
-
-		/**
-		 * Tomcat installation root
-		 *
-		 * @return string
-		 */
-		private function _getPrefix()
-		{
-			$version = platform_version();
-			if (version_compare($version, '5', '>=')) {
-				// aleph, helios+
-				return '/opt/tomcat';
-			} else {
-				return '/opt/tomcat4';
-			}
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool

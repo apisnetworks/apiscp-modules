@@ -20,8 +20,9 @@
 	class Ssl_Module extends Module_Skeleton implements \Opcenter\Contracts\Hookable
 	{
 		const DEPENDENCY_MAP = [
-			'apache', 'siteinfo'
-		] ;
+			'apache',
+			'siteinfo'
+		];
 
 		const CRT_PATH = '/etc/httpd/conf/ssl.crt';
 		const KEY_PATH = '/etc/httpd/conf/ssl.key';
@@ -70,6 +71,7 @@
 				return $this->query('ssl_cert_exists');
 			}
 			$conf = $this->get_certificates();
+
 			return count($conf) > 0;
 		}
 
@@ -130,6 +132,7 @@
 						return array();
 					}
 				}
+
 				return $conf;
 			};
 
@@ -170,6 +173,7 @@
 				}
 				$sitecerts[] = $cert;
 			}
+
 			return $sitecerts;
 		}
 
@@ -305,10 +309,6 @@
 			return true;
 		}
 
-		public function enabled(): bool {
-			return (bool)$this->getServiceValue(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled');
-		}
-
 		/**
 		 * Verify that the named certificate and key
 		 *
@@ -334,6 +334,7 @@
 			// alternative calculation, let's evaluate this first
 			if (isset($crt['purposes'])) {
 				$purpose = array_shift($crt['purposes']);
+
 				return $purpose[0] && $purpose[0] == $purpose[1];
 			}
 			if (!isset($crt['issuer']) || !isset($crt['subject'])) {
@@ -349,6 +350,7 @@
 					return false;
 				}
 			}
+
 			return true;
 		}
 
@@ -389,6 +391,7 @@
 			if (!$info) {
 				return error($this->_getError());
 			}
+
 			return $info;
 		}
 
@@ -401,6 +404,7 @@
 		{
 			$pem = chunk_split(base64_encode($data), 64, "\n");
 			$pem = "-----BEGIN CERTIFICATE-----\n" . $pem . "-----END CERTIFICATE-----\n";
+
 			return $pem;
 
 		}
@@ -419,6 +423,7 @@
 				return true;
 			}
 			list($class, $code, $loc, $sym, $txt) = explode(':', $err);
+
 			return sprintf("%s: openssl `%s': %s (%s)",
 				$code, $class, $loc, $txt);
 		}
@@ -442,6 +447,7 @@
 			// remove initial cert returning
 			// resulting chain
 			array_pop($chain);
+
 			return join("\n", $chain);
 
 		}
@@ -484,6 +490,7 @@
 			if (!preg_match_all(Regex::SSL_CRT_URI, $extensions['authorityInfoAccess'], $matches)) {
 				error("can't find URI to match in authorityInfoAccess: %s",
 					$extensions['authorityInfoAccess']);
+
 				return array();
 			}
 
@@ -500,10 +507,12 @@
 			$chainedcrt = $this->_downloadChain($url);
 			if (!$chainedcrt) {
 				error("failed to resolve chain!");
+
 				return array();
 			}
 
 			info("downloaded extra chain `%s'", $url);
+
 			return array_merge(
 				$this->_resolveChain($chainedcrt, $seen),
 				(array)$crt
@@ -545,6 +554,7 @@
 						return error("URL not found on server");
 					case 302:
 						$newLocation = $response->getHeader('location');
+
 						return $this->_downloadChain($newLocation);
 					default:
 						return error("URL request failed, code `%d': %s",
@@ -555,6 +565,7 @@
 			} catch (HTTP_Request2_Exception $e) {
 				return error("fatal error retrieving URL: `%s'", $e->getMessage());
 			}
+
 			return $cert;
 		}
 
@@ -600,12 +611,18 @@
 			if ($keyidentifier == $ichain['extensions']['subjectKeyIdentifier']) {
 				return 1;
 			}
+
 			return 0;
 		}
 
 		private function _getSSLExtraConfig()
 		{
 			return $this->web_site_config_dir() . '.ssl/custom';
+		}
+
+		public function enabled(): bool
+		{
+			return (bool)$this->getServiceValue(\Opcenter\SiteConfiguration::getModuleRemap('openssl'), 'enabled');
 		}
 
 		public function delete($key, $crt, $chain = null)
@@ -663,6 +680,7 @@
 			if (!$status) {
 				return error("failed to deactivate openssl on account");
 			}
+
 			return Opcenter\Http\Apache::activate();
 		}
 
@@ -690,6 +708,7 @@
 			if (!file_exists($file)) {
 				return error("certificate `%s' does not exist", $name);
 			}
+
 			return file_get_contents($file);
 		}
 
@@ -713,6 +732,7 @@
 			if (!file_exists($file)) {
 				return error("private key `%s' does not exist", $name);
 			}
+
 			return file_get_contents($file);
 		}
 
@@ -737,6 +757,7 @@
 			if (!file_exists($file)) {
 				return false;
 			}
+
 			return unlink($file);
 		}
 
@@ -785,6 +806,7 @@
 			}
 			openssl_pkey_export($res, $key);
 			openssl_pkey_free($res);
+
 			return $key;
 		}
 
@@ -799,7 +821,7 @@
 		 * @param string $org      optional organization
 		 * @param string $orgunit  optional organizational unit (company section)
 		 * @param string $email    contact e-mail
-		 * @param array  $san	    x509 subject alternate names
+		 * @param array  $san      x509 subject alternate names
 		 * @return string certificate signing request
 		 */
 		public function generate_csr(
@@ -825,8 +847,7 @@
 			if (!preg_match(Regex::DOMAIN_WC, $host)) {
 				return error("invalid hostname `%s'", $host);
 			} else if ($sinfo['countryName'] && (!ctype_alpha($sinfo['countryName']) ||
-					strlen($sinfo['countryName']) !== 2))
-			{
+					strlen($sinfo['countryName']) !== 2)) {
 				return error("invalid 2-character country `%s'",
 					$sinfo['countryName']);
 			} else if (!$sinfo['stateOrProvinceName']) {
@@ -834,8 +855,7 @@
 			} else if (!$sinfo['localityName']) {
 				return error("missing state/locality name");
 			} else if (strlen($sinfo['emailAddress']) > 0 &&
-				!preg_match(Regex::EMAIL, $sinfo['emailAddress']))
-			{
+				!preg_match(Regex::EMAIL, $sinfo['emailAddress'])) {
 				return error("invalid e-mail address `%s'",
 					$sinfo['emailAddress']);
 			}
@@ -875,6 +895,7 @@
 			if (!openssl_csr_export($csr, $txt)) {
 				return error($this->_getError());
 			}
+
 			return $txt;
 		}
 
@@ -908,6 +929,7 @@
 			if (!$res) {
 				return error($this->_getError());
 			}
+
 			return $res;
 		}
 
@@ -976,6 +998,7 @@
 			if (!file_exists($file)) {
 				return error("certificate request `%s' does not exist", $name);
 			}
+
 			return file_get_contents($file);
 
 		}
@@ -1023,6 +1046,7 @@
 			if (!openssl_x509_export($crt, $certout)) {
 				return error($this->_getError());
 			}
+
 			return $certout;
 
 		}
@@ -1048,6 +1072,7 @@
 			if (!$info) {
 				return error("invalid key detected");
 			}
+
 			return true;
 		}
 
@@ -1061,6 +1086,7 @@
 		{
 			$res = openssl_pkey_get_private($privkey);
 			$details = openssl_pkey_get_details($res);
+
 			return $details;
 		}
 
@@ -1075,6 +1101,7 @@
 			$certificate = $this->parse_certificate($certificate);
 			if (!is_array($certificate)) {
 				error("invalid certificate");
+
 				return null;
 			}
 			$commonname = $certificate['subject']['CN'];
@@ -1096,6 +1123,7 @@
 					}
 				}
 			}
+
 			return $extensions;
 		}
 
@@ -1116,6 +1144,7 @@
 						rename($cert, $cert . '-disabled');
 						info("disabled certificate " . basename($cert));
 					}
+
 					return;
 				}
 				$pkeyfile = $domainprefix . self::KEY_PATH . '/server.key';
@@ -1147,6 +1176,7 @@
 				} else if ($conf_new[$ssl]['enabled'] && !($conf_old[$ssl]['enabled'] ?? false)) {
 					$renameWrapper('enable');
 				}
+
 				return;
 			}
 			if (!$conf_old['ipinfo']['namebased'] && $conf_new['ipinfo']['namebased'] ||
@@ -1163,16 +1193,6 @@
 
 				}
 			}
-		}
-
-		private function _convertPem2Der($data)
-		{
-			$begin = "CERTIFICATE-----";
-			$end = "-----END";
-			$data = substr($data, strpos($data, $begin) + strlen($begin));
-			$data = substr($data, 0, strpos($data, $end));
-			$der = base64_decode($data);
-			return $der;
 		}
 
 		public function _verify_conf(\Opcenter\Service\ConfigurationContext $ctx): bool
@@ -1198,6 +1218,17 @@
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
 		{
 			// TODO: Implement _edit_user() method.
+		}
+
+		private function _convertPem2Der($data)
+		{
+			$begin = "CERTIFICATE-----";
+			$end = "-----END";
+			$data = substr($data, strpos($data, $begin) + strlen($begin));
+			$data = substr($data, 0, strpos($data, $end));
+			$der = base64_decode($data);
+
+			return $der;
 		}
 
 

@@ -63,6 +63,17 @@
 		}
 
 		/**
+		 * CRM enabled for user
+		 *
+		 * @return bool
+		 */
+		public function enabled()
+		{
+			return $this->configured() &&
+				($this->permission_level & PRIVILEGE_ADMIN || !$this->getServiceValue('billing', 'parent_invoice'));
+		}
+
+		/**
 		 * Verify CRM module is configured
 		 *
 		 * @return bool
@@ -70,15 +81,5 @@
 		public function configured(): bool
 		{
 			return false;
-		}
-
-		/**
-		 * CRM enabled for user
-		 *
-		 * @return bool
-		 */
-		public function enabled() {
-			return $this->configured() &&
-				($this->permission_level&PRIVILEGE_ADMIN || !$this->getServiceValue('billing', 'parent_invoice'));
 		}
 	}

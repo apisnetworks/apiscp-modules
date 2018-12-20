@@ -26,6 +26,7 @@
 				return error("unknown log type `%s'", $c);
 			}
 			$type = new $c;
+
 			return $c->watch();
 		}
 
@@ -36,6 +37,7 @@
 				return error("unknown log type `%s'", $c);
 			}
 			$type = new $c;
+
 			return $c->filter($filter);
 		}
 

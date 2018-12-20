@@ -27,6 +27,8 @@
 		const MAX_WAIT_TIME = 600;
 		/* biggest signal number + 1 taken from bits/signum.h */
 		const _NSIG = 65;
+		// conditionally defined if pcntl enabled
+		const SIGKILL = 9;
 
 		public $exportedFunctions = array(
 			'*'                      => PRIVILEGE_ALL,
@@ -47,7 +49,7 @@
 		public function kill($pid)
 		{
 			// SIGKILL isn't defined in ISAPI?
-			return $this->signal($pid, SIGKILL);
+			return $this->signal($pid, self::SIGKILL);
 		}
 
 		/**
@@ -57,7 +59,7 @@
 		 * @param int $signal
 		 * @return bool
 		 */
-		public function signal($pid, $signal = SIGKILL)
+		public function signal($pid, $signal = self::SIGKILL)
 		{
 			if (!IS_CLI) {
 				return $this->query('pman_signal', $pid, $signal);
@@ -74,6 +76,7 @@
 			if (!$status['success']) {
 				return error("kill failed: %s", $status['stderr']);
 			}
+
 			return $status['success'];
 		}
 
@@ -157,239 +160,8 @@
 			if (isset($procs[$pid])) {
 				return $procs[$pid];
 			}
+
 			return array();
-		}
-
-		/**
-		 * Get active process count
-		 *
-		 * Count is fetched from cache. {@see flush} may be necessary
-		 *
-		 * @return int
-		 */
-		public function pcount()
-		{
-			$count = count($this->_processAccumulator());
-			return $count;
-		}
-
-		/**
-		 * Flush process accumulator cache
-		 *
-		 * @return bool
-		 */
-		public function flush()
-		{
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			return $cache->delete(self::PROC_CACHE_KEY);
-		}
-
-		/**
-		 * Get all processes
-		 *
-		 * @return array {@see stat}
-		 */
-		public function get_processes()
-		{
-			if (!IS_CLI) {
-				return $this->query('pman_get_processes');
-			}
-			return $this->_processAccumulator();
-		}
-
-		/**
-		 * Run a process
-		 *
-		 * Sample response:
-		 *
-		 * Array
-		 * (
-		 * [stdin] =>
-		 * [stdout] => Hello World!!!
-		 * [0] => Hello World!!!
-		 * [stderr] =>
-		 * [1] =>
-		 * [output] => Hello World!!!
-		 * [errno] => 0
-		 * [return] => 0
-		 * [error] =>
-		 * [success] => 1
-		 * )
-		 *
-		 * @param string $cmd     process name, format specifiers allowed
-		 * @param array  $args    optional arguments to supply to format
-		 * @param array  $env     optional environment vars to set
-		 * @param array  $options optional options, tee: set tee output to file, user: run as user if site admin
-		 * @return bool|array
-		 */
-		public function run($cmd, $args = null, $env = null, $options = array())
-		{
-			if (!IS_CLI) {
-				if ($this->auth_is_demo()) {
-					return error("process execution forbidden in demo");
-				}
-				// store msg buffer in event app is killed for
-				// exceeding max wait time
-				$buffer = Error_Reporter::flush_buffer();
-				$resp = $this->query('pman_run', $cmd, $args, $env, $options);
-				if (null === $resp) {
-					// restore old buffer, ignore crash or other nasty error detected! msg
-					Error_Reporter::set_buffer($buffer);
-					return error("process lingered for %d seconds, " .
-						"automatically abandoning", self::MAX_WAIT_TIME);
-				}
-				Error_Reporter::set_buffer(array_merge($buffer, \Error_Reporter::flush_buffer()));
-				return $resp;
-			}
-
-			if (null === $env) {
-				$env = $_ENV;
-			}
-
-			// always force
-			$env['BASH_ENV'] = null;
-			$proc = new Util_Process_Sudo();
-			if ($env) {
-				$proc->setEnvironment($env);
-			}
-			// suppress automatically generated errors
-			$proc->setOption('mute_stderr', true);
-			$user = $this->username;
-			if (isset($options['user'])) {
-				if (!$this->permission_level&PRIVILEGE_SITE) {
-					return error("failed to launch `%s': only site admin may specify user parameter to run as",
-						basename($cmd)
-					);
-				}
-				$pwd = $this->user_getpwnam($options['user']);
-				if (!$pwd) {
-					report("Failed getpwnam - " . $this->inContext() . "\n" . var_export($this->getAuthContext(), true) . "\n" . var_export($this->user_get_users(), true));
-					return error("unknown user `%s'", $options['user']);
-				}
-				$minuid = apnscpFunctionInterceptor::get_autoload_class_from_module('user')::MIN_UID;
-				if ($pwd['uid'] < $minuid) {
-					return error("uid `%d' is less than allowable uid `%d' - system user?", $pwd['uid'], $minuid);
-				}
-				$user = $options['user'];
-			}
-
-			if (isset($options['tee'])) {
-				if ($options['tee'][0] != '/') {
-					// relative file listed, assume /tmp
-					$options['tee'] = TEMP_DIR . '/' . $options['tee'];
-				}
-				if (file_exists($options['tee']) || is_link($options['tee'])) {
-					// verify not trying to stream something like /etc/shadow
-					return error("tee file `%s' exists", $options['tee']);
-				} else if (!touch($options['tee'])) {
-					return error("cannot use tee file `%s'", $options['tee']);
-				}
-				$tee = new Util_Process_Tee();
-				$tee->setTeeFile($options['tee']);
-				\Opcenter\Filesystem::chogp($options['tee'], WS_UID);
-				$tee->setProcess($proc);
-			}
-			// capture & extract the safe command, then sudo
-			$proc->setOption('umask', 0022)->
-				setOption('timeout', self::MAX_WAIT_TIME)->
-				setOption('user', $user)->
-				setOption('home', true);
-			// temp fix, last arg is checked for user/domain substitution,
-			// wordpress sets user for example
-			$ret = $proc->run($cmd, $args);
-
-			return $ret;
-		}
-
-		/**
-		 * Background an apnscp function with an optional delay
-		 *
-		 * @param            $realcmd
-		 * @param array|null $args
-		 * @param string     $when
-		 */
-		public function schedule_api_cmd($cmd, $args = array(), $when = 'now')
-		{
-			if (!IS_CLI) {
-				return $this->query('pman_schedule_api_cmd', $cmd, $args, $when);
-			}
-			return $this->schedule_api_cmd_admin($this->site, $this->username, $cmd, $args, $when);
-		}
-
-		/**
-		 * Background an apnscp function as any user on any domain
-		 * with an optional delay
-		 *
-		 * @param string     $site domain or site to runas
-		 * @param string     $user username to run as
-		 * @param            $cmd  api command to run
-		 * @param array|null $args api arguments
-		 * @param string     $when optional time spec
-		 * @return bool
-		 * @internal param $realcmd
-		 */
-		public function schedule_api_cmd_admin($site, $user = null, $cmd, $args = array(), $when = 'now')
-		{
-			if (!IS_CLI) {
-				return $this->query('pman_schedule_api_cmd_admin', $site, $user, $cmd, $args, $when);
-			}
-			// @XXX changing the username following api_cmd can result in a failed command
-			$realcmd = INCLUDE_PATH . '/bin/cmd ';
-			if ($site) {
-				$realcmd .= '-d ' . escapeshellarg($site) . ' ';
-			}
-			if ($user) {
-				$realcmd .= '-u ' . escapeshellarg($user) . ' ';
-			}
-			// support multiple commands
-			if (!is_array($cmd)) {
-				$cmd = array(array($cmd, $args));
-			} else if (is_scalar($args)) {
-				// [site, user, [[cmd1, [args]], [cmd2, [args]]], when]
-				$when = $args;
-			}
-
-			// avoid fatals
-			$timespec = new DateTime($when);
-			if (!$timespec) {
-				return error("unparseable timespec `%s'", $when);
-			}
-			$proc = new Util_Process_Schedule($timespec);
-
-			$components = array();
-			for ($i = 0, $n = sizeof($cmd); $i < $n; $i++) {
-				$tmp = $cmd[$i];
-				$cmdcom = $tmp[0];
-				$argcom = array();
-				if (isset($tmp[1])) {
-					$argcom = $tmp[1];
-				}
-				$safeargs = array();
-				foreach ($argcom as $a) {
-					if (is_array($a)) {
-						if (isset($a[0])) {
-							// array
-							$a = array_map('escapeshellarg', $a);
-						} else {
-							// hash
-							array_walk($a, function (&$v, $k) {
-								$v = escapeshellarg($k) . ':' . escapeshellarg($v);
-							});
-						}
-						$a = '[' . join(",", $a) . ']';
-					}
-					$safeargs[] = is_string($a) ? escapeshellarg($a) : $a;
-				}
-				$safeargs = join(" ", $safeargs);
-
-				$components[] = escapeshellarg($cmdcom) . ' ' . $safeargs;
-			}
-			$realcmd .= join(' \; ', $components);
-			$ret = $proc->run($realcmd);
-			if (!$ret['success']) {
-				return error("failed to schedule task `%s': %s", $realcmd, $ret['stderr']);
-			}
-			return true;
 		}
 
 		/**
@@ -486,10 +258,12 @@
 
 					$procs[$stat['pid']] = $stat;
 				}
+
 				return $procs;
 			};
 			$all = Error_Reporter::silence($func);
 			$cache->set(self::PROC_CACHE_KEY, $all, 60);
+
 			return $all;
 		}
 
@@ -520,6 +294,248 @@
 				$procs[] = $file;
 			}
 			closedir($dir);
+
 			return $procs;
+		}
+
+		/**
+		 * Get active process count
+		 *
+		 * Count is fetched from cache. {@see flush} may be necessary
+		 *
+		 * @return int
+		 */
+		public function pcount()
+		{
+			$count = count($this->_processAccumulator());
+
+			return $count;
+		}
+
+		/**
+		 * Flush process accumulator cache
+		 *
+		 * @return bool
+		 */
+		public function flush()
+		{
+			$cache = Cache_Account::spawn($this->getAuthContext());
+
+			return $cache->delete(self::PROC_CACHE_KEY);
+		}
+
+		/**
+		 * Get all processes
+		 *
+		 * @return array {@see stat}
+		 */
+		public function get_processes()
+		{
+			if (!IS_CLI) {
+				return $this->query('pman_get_processes');
+			}
+
+			return $this->_processAccumulator();
+		}
+
+		/**
+		 * Run a process
+		 *
+		 * Sample response:
+		 *
+		 * Array
+		 * (
+		 * [stdin] =>
+		 * [stdout] => Hello World!!!
+		 * [0] => Hello World!!!
+		 * [stderr] =>
+		 * [1] =>
+		 * [output] => Hello World!!!
+		 * [errno] => 0
+		 * [return] => 0
+		 * [error] =>
+		 * [success] => 1
+		 * )
+		 *
+		 * @param string $cmd     process name, format specifiers allowed
+		 * @param array  $args    optional arguments to supply to format
+		 * @param array  $env     optional environment vars to set
+		 * @param array  $options optional options, tee: set tee output to file, user: run as user if site admin
+		 * @return bool|array
+		 */
+		public function run($cmd, $args = null, array $env = null, $options = [])
+		{
+			if (!IS_CLI) {
+				if ($this->auth_is_demo()) {
+					return error("process execution forbidden in demo");
+				}
+				// store msg buffer in event app is killed for
+				// exceeding max wait time
+				$buffer = Error_Reporter::flush_buffer();
+				$resp = $this->query('pman_run', $cmd, $args, $env, $options);
+				if (null === $resp) {
+					// restore old buffer, ignore crash or other nasty error detected! msg
+					Error_Reporter::set_buffer($buffer);
+
+					return error("process lingered for %d seconds, " .
+						"automatically abandoning", self::MAX_WAIT_TIME);
+				}
+				Error_Reporter::set_buffer(array_merge($buffer, \Error_Reporter::flush_buffer()));
+
+				return $resp;
+			}
+			if (null === $env) {
+				$env = $_ENV;
+			}
+
+			// always force
+			$env['BASH_ENV'] = null;
+			$proc = new Util_Process_Sudo();
+			if ($env) {
+				$proc->setEnvironment($env);
+			}
+			// suppress automatically generated errors
+			$proc->setOption('mute_stderr', true);
+			$user = $this->username;
+
+			if (isset($options['user'])) {
+				if (!$this->permission_level & PRIVILEGE_SITE) {
+					return error("failed to launch `%s': only site admin may specify user parameter to run as",
+						basename($cmd)
+					);
+				}
+				$pwd = $this->user_getpwnam($options['user']);
+				if (!$pwd) {
+					report("Failed getpwnam - " . $this->inContext() . "\n" . var_export($this->getAuthContext(),
+							true) . "\n" . var_export($this->user_get_users(), true));
+
+					return error("unknown user `%s'", $options['user']);
+				}
+				$minuid = apnscpFunctionInterceptor::get_autoload_class_from_module('user')::MIN_UID;
+				if ($pwd['uid'] < $minuid) {
+					return error("uid `%d' is less than allowable uid `%d' - system user?", $pwd['uid'], $minuid);
+				}
+				$user = $options['user'];
+			}
+
+			if (isset($options['tee'])) {
+				if ($options['tee'][0] != '/') {
+					// relative file listed, assume /tmp
+					$options['tee'] = TEMP_DIR . '/' . $options['tee'];
+				}
+				if (file_exists($options['tee']) || is_link($options['tee'])) {
+					// verify not trying to stream something like /etc/shadow
+					return error("tee file `%s' exists", $options['tee']);
+				} else if (!touch($options['tee'])) {
+					return error("cannot use tee file `%s'", $options['tee']);
+				}
+				$tee = new Util_Process_Tee();
+				$tee->setTeeFile($options['tee']);
+				\Opcenter\Filesystem::chogp($options['tee'], WS_UID);
+				$tee->setProcess($proc);
+			}
+			// capture & extract the safe command, then sudo
+			$proc->setOption('umask', 0022)->
+			setOption('timeout', self::MAX_WAIT_TIME)->
+			setOption('user', $user)->
+			setOption('home', true);
+			// temp fix, last arg is checked for user/domain substitution,
+			// wordpress sets user for example
+			$ret = $proc->run($cmd, $args);
+
+			return $ret;
+		}
+
+		/**
+		 * Background an apnscp function with an optional delay
+		 *
+		 * @param            $realcmd
+		 * @param array|null $args
+		 * @param string     $when
+		 */
+		public function schedule_api_cmd($cmd, $args = array(), $when = 'now')
+		{
+			if (!IS_CLI) {
+				return $this->query('pman_schedule_api_cmd', $cmd, $args, $when);
+			}
+
+			return $this->schedule_api_cmd_admin($this->site, $this->username, $cmd, $args, $when);
+		}
+
+		/**
+		 * Background an apnscp function as any user on any domain
+		 * with an optional delay
+		 *
+		 * @param string     $site domain or site to runas
+		 * @param string     $user username to run as
+		 * @param            $cmd  api command to run
+		 * @param array|null $args api arguments
+		 * @param string     $when optional time spec
+		 * @return bool
+		 * @internal param $realcmd
+		 */
+		public function schedule_api_cmd_admin($site, $user = null, $cmd, $args = array(), $when = 'now')
+		{
+			if (!IS_CLI) {
+				return $this->query('pman_schedule_api_cmd_admin', $site, $user, $cmd, $args, $when);
+			}
+			// @XXX changing the username following api_cmd can result in a failed command
+			$realcmd = INCLUDE_PATH . '/bin/cmd ';
+			if ($site) {
+				$realcmd .= '-d ' . escapeshellarg($site) . ' ';
+			}
+			if ($user) {
+				$realcmd .= '-u ' . escapeshellarg($user) . ' ';
+			}
+			// support multiple commands
+			if (!is_array($cmd)) {
+				$cmd = array(array($cmd, $args));
+			} else if (is_scalar($args)) {
+				// [site, user, [[cmd1, [args]], [cmd2, [args]]], when]
+				$when = $args;
+			}
+
+			// avoid fatals
+			$timespec = new DateTime($when);
+			if (!$timespec) {
+				return error("unparseable timespec `%s'", $when);
+			}
+			$proc = new Util_Process_Schedule($timespec);
+
+			$components = array();
+			for ($i = 0, $n = sizeof($cmd); $i < $n; $i++) {
+				$tmp = $cmd[$i];
+				$cmdcom = $tmp[0];
+				$argcom = array();
+				if (isset($tmp[1])) {
+					$argcom = $tmp[1];
+				}
+				$safeargs = array();
+				foreach ($argcom as $a) {
+					if (is_array($a)) {
+						if (isset($a[0])) {
+							// array
+							$a = array_map('escapeshellarg', $a);
+						} else {
+							// hash
+							array_walk($a, function (&$v, $k) {
+								$v = escapeshellarg($k) . ':' . escapeshellarg($v);
+							});
+						}
+						$a = '[' . join(",", $a) . ']';
+					}
+					$safeargs[] = is_string($a) ? escapeshellarg($a) : $a;
+				}
+				$safeargs = join(" ", $safeargs);
+
+				$components[] = escapeshellarg($cmdcom) . ' ' . $safeargs;
+			}
+			$realcmd .= join(' \; ', $components);
+			$ret = $proc->run($realcmd);
+			if (!$ret['success']) {
+				return error("failed to schedule task `%s': %s", $realcmd, $ret['stderr']);
+			}
+
+			return true;
 		}
 	}

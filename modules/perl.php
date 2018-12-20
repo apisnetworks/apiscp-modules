@@ -47,6 +47,7 @@
 			$proc = Util_Process_Sudo::exec($cmd);
 			$perlArray = explode("\n", $proc['output']);
 			sort($perlArray);
+
 			return $perlArray;
 		}
 
@@ -63,6 +64,7 @@
 		{
 			$proc = Util_Process_Safe::exec('/usr/bin/perldoc %s', array($module));
 			$perlDoc = $proc['output'];
+
 			return $perlDoc;
 		}
 
@@ -76,6 +78,7 @@
 		public function version()
 		{
 			$version = Util_Process::exec("/usr/bin/perl -e 'printf \"%vd\", \$^V;'");
+
 			return $version['output'];
 		}
 	}

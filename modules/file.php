@@ -16,9 +16,8 @@
 	 *
 	 * @package core
 	 *
-	 * @todo add xattr support
+	 * @todo    add xattr support
 	 */
-
 	class File_Module extends Module_Skeleton
 	{
 		const UPLOAD_UID = WS_UID;
@@ -147,6 +146,7 @@
 					$path .= '/' . $token;
 				}
 			}
+
 			return $path . strtok("");
 		}
 
@@ -177,6 +177,7 @@
 		{
 			if (!IS_CLI) {
 				$ret = $this->query('file_extract', $archive, $dest);
+
 				return $ret;
 			}
 
@@ -229,6 +230,7 @@
 			);
 
 			chmod($destination_path, 0755);
+
 			return $proc['success'];
 		}
 
@@ -325,6 +327,7 @@
 			}
 
 			$this->compression_ext = $ext;
+
 			return '.' . $ext;
 		}
 
@@ -342,6 +345,7 @@
 			if (isset($this->trans_paths[$this->site_id][$path])) {
 				$path = $this->trans_paths[$this->site_id][$path];
 				$link = $path[1];
+
 				return $path[0];
 			}
 			// we really don't know how to handle relative files
@@ -397,6 +401,7 @@
 			}
 			$this->trans_paths[$this->site_id][$path] = array($newpath, $link);
 			$this->trans_paths[$newpath] = $path;
+
 			return $newpath;
 
 		}
@@ -420,6 +425,7 @@
 			if (file_exists($dir)) {
 				return $this->_mktmpdir($path, $prefix);
 			}
+
 			return $dir;
 		}
 
@@ -455,7 +461,7 @@
 			} else {
 				$pathbase = dirname($path);
 			}
-			if ($this->permission_level & (PRIVILEGE_SITE|PRIVILEGE_USER) && 0 === strpos($prefix, $pathbase)) {
+			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER) && 0 === strpos($prefix, $pathbase)) {
 				$pathbase = $prefix;
 			}
 
@@ -541,10 +547,8 @@
 							if (isset($item['user']) && $item['user'] == $pwusr) {
 								$acl = $item['permissions'];
 								break;
-							} else {
-								if (isset($item['group']) && $item['group'] == $pwgrp) {
-									$acl = $item['permissions'];
-								}
+							} else if (isset($item['group']) && $item['group'] == $pwgrp) {
+								$acl = $item['permissions'];
 							}
 						}
 					}
@@ -625,7 +629,23 @@
 				$data = "ASKED: $filehash ($filename)" . "\r\n\r\n" . var_export($stats, true);
 				report("MISSED HASH: " . $data);
 			}
+
 			return $stats[$filehash];
+		}
+
+		/**
+		 * Resolve path as shadow
+		 *
+		 * @param        $path
+		 * @param string $link
+		 * @return string
+		 */
+		public function make_shadow_path($path, &$link = '')
+		{
+			$path = $this->make_path($path, $link);
+			$prefix = $this->domain_fs_path();
+
+			return $this->domain_shadow_path() . substr($path, strlen($prefix));
 		}
 
 		/**
@@ -640,21 +660,8 @@
 			if (!$uid) {
 				return 'root';
 			}
-			return $this->user_get_username_from_uid($uid);
-		}
 
-		/**
-		 * Calculate etag of a file
-		 *
-		 * @param string $file
-		 * @return null|string
-		 */
-		public function etag($file) {
-			$stat = $this->file_stat($file);
-			if (!$stat) {
-				return null;
-			}
-			return sha1($stat['inode'] . $stat['size'] . $stat['mtime']);
+			return $this->user_get_username_from_uid($uid);
 		}
 
 		/**
@@ -669,6 +676,7 @@
 				return array();
 			} else if (!IS_CLI) {
 				$ret = $this->query('file_get_acls', $file);
+
 				return $ret;
 			}
 
@@ -704,6 +712,7 @@
 				if (false !== $entry) {
 					$this->acl_cache = array_merge_recursive($this->acl_cache,
 						[$cache_key => $entry]);
+
 					return $entry[basename($path)] ?? [];
 				}
 			}
@@ -738,7 +747,9 @@
 
 			$isChroot = $this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER);
 			$data['output'] = preg_replace_callback('/\\\\(\d{3})/',
-				function ($match) { return chr(octdec($match[1])); }, $data['output']);
+				function ($match) {
+					return chr(octdec($match[1]));
+				}, $data['output']);
 			//if (!$data['output']) {
 			//	warn($cmd.": no response");
 			//}
@@ -780,7 +791,7 @@
 							$identifier = array_get(posix_getgrgid($this->group_id), 'name');
 						}
 						$acls[] = array(
-							$type => $identifier,
+							$type         => $identifier,
 							'permissions' => $perms
 						);
 					}
@@ -794,80 +805,14 @@
 			$cache = \Cache_Account::spawn($this->getAuthContext());
 			$cache->set($apcu_key, $acl_cache, 60);
 			$this->acl_cache = array_merge($this->acl_cache, $acl_cache);
+
 			return $this->acl_cache[$cache_key][basename($file)]['aclinfo'] ?? [];
-		}
-
-		/**
-		 * Make a protected file ephemerally accessible by apnscp
-		 *
-		 * @xxx dangerous
-		 * File is removed on script end
-		 *
-		 * @param string $file
-		 * @param string $mode read or write
-		 * @return string file
-		 */
-		public function expose($file, $mode = 'read') {
-			if (!IS_CLI) {
-				$clone = $this->query('file_expose', $file, $mode);
-				// always ensure this
-				if ($clone) {
-					register_shutdown_function(function($clone, $prefix)  {
-						if (file_exists($prefix . $clone)) {
-							unlink($prefix . $clone);
-						}
-					}, $clone, $this->domain_fs_path());
-				}
-
-				return $clone;
-			}
-
-			if ($mode !== 'read' && $mode !== 'write') {
-				return error("unknown mode `%s'", $mode);
-			}
-
-			$stat = $this->stat_backend($file);
-			if (!$stat['can_' . $mode]) {
-				return error("cannot access file `%s'", $file);
-			} else if ($stat['file_type'] !== 'file') {
-				return error("file `%s' is not a regular file", $file);
-			} else if ($stat['nlinks'] > 1) {
-				return error("file `%s' must not be linked elsewhere", $file);
-			}
-			$tmppath = $this->make_path(TEMP_DIR);
-			$tempnam = tempnam($tmppath, 'ex');
-			unlink($tempnam);
-			$path = $this->make_path($file);
-			link($path, $tempnam);
-			if ($stat['inode'] !== fileinode($tempnam)) {
-				error("possible race condition, expected ino `%d', got `%d' - removing `%s'",
-					$stat['inode'], fileinode($tempnam), $tempnam);
-				unlink($tempnam);
-				return false;
-			}
-			chown($tempnam, WS_UID);
-			clearstatcache(true, $path);
-			$this->_purgeCache($file);
-			return $this->unmake_path($tempnam);
-		}
-
-		/**
-		 * Resolve path as shadow
-		 *
-		 * @param        $path
-		 * @param string $link
-		 * @return string
-		 */
-		public function make_shadow_path($path, &$link = '')
-		{
-			$path = $this->make_path($path, $link);
-			$prefix = $this->domain_fs_path();
-			return $this->domain_shadow_path() . substr($path, strlen($prefix));
 		}
 
 		private function _getCacheKey($file)
 		{
 			$cachebase = $this->_getCacheDir($file);
+
 			return 's:' . md5($cachebase);
 		}
 
@@ -949,6 +894,7 @@
 					return error("%s: cannot create directory", $this->unmake_path($newdir));
 				}
 			}
+
 			return true;
 		}
 
@@ -978,6 +924,7 @@
 					$offset = strlen($this->domain_fs_path());
 				}
 			}
+
 			return str_replace('//', '/', '/' . substr($mPath, $offset));
 		}
 
@@ -1042,6 +989,7 @@
 				return $stat;
 			}
 			$shadow = true;
+
 			return $this->query('file_stat_backend', $file, $shadow);
 		}
 
@@ -1069,6 +1017,7 @@
 					return $stat[$filehash];
 				}
 			}
+
 			return false;
 		}
 
@@ -1119,6 +1068,109 @@
 		}
 
 		/**
+		 * Calculate etag of a file
+		 *
+		 * @param string $file
+		 * @return null|string
+		 */
+		public function etag($file)
+		{
+			$stat = $this->file_stat($file);
+			if (!$stat) {
+				return null;
+			}
+
+			return sha1($stat['inode'] . $stat['size'] . $stat['mtime']);
+		}
+
+		/**
+		 * Make a protected file ephemerally accessible by apnscp
+		 *
+		 * @xxx dangerous
+		 * File is removed on script end
+		 *
+		 * @param string $file
+		 * @param string $mode read or write
+		 * @return string file
+		 */
+		public function expose($file, $mode = 'read')
+		{
+			if (!IS_CLI) {
+				$clone = $this->query('file_expose', $file, $mode);
+				// always ensure this
+				if ($clone) {
+					register_shutdown_function(function ($clone, $prefix) {
+						if (file_exists($prefix . $clone)) {
+							unlink($prefix . $clone);
+						}
+					}, $clone, $this->domain_fs_path());
+				}
+
+				return $clone;
+			}
+
+			if ($mode !== 'read' && $mode !== 'write') {
+				return error("unknown mode `%s'", $mode);
+			}
+
+			$stat = $this->stat_backend($file);
+			if (!$stat['can_' . $mode]) {
+				return error("cannot access file `%s'", $file);
+			} else if ($stat['file_type'] !== 'file') {
+				return error("file `%s' is not a regular file", $file);
+			} else if ($stat['nlinks'] > 1) {
+				return error("file `%s' must not be linked elsewhere", $file);
+			}
+			$tmppath = $this->make_path(TEMP_DIR);
+			$tempnam = tempnam($tmppath, 'ex');
+			unlink($tempnam);
+			$path = $this->make_path($file);
+			link($path, $tempnam);
+			if ($stat['inode'] !== fileinode($tempnam)) {
+				error("possible race condition, expected ino `%d', got `%d' - removing `%s'",
+					$stat['inode'], fileinode($tempnam), $tempnam);
+				unlink($tempnam);
+
+				return false;
+			}
+			chown($tempnam, WS_UID);
+			clearstatcache(true, $path);
+			$this->_purgeCache($file);
+
+			return $this->unmake_path($tempnam);
+		}
+
+		/**
+		 * Remove files from cache
+		 *
+		 * @param array|string $files
+		 * @return bool
+		 */
+		private function _purgeCache($files)
+		{
+			$purged = array();
+			$siteid = $this->site_id;
+			$path = $this->domain_fs_path();
+			foreach ((array)$files as $f) {
+				$dir = dirname($f);
+				$hash = md5($dir);
+				clearstatcache(true, $path . '/' . $f);
+				$this->trans_paths[$this->site_id][$f] = null;
+				if (isset($purged[$hash])) {
+					continue;
+				}
+				$this->stat_cache[$siteid][$hash] = null;
+				$this->cached->delete('s:' . $hash);
+				$purged[$hash] = 1;
+			}
+			if (count($purged) > 1) {
+				$this->clearstat = true;
+			}
+
+			return true;
+		}
+
+		/**
 		 * List contents of a compressed file
 		 *
 		 * @param  string $file file name
@@ -1147,6 +1199,7 @@
 
 			$files = $class->list_files($path);
 			Util_Conf::sort_files($files, 'value', true);
+
 			return $files;
 		}
 
@@ -1171,6 +1224,7 @@
 					$this->_purgeCache($source);
 					$this->_purgeCache($dest);
 				}
+
 				return $res;
 			}
 			if ($this->permission_level & PRIVILEGE_SITE) {
@@ -1214,6 +1268,7 @@
 				$parent_stat = $this->stat_backend($this->unmake_path($dest_parent));
 				if ($parent_stat instanceof Exception) {
 					print $source . " " . $dest . " - " . $parent_stat->getMessage();
+
 					return $parent_stat;
 				}
 				if ($parent_stat['file_type'] == 'dir' && (!$parent_stat['can_write'] ||
@@ -1348,6 +1403,7 @@
 					}
 				}
 			}
+
 			return (bool)$files_copied;
 		}
 
@@ -1367,6 +1423,7 @@
 				$fst = $this->domain_fs_path();
 				$path = $fst . substr($path, strlen($shadow));
 			}
+
 			return $path = $this->unmake_path($path);
 		}
 
@@ -1390,36 +1447,8 @@
 			}
 			$data = $this->query('file_delete_backend', $file, (bool)$recursive);
 			$this->_purgeCache($file);
-			return is_array($data) ? new FileError(join($data, "\n")) : true;
-		}
 
-		/**
-		 * Remove files from cache
-		 *
-		 * @param array|string $files
-		 * @return bool
-		 */
-		private function _purgeCache($files)
-		{
-			$purged = array();
-			$siteid = $this->site_id;
-			$path = $this->domain_fs_path();
-			foreach ((array)$files as $f) {
-				$dir = dirname($f);
-				$hash = md5($dir);
-				if (isset($purged[$hash])) {
-					continue;
-				}
-				$this->trans_paths[$this->site_id][$f] = null;
-				clearstatcache(true, $path . '/' . $f);
-				$this->stat_cache[$siteid][$hash] = null;
-				$this->cached->delete('s:' . $hash);
-				$purged[$hash] = 1;
-			}
-			if (count($purged) > 1) {
-				$this->clearstat = true;
-			}
-			return true;
+			return is_array($data) ? new FileError(join($data, "\n")) : true;
 		}
 
 		/**
@@ -1472,8 +1501,7 @@
 				}
 
 				for ($i = 0, $n = count($globmatch); $i < $n;
-				     $i++, $ret &= $ok)
-				{
+					 $i++, $ret &= $ok) {
 					$ok = 0;
 					$rmpath = $chkpath = $globmatch[$i];
 					$file = $rmpath;
@@ -1561,29 +1589,9 @@
 					$ok = 1;
 				}
 			}
+
 			return (bool)$ret & $ok;
 
-		}
-
-		/**
-		 * mixed glob_escape(mixed)
-		 * Escape glob-special characters:
-		 * {, }, [, ], *, ?
-		 */
-		private function _glob_escape($str)
-		{
-			$search = array('*', '[', ']', '{', '}', '?');
-			$replace = array('\*', '\[', '\]', '{', '\}', '\?',);
-			if (!is_array($str)) {
-				return str_replace($search, $replace, $str);
-			}
-
-			$safe = array();
-			foreach ($str as $raw) {
-				$safe[] = str_replace($search, $replace, $raw);
-			}
-
-			return $safe;
 		}
 
 		/**
@@ -1597,7 +1605,10 @@
 		public function chown($mFile, $mUser, $mRecursive = false)
 		{
 			if (!IS_CLI) {
-				return $this->query('file_chown', $mFile, $mUser, $mRecursive);
+				$ret = $this->query('file_chown', $mFile, $mUser, $mRecursive);
+				$this->_purgeCache($mFile);
+
+				return $ret;
 			}
 			$validUsers = array_keys($this->user_get_users());
 			$validUsers[] = 'apache';
@@ -1655,7 +1666,9 @@
 
 				if ($mRecursive && is_dir($path)) {
 					// Recursive chown
-					$files = \Opcenter\Filesystem::readdir($path, function($item) use($file) { return "$file/$item";});
+					$files = \Opcenter\Filesystem::readdir($path, function ($item) use ($file) {
+						return "$file/$item";
+					});
 					if ($files === false) {
 						$errors[$file] = "failed to open directory";
 						continue;
@@ -1672,7 +1685,29 @@
 			}
 			$this->_purgeCache($mFile);
 			$this->purge();
+
 			return (sizeof($errors) == 0 ? true : new FileError(join("\n", $errors)));
+		}
+
+		/**
+		 * Dump OverlayFS cache
+		 *
+		 * @return bool
+		 */
+		public function purge()
+		{
+			if (!IS_CLI) {
+				return $this->query('file_purge');
+			}
+			if (version_compare(platform_version(), '6', '<')) {
+				return false;
+			}
+			if ($this->permission_level & !(PRIVILEGE_SITE | PRIVILEGE_USER)) {
+				return true;
+			}
+			$proc = Util_Process::exec(\Opcenter\Service\ServiceLayer::MOUNT_CMD . ' reload_site %s', $this->site);
+
+			return $proc['success'];
 		}
 
 		/**
@@ -1765,8 +1800,10 @@
 				return error("invalid mode");
 			}
 
-			$qd = $this->query('file_chmod_backend', $mFile, $mMode, $mRecursive);
-			return $qd;
+			$ret = $this->query('file_chmod_backend', $mFile, $mMode, $mRecursive);
+			$this->_purgeCache($mFile);
+
+			return $ret;
 		}
 
 		/**
@@ -1833,6 +1870,7 @@
 			}
 			$ret = chmod($path, (int)$mMode);
 			$this->_purgeCache($purge);
+
 			return $ret;
 		}
 
@@ -1850,6 +1888,7 @@
 				if (!$path || ($path instanceof Exception) || !file_exists($path) || !is_readable($path)) {
 					return $this->query('file_get_mime_type', $file);
 				}
+
 				return mime_content_type($path) ?: null;
 			}
 
@@ -1857,6 +1896,7 @@
 			if ((!$stat || !$stat['can_read']) || ($stat['link'] && null === $stat['referent'])) {
 				return null;
 			}
+
 			return mime_content_type($path) ?: null;
 		}
 
@@ -1917,6 +1957,7 @@
 				return error("Unable to read file " . $mPath);
 			}
 			$str = file_get_contents($path);
+
 			return ($mRaw ? $str : base64_encode($str));
 
 		}
@@ -1991,10 +2032,8 @@
 
 			if (!file_exists($path) && (!$dir_stat['can_write'])) {
 				return error("Cannot write to destination directory " . dirname($mFile));
-			} else {
-				if ($binary && !preg_match('/^[a-zA-Z0-9\+\/=]*$/', $mData)) {
-					return new ArgumentError("File data not base64 encoded");
-				}
+			} else if ($binary && !preg_match('/^[a-zA-Z0-9\+\/=]*$/', $mData)) {
+				return new ArgumentError("File data not base64 encoded");
 			}
 
 			if (file_exists($path)) {
@@ -2023,6 +2062,7 @@
 			fwrite($fp, !$binary ? $mData : base64_decode($mData));
 			fclose($fp);
 			$this->_purgeCache((array)$mFile);
+
 			return true;
 		}
 
@@ -2060,6 +2100,7 @@
 			chown($path, (int)$this->user_id);
 			chgrp($path, (int)$this->group_id);
 			chmod($path, $mode);
+
 			return true;
 		}
 
@@ -2200,6 +2241,7 @@
 
 				);
 			}
+
 			return $status['success'];
 		}
 
@@ -2207,15 +2249,15 @@
 		 * Locate files under a given path matching requirements
 		 *
 		 * Requirements:
-		 * 	- user: username
+		 *    - user: username
 		 *  - perm: permissions
 		 *  - mtime/ctime: modification/creation time.
-		 * 		n > 0, more than n days ago, n < 0, less than n days ago
+		 *        n > 0, more than n days ago, n < 0, less than n days ago
 		 *  - name/regex: filename glob/regex match
 		 *
 		 * @param string $path
 		 * @param array  $requirements optional requirements
-		 * @param bool   $union all must match
+		 * @param bool   $union        all must match
 		 * @return array|bool false on error
 		 */
 		public function audit(string $path, array $requirements = [], bool $union = true)
@@ -2227,7 +2269,7 @@
 			if (!$requirements) {
 				$requirements = ['user' => Web_Module::WEB_USERNAME];
 			}
-			$recognized = [ 'user', 'perm', 'mtime', 'ctime', 'regex', 'name' ];
+			$recognized = ['user', 'perm', 'mtime', 'ctime', 'regex', 'name'];
 			if ($bad = array_except($requirements, $recognized)) {
 				return error("Unrecognized audit options: `%s'", implode(',', $bad));
 			}
@@ -2246,7 +2288,8 @@
 
 			if (isset($requirements['perm'])) {
 				$cmds[] = '-perm %(perm)s';
-				if ( ($idx = strspn((string)$requirements['perm'], "012345678gwox+-r")) !== \strlen((string)$requirements['perm'])) {
+				if (($idx = strspn((string)$requirements['perm'],
+						"012345678gwox+-r")) !== \strlen((string)$requirements['perm'])) {
 					return error("Permissions must be in octal or symbolic. Invalid characters found pos %d: `%s'",
 						$idx,
 						substr((string)$requirements['perm'], $idx)
@@ -2260,7 +2303,8 @@
 					$cmdstr .= ' -o ';
 					$requirements['user'] = substr($requirements['user'], 1);
 				}
-				if (!$this->user_exists($requirements['user']) && !\in_array($this->permittedUsers(), $requirements['user'], true)) {
+				if (!$this->user_exists($requirements['user']) && !\in_array($this->permittedUsers(),
+						$requirements['user'], true)) {
 					return error("Unknown user `%s'", $requirements['user']);
 				}
 				$cmdargs['user'] = $requirements['user'];
@@ -2274,13 +2318,13 @@
 					return error("%s must be numeric, got `%s'", $spec, $requirements[$spec]);
 				}
 
-				$cmds[] ="-${spec} %(${spec})d";
+				$cmds[] = "-${spec} %(${spec})d";
 				$cmdargs[$spec] = $requirements[$spec];
 			}
 			if (isset($requirements['name'], $requirements['regex'])) {
 				return error("Both name and regex cannot be specified");
 			}
-			foreach(['name', 'regex'] as $spec) {
+			foreach (['name', 'regex'] as $spec) {
 				if (!isset($requirements[$spec])) {
 					continue;
 				}
@@ -2289,11 +2333,34 @@
 				break;
 			}
 
-			$ret = \Util_Process_Safe::exec($cmdstr . ' \( ' . implode($union ? ' ' : ' -o ', $cmds) . ' \) -printf "%%P\n"', $cmdargs);
+			$ret = \Util_Process_Safe::exec($cmdstr . ' \( ' . implode($union ? ' ' : ' -o ',
+					$cmds) . ' \) -printf "%%P\n"', $cmdargs);
 			if (!$ret['success']) {
 				return error("failed to locate files under `%s': %s", $path, $ret['stderr']);
 			}
+
 			return !$ret['stdout'] ? [] : explode("\n", rtrim($ret['stdout']));
+		}
+
+		/**
+		 * Create a map of permitted users + system id
+		 *
+		 * @return array
+		 */
+		private function permittedUsers(): array
+		{
+			// don't worry about caching, already done in user_get_users
+			$uuidmap = [
+				\Web_Module::WEB_USERNAME => posix_getpwnam(\Web_Module::WEB_USERNAME)['uid']
+			];
+
+			if ($this->tomcat_permitted()) {
+				$tcuser = $this->tomcat_system_user();
+				$uuidmap[$tcuser] = posix_getpwnam($tcuser)['uid'];
+			}
+			$users = $this->user_get_users();
+
+			return array_merge(array_combine(array_keys($users), array_column($users, 'uid')), $uuidmap);
 		}
 
 		/**
@@ -2315,13 +2382,14 @@
 		public function report_quota($mUIDs)
 		{
 			deprecated_func("use user_get_quota()");
+
 			return null;
 		}
 
 		/**
 		 * Convert end-of-line characters
 		 *
-		 * @param  string $mFile filename
+		 * @param  string $mFile   filename
 		 * @param  string $mTarget target platform
 		 * @return bool
 		 */
@@ -2346,88 +2414,10 @@
 			} else if ($mTarget == 'mac') {
 				$cmd = 'dos2unix -c mac';
 			}
+
 			return Util_Process_Safe::exec($cmd . ' %s',
 					$file) && chown($file, $stat['uid'])
 				&& chgrp($file, $stat['gid']);
-		}
-
-		/**
-		 * Create a symbolic link
-		 *
-		 * @param unknown_type $mSrc
-		 * @param unknown_type $mDest
-		 * @return bool
-		 * @see symlink()
-		 * @deprecated
-		 */
-		public function create_symlink($mSrc, $mDest)
-		{
-			return $this->symlink($mSrc, $mDest);
-		}
-
-		/**
-		 * Create a symbolic link
-		 *
-		 * @param string $mSrc  source file
-		 * @param string $mDest destination link
-		 * @return bool
-		 */
-		public function symlink(string $mSrc, string $mDest): bool
-		{
-			if (!IS_CLI) {
-				return $this->query('file_create_symlink', $mSrc, $mDest) && $this->_purgeCache($mDest);
-			}
-
-
-			$target = '';
-			if (0 === strpos($mSrc, '..')) {
-				$mSrc = dirname($mDest) . '/' . $mSrc;
-			}
-			if ($mDest[strlen($mDest) - 1] == '/') {
-				$mDest .= basename($mSrc);
-			}
-
-			$src_path = $this->make_path($mSrc);
-			$link = $this->make_path($mDest, $target);
-			if (file_exists($link)) {
-				return error("destination `" . $this->unmake_path($link) . "' exists");
-			} else if (!file_exists($src_path)) {
-				return error("source `" . $this->unmake_path($src_path) . "' does not exist");
-			}
-
-			// properly calculate relative traversals
-			$target = self::convert_absolute_relative(realpath(dirname($link)) . '/' . basename($link), $src_path);
-
-			//debug(self::convert_absolute_relative($dest_path, $src_path)." -> ".$dest_path);
-			return symlink($target, $link) && $this->_purgeCache($mDest) && Util_PHP::lchown($link, $this->user_id)
-				&& Util_PHP::lchgrp($link, $this->group_id);
-		}
-
-		/**
-		 * Transform absolute path into relative path
-		 *
-		 * @param string $cwd  current working directory
-		 * @param string $path target symlink
-		 * @return string
-		 */
-		public static function convert_absolute_relative(string $cwd, string $path): string
-		{
-			if (dirname($cwd) === rtrim($path, '/')) {
-				return '../' . basename($path);
-			} else if ($cwd === $path) {
-				return '.';
-			}
-
-			$cwd = array_values(array_filter(explode("/", $cwd)));
-			$path = array_values(array_filter(explode("/", $path)));
-			// just in case PHP changes scoping rules in the future...
-			$idx = 0;
-			for ($idxMax = sizeof($cwd); $idx < $idxMax; $idx++) {
-				if (!isset($path[$idx]) || ($path[$idx] !== $cwd[$idx])) {
-					break;
-				}
-			}
-			return str_repeat("../", max(0, sizeof($cwd) - ($idx+1))) . implode("/", array_slice($path, $idx));
 		}
 
 		/**
@@ -2445,6 +2435,7 @@
 				if ($res) {
 					$this->_purgeCache([$from, $to]);
 				}
+
 				return $res;
 			}
 			if (!is_array($files) || !$files) {
@@ -2500,13 +2491,14 @@
 				if ($src_stat['link']) {
 					// rename won't rename a symbolic link; delete and recreate the link
 					$this->delete(array($this->unmake_path($link)), false);
-					$this->create_symlink_backend($src_stat['referent'], $this->unmake_path($dest_path));
+					$this->symlink($src_stat['referent'], $this->unmake_path($dest_path));
 					$this->chown_symlink($this->unmake_path($dest_path), $src_stat['owner']) && $changed_ctr++;
 				} else {
 					rename($src_path, $dest_path) && $changed_ctr++;
 				}
 
 			}
+
 			return $changed_ctr > 0;
 		}
 
@@ -2526,6 +2518,7 @@
 				if ($res) {
 					$this->_purgeCache($src);
 				}
+
 				return $res;
 			}
 
@@ -2702,7 +2695,76 @@
 				$rename_dest = rtrim($rename_dest, DIRECTORY_SEPARATOR);
 				$nchanged = rename($src_path, $rename_dest) & $lchanged;
 			}
+
 			return $nchanged > 0;
+		}
+
+		/**
+		 * Create a symbolic link
+		 *
+		 * @param string $mSrc  source file
+		 * @param string $mDest destination link
+		 * @return bool
+		 */
+		public function symlink(string $mSrc, string $mDest): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('file_symlink', $mSrc, $mDest) && $this->_purgeCache($mDest);
+			}
+
+
+			$target = '';
+			if (0 === strpos($mSrc, '..')) {
+				$mSrc = dirname($mDest) . '/' . $mSrc;
+			}
+			if ($mDest[strlen($mDest) - 1] == '/') {
+				$mDest .= basename($mSrc);
+			}
+
+			$src_path = $this->make_path($mSrc);
+			$link = $this->make_path($mDest, $target);
+			clearstatcache(true, $link);
+			clearstatcache(true, $src_path);
+			if (file_exists($link)) {
+				return error("destination `" . $this->unmake_path($link) . "' exists");
+			} else if (!file_exists($src_path)) {
+				return error("source `" . $this->unmake_path($src_path) . "' does not exist");
+			}
+
+			// properly calculate relative traversals
+			$target = self::convert_absolute_relative(realpath(dirname($link)) . '/' . basename($link), $src_path);
+
+			//debug(self::convert_absolute_relative($dest_path, $src_path)." -> ".$dest_path);
+			return symlink($target, $link) && $this->_purgeCache($mDest) && Util_PHP::lchown($link, $this->user_id)
+				&& Util_PHP::lchgrp($link, $this->group_id);
+		}
+
+		/**
+		 * Transform absolute path into relative path
+		 *
+		 * @param string $cwd  current working directory
+		 * @param string $path target symlink
+		 * @return string
+		 */
+		public static function convert_absolute_relative(string $cwd, string $path): string
+		{
+			if (dirname($cwd) === rtrim($path, '/')) {
+				return '../' . basename($path);
+			} else if ($cwd === $path) {
+				return '.';
+			}
+
+			$cwd = array_values(array_filter(explode("/", $cwd)));
+			$path = array_values(array_filter(explode("/", $path)));
+			// just in case PHP changes scoping rules in the future...
+			$idx = 0;
+			for ($idxMax = sizeof($cwd); $idx < $idxMax; $idx++) {
+				if (!isset($path[$idx]) || ($path[$idx] !== $cwd[$idx])) {
+					break;
+				}
+			}
+
+			return str_repeat("../", max(0, sizeof($cwd) - ($idx + 1))) . implode("/", array_slice($path, $idx));
 		}
 
 		/**
@@ -2715,7 +2777,10 @@
 		public function chown_symlink($mFile, $mUser)
 		{
 			if (!IS_CLI) {
-				return $this->query('file_chown_symlink', $mFile, $mUser);
+				$ret = $this->query('file_chown_symlink', $mFile, $mUser);
+				$this->_purgeCache($mFile);
+
+				return $ret;
 			}
 			$validUsers = array_keys($this->user_get_users());
 			$validUsers[] = 'apache';
@@ -2757,13 +2822,17 @@
 				}
 			}
 			$this->_purgeCache($mFile);
+
 			return (sizeof($errors) == 0 ? true : new FileError(join("\n", $errors)));
 		}
 
-		public function file_exists($file, array &$missing = null) {
+		public function file_exists($file, array &$missing = null)
+		{
 			deprecated_func('use exists');
+
 			return $this->exists($file, $missing);
 		}
+
 		/**
 		 * Check existence of file
 		 *
@@ -2804,6 +2873,7 @@
 		public function find_quota_files($file = '')
 		{
 			deprecated("use user_find_quota_files");
+
 			return $this->user_find_quota_files();
 		}
 
@@ -2823,6 +2893,7 @@
 			if (0 === strpos($path, $prefix)) {
 				$path = substr($path, $len);
 			}
+
 			return !$path ? '/' : $path;
 		}
 
@@ -2843,6 +2914,7 @@
 			if (0 !== strpos($path, $prefix)) {
 				$path = $prefix . $path;
 			}
+
 			return $path;
 		}
 
@@ -2892,6 +2964,7 @@
 				}
 				file_exists($path) && chown($path, $this->user_id) && chgrp($path, $this->group_id);
 			}
+
 			return !Error_Reporter::is_error();
 		}
 
@@ -2938,6 +3011,7 @@
 				chown($path, (int)$this->user_id);
 				chgrp($path, (int)$this->group_id);
 			}
+
 			return $ret;
 		}
 
@@ -3014,6 +3088,7 @@
 					'skipfile'    => INCLUDE_PATH . self::DOWNLOAD_SKIP_LIST
 				)
 			);
+
 			return $ret['success'] ? $fifo : false;
 		}
 
@@ -3028,10 +3103,10 @@
 		 *  setting permission null will remove all permissions
 		 * - "0" permission will disallow all access for named user
 		 *
-		 * @param string|array    $file
-		 * @param string|null|array     $user
-		 * @param int|string|null $permission
-		 * @param array           $xtra map of default: bool, recursive: bool (not manageable by subuser)
+		 * @param string|array      $file
+		 * @param string|null|array $user
+		 * @param int|string|null   $permission
+		 * @param array             $xtra map of default: bool, recursive: bool (not manageable by subuser)
 		 * @return bool
 		 */
 		public function set_acls($file, $user = null, $permission = null, array $xtra = array())
@@ -3194,6 +3269,7 @@
 			}
 			/**
 			 * Flush cached ACL entries
+			 *
 			 * @todo unify acl cache management
 			 */
 			$cache = \Cache_Account::spawn($this->getAuthContext());
@@ -3202,27 +3278,8 @@
 				unset($this->acl_cache[$key]);
 				$cache->delete('acl:' . $key);
 			}
+
 			return true;
-		}
-
-		/**
-		 * Create a map of permitted users + system id
-		 *
-		 * @return array
-		 */
-		private function permittedUsers(): array
-		{
-			// don't worry about caching, already done in user_get_users
-			$uuidmap = [
-				\Web_Module::WEB_USERNAME => posix_getpwnam(\Web_Module::WEB_USERNAME)['uid']
-			];
-
-			if ($this->tomcat_permitted()) {
-				$tcuser = $this->tomcat_system_user();
-				$uuidmap[$tcuser] = posix_getpwnam($tcuser)['uid'];
-			}
-			$users = $this->user_get_users();
-			return array_merge(array_combine(array_keys($users), array_column($users, 'uid')), $uuidmap);
 		}
 
 		private function _acl_driver(array $files, $flags, array $rights = array())
@@ -3242,6 +3299,7 @@
 			if (!$proc['success']) {
 				return error("setting ACLs failed: `%s'", $proc['stderr']);
 			}
+
 			return true;
 		}
 
@@ -3317,10 +3375,10 @@
 		 *
 		 * @see takeover_user() to change ownership without altering permissions
 		 *
-		 * @param string $path
-		 * @param null|string $user set to null to bypass user reset
-		 * @param int $fileperm file permission to reset
-		 * @param int $dirperm directory permission to reset
+		 * @param string      $path
+		 * @param null|string $user     set to null to bypass user reset
+		 * @param int         $fileperm file permission to reset
+		 * @param int         $dirperm  directory permission to reset
 		 * @return bool
 		 */
 		public function reset_path(string $path, ?string $user = '', $fileperm = 0644, $dirperm = 0755): bool
@@ -3369,10 +3427,10 @@
 			}
 
 			$args = [
-				'path'   => $shadowpath,
-				'gid'    => $this->group_id,
-				'fperm'  => $fileperm,
-				'dperm'  =>  $dirperm,
+				'path'  => $shadowpath,
+				'gid'   => $this->group_id,
+				'fperm' => $fileperm,
+				'dperm' => $dirperm,
 			];
 			$ret = \Util_Process_Safe::exec(
 				'find -P %(path)s -xdev -gid %(gid)d ' . $usercmd . ' \( -type f -exec chmod %(fperm)s "{}" \+ \) ' .
@@ -3387,6 +3445,7 @@
 				warn("no files changed");
 			}
 			$this->purge();
+
 			return $ret['success'];
 		}
 
@@ -3395,10 +3454,11 @@
 		 *
 		 * @param string|int $olduser owner to convert
 		 * @param string|int $newuser new owner
-		 * @param string $path base path
+		 * @param string     $path    base path
 		 * @return bool
 		 */
-		public function takeover_user($olduser, $newuser, string $path = '/') {
+		public function takeover_user($olduser, $newuser, string $path = '/')
+		{
 			if (!IS_CLI) {
 				return $this->query('file_takeover_user', $olduser, $newuser, $path);
 			}
@@ -3412,7 +3472,7 @@
 			}
 			$acceptableUids = $this->permittedUsers();
 
-			if ($olduid < \User_Module::MIN_UID && !in_array($olduid, $acceptableUids) ) {
+			if ($olduid < \User_Module::MIN_UID && !in_array($olduid, $acceptableUids)) {
 				return error("user `%s' is unknown or a system user", $olduser);
 			}
 
@@ -3427,8 +3487,8 @@
 				return error("unable to takeover, base path `%s' must be within acceptable UID range", $path);
 			}
 			$args = [
-				'path' => $shadowpath,
-				'gid' => $this->group_id,
+				'path'   => $shadowpath,
+				'gid'    => $this->group_id,
 				'olduid' => $olduid,
 				'newuid' => $newuid
 			];
@@ -3455,26 +3515,6 @@
 			}
 		}
 
-		/**
-		 * Dump OverlayFS cache
-		 *
-		 * @return bool
-		 */
-		public function purge()
-		{
-			if (!IS_CLI) {
-				return $this->query('file_purge');
-			}
-			if (version_compare(platform_version(), '6', '<')) {
-				return false;
-			}
-			if ($this->permission_level & !(PRIVILEGE_SITE | PRIVILEGE_USER)) {
-				return true;
-			}
-			$proc = Util_Process::exec(\Opcenter\Service\ServiceLayer::MOUNT_CMD . ' reload_site %s', $this->site);
-			return $proc['success'];
-		}
-
 		public function _resetModule()
 		{
 			parent::_resetModule();
@@ -3482,6 +3522,27 @@
 			$this->__wakeup();
 			//$this->stat_cache = $this->acl_cache = null;
 
+		}
+
+		/**
+		 * mixed glob_escape(mixed)
+		 * Escape glob-special characters:
+		 * {, }, [, ], *, ?
+		 */
+		private function _glob_escape($str)
+		{
+			$search = array('*', '[', ']', '{', '}', '?');
+			$replace = array('\*', '\[', '\]', '{', '\}', '\?',);
+			if (!is_array($str)) {
+				return str_replace($search, $replace, $str);
+			}
+
+			$safe = array();
+			foreach ($str as $raw) {
+				$safe[] = str_replace($search, $replace, $raw);
+			}
+
+			return $safe;
 		}
 
 		/**

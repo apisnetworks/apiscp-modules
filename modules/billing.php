@@ -65,36 +65,6 @@
 		}
 
 		/**
-		 * Currently active subscription number attached to invoice
-		 *
-		 * @return mixed|NULL
-		 */
-		public function get_hosting_subscription()
-		{
-			return $this->getConfig('billing', 'invoice');
-		}
-
-		/**
-		 * Invariant invoice tied to an account
-		 *
-		 * @return null|string
-		 */
-		public function get_invoice(): ?string
-		{
-			if ($this->permission_level & (PRIVILEGE_ADMIN|PRIVILEGE_RESELLER)) {
-				return null;
-			}
-			$invoice = $this->getConfig('billing', 'invoice');
-			if ($invoice) {
-				return $invoice;
-			}
-			if ($this->getConfig('billing', 'parent_invoice')) {
-				return $this->getConfig('billing', 'parent_invoice');
-			}
-			return null;
-		}
-
-		/**
 		 * Next payment date and amount for the account
 		 *
 		 * Array fields-
@@ -135,21 +105,9 @@
 		public function list_payments()
 		{
 			$recs = [];
+
 			return $recs;
 
-		}
-
-		private function get_all_invoices()
-		{
-			$invoice = array($this->get_invoice());
-			if (!$invoice) {
-				return false;
-			}
-			$addons = (array)$this->getConfig('billing', 'addons');
-			if (!$addons) {
-				return $invoice;
-			}
-			return array_merge($invoice, $addons);
 		}
 
 		/**
@@ -189,6 +147,16 @@
 		public function is_billed()
 		{
 			return (bool)$this->get_hosting_subscription();
+		}
+
+		/**
+		 * Currently active subscription number attached to invoice
+		 *
+		 * @return mixed|NULL
+		 */
+		public function get_hosting_subscription()
+		{
+			return $this->getConfig('billing', 'invoice');
 		}
 
 		public function is_referred($invoice)
@@ -333,6 +301,7 @@
 		public function referral_upgrade_needed()
 		{
 			$next = array('method' => 'client', 'next' => 2);
+
 			return $next;
 		}
 
@@ -540,6 +509,7 @@
 				recurring_batch.cid IS NOT NULL");
 
 			$arr = $rs->fetch_assoc();
+
 			return $arr ? $arr : array();
 		}
 
@@ -591,6 +561,7 @@
 		public function get_package_type()
 		{
 			$invoice = $this->get_invoice();
+
 			return $this->get_package_by_invoice($invoice);
 		}
 
@@ -676,6 +647,41 @@
 		public function _edit_user(string $userold, string $usernew, array $oldpwd)
 		{
 			// TODO: Implement _edit_user() method.
+		}
+
+		private function get_all_invoices()
+		{
+			$invoice = array($this->get_invoice());
+			if (!$invoice) {
+				return false;
+			}
+			$addons = (array)$this->getConfig('billing', 'addons');
+			if (!$addons) {
+				return $invoice;
+			}
+
+			return array_merge($invoice, $addons);
+		}
+
+		/**
+		 * Invariant invoice tied to an account
+		 *
+		 * @return null|string
+		 */
+		public function get_invoice(): ?string
+		{
+			if ($this->permission_level & (PRIVILEGE_ADMIN | PRIVILEGE_RESELLER)) {
+				return null;
+			}
+			$invoice = $this->getConfig('billing', 'invoice');
+			if ($invoice) {
+				return $invoice;
+			}
+			if ($this->getConfig('billing', 'parent_invoice')) {
+				return $this->getConfig('billing', 'parent_invoice');
+			}
+
+			return null;
 		}
 
 

@@ -19,8 +19,11 @@
 	 */
 	class Ruby_Module extends Module_Skeleton
 	{
-		const LTS = '2.4.4';
-		public $exportedFunctions = array('*' => PRIVILEGE_SITE|PRIVILEGE_USER);
+		const LTS = '2.5.3';
+		public $exportedFunctions = [
+			'*'             => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'update_remote' => PRIVILEGE_ADMIN
+		];
 
 		public function __construct()
 		{
@@ -55,12 +58,59 @@
 				];
 			}
 
-			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg('cd %(_RUBY_PWD)s' .' && rbenv exec ' . $command), ...$args);
+			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg('cd %(_RUBY_PWD)s' . ' && rbenv exec ' . $command),
+				...$args);
 			if (!$ret['success']) {
 				// no job control warning
 				error(coalesce($ret['stdout'], $ret['stderr']));
 			}
+
 			return $ret;
+		}
+
+		/**
+		 * Get configured Ruby LTS
+		 *
+		 * @return string
+		 */
+		protected function get_lts(): string
+		{
+			$prefs = \Preferences::factory($this->getAuthContext());
+
+			return array_get($prefs, 'ruby.lts', static::LTS);
+		}
+
+		/**
+		 * Update known Ruby versions
+		 *
+		 * @return bool
+		 */
+		public function update_remote(): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('ruby_update_remote');
+			}
+			// @TODO move to private repo lest we have an "event-stream" debacle
+			$builddir = $this->getRbenvRoot() . '/plugins/ruby-build';
+			$ret = \Util_Process_Safe::exec('cd %(builddir)s && git pull', ['builddir' => $builddir]);
+			if (!$ret['success']) {
+				return error(coalesce($ret['stderr'], $ret['stderr']));
+			}
+			(new \Opcenter\Service\ServiceLayer(null))->dropVirtualCache();
+
+			return true;
+		}
+
+		/**
+		 * Get rbenv root
+		 *
+		 * @return null|string
+		 */
+		protected function getRbenvRoot(): ?string
+		{
+			$ret = \Util_Process_Safe::exec('/bin/bash -ic "rbenv root"');
+
+			return $ret['success'] ? trim($ret['stdout']) : null;
 		}
 
 		/**
@@ -86,6 +136,26 @@
 		}
 
 		/**
+		 * nvm wrapper
+		 *
+		 * @param null|string $name
+		 * @param null|string $command
+		 * @param array       $args optional args
+		 * @return array
+		 */
+		private function exec(?string $name, string $command = null, ...$args): array
+		{
+			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("rbenv ${name} ${command}"),
+				$args,
+				[
+					'BASH_ENV' => '/dev/null'
+				]
+			);
+
+			return $ret;
+		}
+
+		/**
 		 * Assign Ruby version to directory
 		 *
 		 * @param string $version
@@ -102,6 +172,22 @@
 			return $this->file_put_file_contents($path, $version, true);
 		}
 
+		/**
+		 * Ruby version inferred from path
+		 *
+		 * @param string $path
+		 * @return string
+		 */
+		public function version_from_path(string $path): string
+		{
+			$rbfile = $path . '/.ruby-version';
+			if ($this->file_exists($rbfile)) {
+				return trim($this->file_get_file_contents($rbfile));
+			}
+			$output = $this->pman_run('cd %(path)s && /bin/bash -ic "rbenv version"', ['path' => $path]);
+
+			return $output['success'] ? strtok($output['stdout'], ' ') : 'system';
+		}
 
 		/**
 		 * Install Ruby
@@ -126,27 +212,6 @@
 		}
 
 		/**
-		 * Get configured Ruby LTS
-		 *
-		 * @return string
-		 */
-		protected function get_lts(): string {
-			$prefs = \Preferences::factory($this->getAuthContext());
-			return array_get($prefs, 'ruby.lts', static::LTS);
-		}
-
-		/**
-		 * Set LTS for account
-		 *
-		 * @param string $version
-		 */
-		protected function set_lts(string $version): void {
-			$prefs = \Preferences::factory($this->getAuthContext());
-			$prefs->unlock($this->getApnscpFunctionInterceptor());
-			array_set($prefs, 'ruby.lts', $version);
-		}
-
-		/**
 		 * Ruby version is installed
 		 *
 		 * @param string $version
@@ -160,6 +225,43 @@
 			$nodes = $this->list();
 
 			return isset($nodes[$version]) || in_array($version, $nodes, true);
+		}
+
+		/**
+		 * Latest LTS is installed
+		 *
+		 * @return bool
+		 */
+		public function lts_installed(): bool
+		{
+			$versions = $this->list();
+
+			return \in_array($this->get_lts(), $versions, true);
+		}
+
+		/**
+		 * List installed Rubys
+		 *
+		 * @return array
+		 */
+		public function list(): array
+		{
+			// 3 = no nodes installed
+			$ret = $this->exec('versions');
+			$rubies = [];
+			if (preg_match_all('/^(?>(?<default>\S+)|\s+)\s*(?<version>\S+)(?>$|\s*)(?<misc>[^\r\n]*)$/m',
+				$ret['output'], $versions, PREG_SET_ORDER)) {
+				foreach ($versions as $v) {
+					$rubies[] = $v['version'];
+					if (isset($v['default'])) {
+						$rubies['active'] = $v['version'];
+					}
+				}
+
+				return $rubies;
+			}
+
+			return [];
 		}
 
 		/**
@@ -189,60 +291,6 @@
 			$cache->set($key, $rubies);
 
 			return $rubies;
-		}
-
-		/**
-		 * List installed Rubys
-		 *
-		 * @return array
-		 */
-		public function list(): array
-		{
-			// 3 = no nodes installed
-			$ret = $this->exec('versions');
-			$rubies = [];
-			if (preg_match_all('/^(?>(?<default>\S+)|\s+)\s*(?<version>\S+)(?>$|\s*)(?<misc>[^\r\n]*)$/m', $ret['output'], $versions, PREG_SET_ORDER)) {
-				foreach ($versions as $v) {
-					$rubies[] = $v['version'];
-					if (isset($v['default'])) {
-						$rubies['active'] = $v['version'];
-					}
-				}
-				return $rubies;
-			}
-
-			return [];
-		}
-
-		/**
-		 * Latest LTS is installed
-		 *
-		 * @return bool
-		 */
-		public function lts_installed(): bool
-		{
-			$versions = $this->list();
-			return \in_array($this->get_lts(), $versions, true);
-		}
-
-		/**
-		 * nvm wrapper
-		 *
-		 * @param null|string $name
-		 * @param null|string $command
-		 * @param array       $args optional args
-		 * @return array
-		 */
-		private function exec(?string $name, string $command = null, ...$args): array
-		{
-			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg("rbenv ${name} ${command}"),
-				$args,
-				[
-					'BASH_ENV' => '/dev/null'
-				]
-			);
-
-			return $ret;
 		}
 
 		public function _edit()
@@ -289,6 +337,7 @@
 			if (!$ret['success']) {
 				return error("error initializing gemset: `%s'", $ret['stderr']);
 			}
+
 			return $ret['success'];
 		}
 
@@ -302,5 +351,17 @@
 				$this->initialize_gemset();
 			}
 
+		}
+
+		/**
+		 * Set LTS for account
+		 *
+		 * @param string $version
+		 */
+		protected function set_lts(string $version): void
+		{
+			$prefs = \Preferences::factory($this->getAuthContext());
+			$prefs->unlock($this->getApnscpFunctionInterceptor());
+			array_set($prefs, 'ruby.lts', $version);
 		}
 	}

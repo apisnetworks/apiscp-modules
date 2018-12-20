@@ -15,7 +15,7 @@
 	/**
 	 * MySQL and PostgreSQL operations
 	 *
-	 * @xxx MODULE IS DEPRECATED. SEE MYSQL/PGSQL MODULES
+	 * @xxx     MODULE IS DEPRECATED. SEE MYSQL/PGSQL MODULES
 	 *
 	 * @package core
 	 */
@@ -55,41 +55,36 @@
 		{
 			parent::__construct();
 			$this->exportedFunctions = array(
-				'*'                             => PRIVILEGE_SITE,
-				'get_prefix'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'pgsql_version'                 => PRIVILEGE_ALL,
-				'mysql_version'                 => PRIVILEGE_ALL,
-				'version'                       => PRIVILEGE_ALL,
-				'get_mysql_uptime'              => PRIVILEGE_ALL,
-				'assert_mysql_permissions'      => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'*'                        => PRIVILEGE_SITE,
+				'get_prefix'               => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'pgsql_version'            => PRIVILEGE_ALL,
+				'mysql_version'            => PRIVILEGE_ALL,
+				'version'                  => PRIVILEGE_ALL,
+				'get_mysql_uptime'         => PRIVILEGE_ALL,
+				'assert_mysql_permissions' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 
-				'get_pgsql_uptime'        => PRIVILEGE_ALL,
-				'set_mysql_option'        => PRIVILEGE_ALL,
-				'get_mysql_option'        => PRIVILEGE_ALL,
-				'get_pgsql_username'      => PRIVILEGE_ALL,
-				'get_pgsql_password'      => PRIVILEGE_ALL,
-				'set_pgsql_password'      => PRIVILEGE_ALL,
-				'export_mysql_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'export_pgsql_pipe_real'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'enabled'                 => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'repair_mysql_database'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'get_pgsql_uptime'       => PRIVILEGE_ALL,
+				'set_mysql_option'       => PRIVILEGE_ALL,
+				'get_mysql_option'       => PRIVILEGE_ALL,
+				'get_pgsql_username'     => PRIVILEGE_ALL,
+				'get_pgsql_password'     => PRIVILEGE_ALL,
+				'set_pgsql_password'     => PRIVILEGE_ALL,
+				'export_mysql_pipe_real' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'export_pgsql_pipe_real' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'enabled'                => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'repair_mysql_database'  => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
 
 				// necessary for DB backup routines
-				'get_database_size'       => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'mysql_database_exists'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'pgsql_database_exists'   => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
-				'_export_mysql_old'       => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+				'get_database_size'      => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'mysql_database_exists'  => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'pgsql_database_exists'  => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
+				'_export_mysql_old'      => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 			);
 		}
 
 		public function mysql_user_exists($user, $host = 'localhost')
 		{
 			return parent::__call('mysql_user_exists', [$user, $host]);
-		}
-
-		public function get_prefix()
-		{
-			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 		/**
@@ -111,8 +106,6 @@
 			return parent::__call('pgsql_user_exists', [$user]);
 		}
 
-		// {{{ connect_mysql_root()
-
 		/**
 		 * bool delete_pgsql_user(string[, bool = false])
 		 * Delete a PostgreSQL user
@@ -126,6 +119,8 @@
 			return $this->pgsql_delete_user($user, $cascade);
 
 		}
+
+		// {{{ connect_mysql_root()
 
 		/**
 		 * bool store_sql_password (string, string)
@@ -143,6 +138,7 @@
 				$type = "pgsql";
 			}
 			$fn = "${type}_store_password";
+
 			return $this->$fn($sqlpasswd);
 		}
 
@@ -248,13 +244,20 @@
 			if (!$status) {
 				return error("failed to change database prefix");
 			}
+
 			return $status;
 		}
 
 		public function get_sql_prefix()
 		{
 			deprecated("use sql_get_prefix");
+
 			return $this->get_prefix();
+		}
+
+		public function get_prefix()
+		{
+			return $this->getServiceValue('mysql', 'dbaseprefix');
 		}
 
 		/**
@@ -369,6 +372,7 @@
 		public function add_mysql_user_permissions($user, $host, $db, array $opts)
 		{
 			deprecated_func("use set_mysql_privileges()");
+
 			return $this->set_mysql_privileges($user, $host, $db, $opts);
 		}
 
@@ -394,6 +398,7 @@
 		public function delete_mysql_user_permissions($user, $host, $db)
 		{
 			deprecated_func("use revoke_from_mysql_db()");
+
 			return $this->revoke_from_mysql_db($user, $host, $db);
 		}
 
@@ -407,7 +412,7 @@
 		 */
 		public function revoke_from_mysql_db($user, $host, $db)
 		{
-			return $this->mysql_revoke_privileges($user, $host,$db);
+			return $this->mysql_revoke_privileges($user, $host, $db);
 		}
 
 		// {{{ enabled()
@@ -415,6 +420,7 @@
 		public function get_mysql_user_permissions($user, $host, $db)
 		{
 			deprecated_func("use get_mysql_privileges()");
+
 			return $this->get_mysql_privileges($user, $host, $db);
 		}
 
@@ -517,6 +523,7 @@
 		public function service_enabled($service)
 		{
 			deprecated("use enabled()");
+
 			return $this->enabled($service);
 		}
 
@@ -538,6 +545,7 @@
 				$svc_name = 'pgsql';
 			}
 			$fn = "${svc_name}_enabled";
+
 			return $this->$fn();
 		}
 
@@ -761,6 +769,7 @@
 				$type = "pgsql";
 			}
 			$fn = "${type}_get_database_size";
+
 			return $this->$fn($db);
 		}
 		// }}}
