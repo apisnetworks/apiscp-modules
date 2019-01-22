@@ -431,8 +431,8 @@
 				}
 				$tee = new Util_Process_Tee();
 				$tee->setTeeFile($options['tee']);
-				\Opcenter\Filesystem::chogp($options['tee'], WS_UID);
 				$tee->setProcess($proc);
+				\Opcenter\Filesystem::chogp($options['tee'], WS_UID, WS_UID, 0600);
 			}
 			// capture & extract the safe command, then sudo
 			$proc->setOption('umask', 0022)->

@@ -695,7 +695,7 @@
 
 		}
 
-		public function restart(string $hostname, string $path): bool
+		public function restart(string $hostname, string $path = ''): bool
 		{
 			if (!$approot = $this->getAppRoot($hostname, $path)) {
 				return false;

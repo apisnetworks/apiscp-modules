@@ -967,6 +967,7 @@
 			if (!$newsubdomain) {
 				$newsubdomain = $subdomain;
 			}
+
 			if ($subdomain !== $newsubdomain) {
 				if (!$this->remove_subdomain($subdomain) || !$this->add_subdomain($newsubdomain, $newpath)) {
 					error("changing subdomain `%s' to `%s' failed", $subdomain, $newsubdomain);
@@ -991,6 +992,10 @@
 				return false;
 			}
 
+			if ($subdomain !== $newsubdomain) {
+				\Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext())
+					->merge($newpath, ['host' => $newsubdomain])->sync();
+			}
 			return true;
 		}
 
@@ -1084,8 +1089,7 @@
 			if ($mode == 'del') {
 				$docroot = $this->get_docroot($subdomain);
 				if ($docroot) {
-					$prefs = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
-					$prefs->forget($docroot);
+					\Module\Support\Webapps\MetaManager::factory($this->getAuthContext())->forget($docroot)->sync();
 				}
 
 				return $this->file_delete('/home/*/all_subdomains/' . $subdomain);

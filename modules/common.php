@@ -474,76 +474,13 @@
 		}
 
 		/**
-		 * array get_news_by_id (int)
+		 * Get username
 		 *
-		 * @param integer $mID news id to fetch
-		 * @return array
-		 * @deprecated
+		 * @return string
 		 */
-		public function get_news_by_id($mID)
+		public function whoami(): string
 		{
-			return deprecated_func("obsolete component");
-
-		}
-		/* }}} */
-
-		/**
-		 * array get_news(int, int, int)
-		 *
-		 * @param integer $mYear  the year of the news to fetch
-		 * @param integer $mMonth month range: [1-12]
-		 * @param integer $mDay   day   range: [1-31]
-		 * @return array all news items that exit for the given date.  Indexes are
-		 *                        -type: type of the news
-		 *                        -date (integer): timestamp of the news in unix time (10 digit unix timestamp)
-		 *                        -id (integer): news id
-		 *                        -title: title of the news article
-		 *                        -body: news article body
-		 * @deprecated
-		 */
-		public function get_news($mYear, $mMonth, $mDay)
-		{
-			return deprecated_func("obsolete component");
-		}
-
-		/**
-		 * array get_news_for_month(int, int)
-		 *
-		 * @param integer $mYear
-		 * @param integer $mMonth
-		 * @deprecated
-		 */
-		public function get_news_for_month($mYear, $mMonth)
-		{
-			return deprecated_func("obsolete component");
-		}
-
-		/**
-		 * array get_news_types (void)
-		 *
-		 * @return array
-		 * @deprecated
-		 */
-		public function get_news_types()
-		{
-			return deprecated_func("obsolete component");
-		}
-
-		/**
-		 * array get_last_n_news (integer)
-		 *
-		 * @param integer $mNumber
-		 * @return array all news items that exit for the given date.  Indexes are
-		 *      -type: type of the news
-		 *      -date (integer): timestamp of the news in unix time (10 digit unix timestamp)
-		 *      -id (integer): news id
-		 *      -title: title of the news article
-		 *      -body: news article body
-		 * @deprecated
-		 */
-		public function get_last_n_news($mNumber)
-		{
-			return deprecated_func("obsolete component");
+			return $this->username;
 		}
 
 		/**
@@ -896,9 +833,6 @@
 		public function load_preferences()
 		{
 			if (!IS_CLI) {
-				if ($this->getAuthContext()) {
-					return $this->query('common_load_preferences');
-				}
 				$cache = Cache_User::spawn($this->getAuthContext());
 				$key = $this->_getPreferencesKey();
 				$pref = $cache->get($key);

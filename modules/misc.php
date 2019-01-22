@@ -248,11 +248,6 @@
 			}
 		}
 
-		public function test()
-		{
-			return $this->run("sleep 100");
-		}
-
 		public function _housekeeping()
 		{
 			// flush cp pagespeed cache
@@ -291,6 +286,8 @@
 				dlog("Failed to cache Laravel configuration - %s", $ret['stderr']);
 			}
 
+			dlog("Updating browscap");
+			\Util_Browscap::update();
 			return true;
 		}
 

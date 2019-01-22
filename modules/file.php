@@ -92,6 +92,7 @@
 				'shadow_buildup_backend'          => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
 				'stat_backend'                    => PRIVILEGE_ALL | PRIVILEGE_SERVER_EXEC,
 				'takeover_user'                   => PRIVILEGE_SITE,
+				'scan'                            => ANTIVIRUS_INSTALLED ? PRIVILEGE_SITE : PRIVILEGE_NONE
 			);
 
 			$this->__wakeup();
@@ -2122,7 +2123,7 @@
 				return $path;
 			}
 			if (!is_dir($path)) {
-				return error("`%s'`: invalid directory", $mPath);
+				return error("`%s': invalid directory", $mPath);
 			}
 			// trust transformed path, e.g. get_directory_contents("~/")
 			$mPath = rtrim($shadow ? $this->unmake_shadow_path($path) : $this->unmake_path($path), '/');
@@ -3505,6 +3506,48 @@
 			}
 
 			return $files;
+		}
+
+		/**
+		 * Scan a given path for malicious files
+		 *
+		 * @param string $path
+		 * @return string|null scan results or null on error
+		 */
+		public function scan(string $path): ?string
+		{
+			if (!ANTIVIRUS_INSTALLED) {
+				error("No AV installed");
+				return null;
+			}
+			$fstpath = $this->make_shadow_path($path);
+			$prefix = $this->domain_shadow_path();
+			$ret = \Util_Process_Safe::exec(
+				'clamdscan -mi %(path)s/*',
+				['path' => $fstpath],
+				[0],
+				['reporterror' => false]
+			);
+			if (!$ret['success']) {
+				// filter out needless warnings
+				$ret['stderr'] = preg_replace('/^WARNING: .*$[\r\n]?/m', '', $ret['stderr']);
+				if ($ret['stderr']) {
+					error("Failed to scan %s: %s",
+						$path,
+						$ret['stderr']
+					);
+					return null;
+				}
+				warn("Potential malware discovered");
+			}
+			$output = [];
+			$tok = strtok($ret['output'], "\n");
+			$prefixlen = strlen($prefix);
+			while (false !== $tok) {
+				$output[] = 0 === strpos($tok, $prefix) ? substr($tok, $prefixlen) : $tok;
+				$tok = strtok("\n");
+			}
+			return implode("\n", $output);
 		}
 
 		public function _delete()

@@ -444,11 +444,7 @@
 				return true;
 			}
 
-			$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
-			$meta->rename($oldpath, $newpath);
-
 			return true;
-
 		}
 
 		private function _change_domain($domain, $newdomain)
@@ -459,6 +455,8 @@
 			}
 			$map = $this->transformMap();
 			$path = $map[$domain];
+			\Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext())
+				->merge($path, ['host' => $newdomain])->sync();
 			$ret = $this->remove_domain($domain)
 				&& $this->_synchronize_changes() &&
 				$this->add_domain($newdomain, $path);
@@ -481,8 +479,8 @@
 				$docroot = $this->web_get_docroot($domain);
 				$status = $this->query('aliases_remove_domain', $domain);
 				if ($status && $docroot) {
-					$meta = \Module\Support\Webapps\MetaManager::instantiateContexted($this->getAuthContext());
-					$meta->forget($docroot);
+					\Module\Support\Webapps\MetaManager::factory($this->getAuthContext())
+						->forget($docroot)->sync();
 				}
 
 				return $status;
@@ -792,7 +790,9 @@
 		public function synchronize_changes()
 		{
 			if (!IS_CLI) {
-				return $this->query('aliases_synchronize_changes');
+				$ret = $this->query('aliases_synchronize_changes');
+				$this->getAuthContext()->reset();
+				return $ret;
 			}
 
 			$cache = Cache_Account::spawn($this->getAuthContext());
@@ -890,11 +890,11 @@
 			$domains = $this->list_shared_domains();
 			$home = $oldpwd['home'];
 			$newhome = preg_replace('!' . DIRECTORY_SEPARATOR . $user . '!', DIRECTORY_SEPARATOR . $usernew, $home, 1);
-			foreach ($domains as $domain => $info) {
-				if (strncmp($home, $newhome, strlen($home))) {
+			foreach ($domains as $domain => $path) {
+				if (0 !== strpos($path, $home)) {
 					continue;
 				}
-				$newpath = preg_replace('!^' . $home . '!', $newhome, $info['path']);
+				$newpath = preg_replace('!^' . $home . '!', $newhome, $path);
 				if (!$this->_change_path($domain, $newpath)) {
 					warn("failed to update domain `%s'", $domain);
 				}

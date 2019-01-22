@@ -65,12 +65,11 @@
 			parent::__construct();
 			$this->exportedFunctions = array(
 				'address_exists'          => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'add_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'add_vacation_backend'    => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'create_maildir_backend'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				'get_spool_size_backend'  => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 				/** Vacation methods */
 				'add_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'add_vacation_backend'    => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'set_vacation'            => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'set_vacation_options'    => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'get_vacation_options'    => PRIVILEGE_SITE | PRIVILEGE_USER,
@@ -83,6 +82,7 @@
 				'webmail_apps'            => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'create_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'remove_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'user_enabled'            => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'get_records'             => PRIVILEGE_SITE,
 				'*'                       => PRIVILEGE_SITE,
 				'get_provider'            => PRIVILEGE_ALL
@@ -418,19 +418,29 @@
 				// site deleted, ignore save
 				return true;
 			}
-			$q = 'SELECT * FROM email_lookup WHERE domain IN
-                (select domain FROM domain_lookup WHERE site_id = ' . $this->site_id . ')';
-			$db = \PostgreSQL::initialize();
-			$email = array();
-			$db->query($q);
-			while ($row = $db->fetch_assoc()) {
-				$email[] = array_map('trim', $row);
-			}
 			$path .= '/email_addr';
+			$email = $this->dump_mailboxes();
 
 			return (bool)file_put_contents($path, serialize($email), LOCK_EX);
 		}
 
+		/**
+		 * List all mailboxes for backup/restore purposes
+		 *
+		 * @return array
+		 * @throws PostgreSQLError
+		 */
+		public function dump_mailboxes(): array {
+			$q = 'SELECT * FROM email_lookup WHERE domain IN
+                (select domain FROM domain_lookup WHERE site_id = ' . $this->site_id . ')';
+			$db = \PostgreSQL::pdo();
+			$email = array();
+			$rs = $db->query($q);
+			while ($row = $rs->fetch(PDO::FETCH_ASSOC)) {
+				$email[] = array_map('trim', $row);
+			}
+			return $email;
+		}
 		/**
 		 * Remove an e-mail alias
 		 *
@@ -779,7 +789,7 @@
 			}
 			$pref = \Preferences::factory($this->getAuthContext());
 			$pref->unlock(\apnscpFunctionInterceptor::factory($this->getAuthContext()));
-			$pref->offsetSet(self::VACATION_PREFKEY, $options);
+			array_set($pref, self::VACATION_PREFKEY, $options);
 			if (!$this->inContext()) {
 				\Preferences::reload();
 			}
@@ -1320,6 +1330,7 @@
 				return false;
 			}
 			$this->add_mailbox('postmaster', $this->domain, $this->user_id);
+			$this->add_mailbox($this->username, $this->domain, $this->user_id);
 
 			return true;
 		}
@@ -1595,8 +1606,18 @@
 			return array('smtp_relay', 'imap');
 		}
 
-		public function user_enabled($user, $svc = null)
+		/**
+		 * Mail service is enabled for user
+		 *
+		 * @param null $user
+		 * @param null $svc
+		 * @return bool|void
+		 */
+		public function user_enabled($user = null, $svc = null)
 		{
+			if (!$user || ($this->permission_level & PRIVILEGE_USER)) {
+				$user = $this->username;
+			}
 			if ($svc && $svc != 'imap' && $svc != 'smtp' && $svc != 'smtp_relay' && $svc !== 'pop3') {
 				return error("unknown service `%s'", $svc);
 			}

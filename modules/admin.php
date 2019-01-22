@@ -551,4 +551,18 @@
 
 			return array_get($conf, "${class}", null);
 		}
+
+		/**
+		 * Activate apnscp license
+		 *
+		 * @param string $key
+		 * @return bool
+		 */
+		public function activate_license(string $key): bool
+		{
+			if (!IS_CLI) {
+				return $this->query('admin_activate_license', $key);
+			}
+			return (\Opcenter\License::get()->issue($key) && \Opcenter\Apnscp::restart()) || error('Failed to activate license');
+		}
 	}

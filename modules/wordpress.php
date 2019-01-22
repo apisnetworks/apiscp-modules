@@ -454,7 +454,6 @@
 					'99999999.999'), (string)$version, '<=') ?:
 					(bool)\Opcenter\Versioning::current($versions, $version);
 			}
-
 			return $plugin ? $pluginmeta[$plugin] ?? error("unknown plugin `%s'", $plugin) : $pluginmeta;
 		}
 
@@ -520,6 +519,7 @@
 				$cmd .= ' --version=%(version)s';
 				$args['version'] = $version;
 			}
+
 			$ret = $this->_exec($docroot, $cmd, $args);
 			if (!$ret['success']) {
 				return error("failed to install plugin `%s': %s", $plugin, coalesce($ret['stderr'], $ret['stdout']));
@@ -568,7 +568,7 @@
 		 * @param string $hostname
 		 * @param string $path
 		 * @param string $theme
-		 * @param bool   $force deactive if necessary
+		 * @param bool   $force unused
 		 * @return bool
 		 */
 		public function uninstall_theme(string $hostname, string $path = '', string $theme, bool $force = false): bool
@@ -581,10 +581,10 @@
 			$args = array(
 				'theme' => $theme
 			);
-			$cmd = 'theme uninstall %(plugin)s';
 			if ($force) {
-				$cmd .= ' --deactivate';
+				warn("Force parameter unused - deactivate theme first through WP panel if necessary");
 			}
+			$cmd = 'theme uninstall %(theme)s';
 			$ret = $this->_exec($docroot, $cmd, $args);
 
 			if (!$ret['stdout'] || !strncmp($ret['stdout'], 'Warning:', strlen('Warning:'))) {
@@ -754,6 +754,47 @@
 		}
 
 		/**
+		 * Get next asset version
+		 *
+		 * @param string $name
+		 * @param array  $assetInfo
+		 * @param string $lock
+		 * @param string $type theme or plugin
+		 * @return null|string
+		 */
+		private function getNextVersionFromAsset(string $name, array $assetInfo, string $lock, string $type): ?string {
+			if (!isset($assetInfo['version'])) {
+				error("Unable to query version for %s `%s', ignoring. Asset info: %s",
+					ucwords($type),
+					$name,
+					var_export($assetInfo, true)
+				);
+				return null;
+			}
+			$maximal = $tmp = $version = $assetInfo['version'];
+			$versions = $this->{$type . 'Versions'}($name);
+			do {
+				$tmp = $maximal;
+				$maximal = \Opcenter\Versioning::nextSemanticVersion(
+					$tmp,
+					$versions,
+					$lock
+				);
+			} while ($maximal && $tmp !== $maximal);
+			if ($maximal === $version) {
+				if (end($versions) !== $maximal) {
+					info("%s `%s' already at maximal version `%s' for lock spec `%s'. " .
+						'Newer versions available. Manually upgrade or disable version lock to ' .
+						'update this component.',
+						ucwords($type), $name, $maximal, $lock
+					);
+				}
+				return null;
+			}
+			return $maximal;
+		}
+
+		/**
 		 * Update WordPress themes
 		 *
 		 * @param string $hostname subdomain or domain
@@ -768,15 +809,10 @@
 				return error('update failed');
 			}
 			$flags = [];
-			if ($lock = $this->getVersionLock($docroot)) {
-				if ($lock === 'major') {
-					$flags[] = '--minor';
-				} else if ($lock === 'minor') {
-					$flags[] = '--patch';
-				}
-			}
+			$lock = $this->getVersionLock($docroot);
 			$skiplist = $this->getSkiplist($docroot, 'theme');
-			if (!$themes) {
+
+			if (!$themes && !$lock) {
 				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
 				$ret = $this->_exec($docroot, 'theme update --all ' . implode(' ', $flags));
 				if (!$ret['success']) {
@@ -787,20 +823,27 @@
 			}
 
 			$status = 1;
+			$allthemeinfo = $this->theme_status($hostname, $path);
+			$themes = $themes ?: array_keys($allthemeinfo);
 			foreach ($themes as $theme) {
+				$version = null;
 				$name = $theme['name'] ?? $theme;
-				if (isset($skiplist[$name])) {
+				$themeInfo = $allthemeinfo[$name];
+				if (isset($skiplist[$name]) || $themeInfo['current']) {
 					continue;
 				}
-				$version = null;
-
+				if (isset($theme['version'])) {
+					$version = $theme['version'];
+				} else if ($lock && !($version = $this->getNextVersionFromAsset($name, $themeInfo, $lock, 'theme'))) {
+					continue;
+				}
 				$cmd = 'theme update %(name)s';
 				$args = [
 					'name' => $name
 				];
-				if (isset($theme['version'])) {
+				if ($version) {
 					$cmd .= ' --version=%(version)s';
-					$args['version'] = $theme['version'];
+					$args['version'] = $version;
 				}
 				$cmd .= ' ' . implode(' ', $flags);
 				$ret = $this->_exec($docroot, $cmd, $args);
@@ -840,11 +883,9 @@
 					if (strpos($line, $type . ':') === 0) {
 						return substr($line, $pos + 1);
 					}
-				} else {
-					return $line;
+					return;
 				}
-
-				return;
+				return $line;
 			}, $skiplist)));
 		}
 
@@ -863,15 +904,10 @@
 				return error('update failed');
 			}
 			$flags = [];
-			if ($lock = $this->getVersionLock($docroot)) {
-				if ($lock === 'major') {
-					$flags[] = '--minor';
-				} else if ($lock === 'minor') {
-					$flags[] = '--patch';
-				}
-			}
+			$lock = $this->getVersionLock($docroot);
 			$skiplist = $this->getSkiplist($docroot, 'plugin');
-			if (!$plugins) {
+
+			if (!$plugins && !$lock) {
 				$flags[] = implode(',', array_map('escapeshellarg', $skiplist));
 				$ret = $this->_exec($docroot, 'plugin update --all ' . implode(' ', $flags));
 				if (!$ret['success']) {
@@ -880,20 +916,30 @@
 
 				return $ret['success'];
 			}
+
 			$status = 1;
+			$allplugininfo = $this->plugin_status($hostname, $path);
+			$plugins = $plugins ?: array_keys($allplugininfo);
 			foreach ($plugins as $plugin) {
+				$version = null;
 				$name = $plugin['name'] ?? $plugin;
-				if (isset($skiplist[$name])) {
+				$pluginInfo = $allplugininfo[$name];
+				if (isset($skiplist[$name]) || $pluginInfo['current']) {
 					continue;
 				}
-				$version = null;
+				if (isset($plugin['version'])) {
+					$version = $plugin['version'];
+				} else if ($lock && !($version = $this->getNextVersionFromAsset($name, $pluginInfo, $lock, 'plugin'))) {
+					continue;
+				}
+
 				$cmd = 'plugin update %(name)s';
 				$args = [
 					'name' => $name
 				];
-				if (isset($plugin['version'])) {
+				if ($version) {
 					$cmd .= ' --version=%(version)s';
-					$args['version'] = $plugin['version'];
+					$args['version'] = $version;
 				}
 				$cmd .= ' ' . implode(' ', $flags);
 				$ret = $this->_exec($docroot, $cmd, $args);
@@ -1024,9 +1070,9 @@
 					'max'     => $this->themeInfo($name)['version'] ?? end($versions)
 				];
 				// dev version may be present
-				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max", '99999999.999'),
-					(string)$version, '<=') ?:
-					(bool)\Opcenter\Versioning::current($versions, $version) >= 0;
+				$themes[$name]['current'] = version_compare((string)array_get($themes, "${name}.max",
+					'99999999.999'), (string)$version, '<=') ?:
+					(bool)\Opcenter\Versioning::current($versions, $version);
 			}
 
 			return $theme ? $themes[$theme] ?? error("unknown theme `%s'", $theme) : $themes;
