@@ -12,6 +12,8 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Sql;
+
 	/**
 	 * MySQL and PostgreSQL operations
 	 *
@@ -19,7 +21,7 @@
 	 *
 	 * @package core
 	 */
-	class Sql_Module extends Module_Support_Sql
+	class Sql_Module extends Sql
 	{
 		const MYSQL_USER_FIELD_SIZE = 16;
 

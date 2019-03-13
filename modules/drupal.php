@@ -387,10 +387,6 @@
 		 */
 		protected function _getVersion($docroot): ?string
 		{
-			static $metaCache;
-			if (null === $metaCache) {
-				$metaCache = array();
-			}
 			$ret = $this->_exec($docroot, 'status --format=json');
 			if (!$ret['success']) {
 				return null;

@@ -12,18 +12,25 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Sql;
+
 	/**
 	 * PostgreSQL operations
 	 *
 	 * @package core
 	 */
-	class Pgsql_Module extends Module_Support_Sql
+	class Pgsql_Module extends Sql
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo'
 		];
 		const PG_TEMP_PASSWORD = '23f!eoj3';
 		const PGSQL_DATADIR = '/var/lib/pgsql';
+
+		// maximum number of simultaneous connections to a given DB
+		// higher increases the risk of monopolization
+		// used by PostgreSQL
+		const PER_DATABASE_CONNECTION_LIMIT = 20;
 
 		/* @ignore */
 		const MASTER_USER = 'root';
@@ -50,6 +57,8 @@
 				'set_password'                  => PRIVILEGE_ALL,
 				'enabled'                       => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'get_prefix'                    => PRIVILEGE_SITE | PRIVILEGE_USER,
+
+				'export_pipe_real'              => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
 
 				// necessary for DB backup routines
 				'get_database_size'             => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
@@ -305,9 +314,17 @@
 			$prefix = $this->get_prefix();
 
 			// db name passed without prefix
-			if (strncmp($db, $prefix, strlen($prefix))) {
+			if (0 !== strpos($db, $prefix)) {
 				$db = $prefix . $db;
 			}
+
+			if (null !== ($limit = $this->getConfig('pgsql', 'dbasenum', null)) && $limit >= 0) {
+				$count = \count($this->list_databases());
+				if ($count >= $limit) {
+					return error("Database limit `%d' reached - cannot create additional databases", $limit);
+				}
+			}
+
 			if (!$this->prep_tablespace()) {
 				return false;
 			}
@@ -645,6 +662,7 @@
 
 			if (!$password && is_int($maxconn)) {
 				$query = 'UPDATE pg_authid SET rolconnlimit = :connlimit WHERE rolname = :name';
+				unset($params[':password']);
 			} else if ($password && is_int($maxconn)) {
 				$query = 'UPDATE pg_authid SET rolpassword = :password, rolconnlimit = :connlimit WHERE rolname = :name';
 			} else if ($password && !is_int($maxconn)) {

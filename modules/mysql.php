@@ -12,12 +12,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Sql;
+
 	/**
 	 * MySQL and PostgreSQL operations
 	 *
 	 * @package core
 	 */
-	class Mysql_Module extends Module_Support_Sql
+	class Mysql_Module extends Sql
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo'
@@ -25,7 +27,8 @@
 		const MYSQL_USER_FIELD_SIZE = 16;
 
 		const MYSQL_DATADIR = '/var/lib/mysql';
-
+		// @var int minimum MySQL version to use new API
+		const NEW_API_VERSION = 50720;
 		/**
 		 * {{{ void __construct(void)
 		 *
@@ -104,7 +107,7 @@
 			}
 
 
-			$idx = array_search($user, $this->_tempUsers);
+			$idx = array_search($user, $this->_tempUsers, true);
 			if ($idx !== false) {
 				unset($this->_tempUsers[$idx]);
 			}
@@ -118,22 +121,23 @@
 		 *
 		 * @param string $user    username
 		 * @param string $host    hostname
-		 * @param string $cascade revoke all privileges from databases
 		 */
-		public function delete_user($user, $host, $cascade = true)
+		public function delete_user($user, $host)
 		{
-			if ($user == $this->username && !Util_Account_Hooks::is_mode('delete')) {
+			if (!IS_CLI) {
+				return $this->query('mysql_delete_user', $user, $host);
+			}
+			if ($user === $this->username && !Util_Account_Hooks::is_mode('delete')) {
 				return error("Cannot remove main user");
-			} else {
-				if (!$this->user_exists($user, $host)) {
-					return error("user `%s' on `%s' does not exist", $user, $host);
-				}
+			} else if (!$this->user_exists($user, $host)) {
+				return error("user `%s' on `%s' does not exist", $user, $host);
 			}
 			$prefix = $this->get_prefix();
-			if ($user != $this->getConfig('mysql', 'dbaseadmin') &&
-				substr($user, 0, strlen($prefix)) != $prefix
-			) {
+			if ($user !== $this->getConfig('mysql', 'dbaseadmin') && strpos($user, $prefix) !== 0) {
 				$user = $prefix . $user;
+			}
+			if (\Opcenter\Database\MySQL::version() >= static::NEW_API_VERSION) {
+				return Opcenter\Database\MySQL::deleteUser($user, $host);
 			}
 			$conn = new mysqli('localhost', self::MASTER_USER, $this->_get_elevated_password());
 			$conn->select_db("mysql");
@@ -143,17 +147,14 @@
 			if ($stmt->error) {
 				return new MySQLError("Invalid query, " . $stmt->error);
 			}
-			if ($cascade) {
-				$stmt2 = $conn->prepare("DELETE FROM db WHERE user = ? AND host = ?");
-				$stmt2->bind_param("ss", $user, $host);
-				$stmt2->execute();
-				if (!$stmt2->error) {
-					$conn->query("FLUSH PRIVILEGES");
-				} else {
-					return new MySQLError("Invalid query, " . $stmt2->error);
-				}
 
-
+			$stmt2 = $conn->prepare("DELETE FROM db WHERE user = ? AND host = ?");
+			$stmt2->bind_param("ss", $user, $host);
+			$stmt2->execute();
+			if (!$stmt2->error) {
+				$conn->query("FLUSH PRIVILEGES");
+			} else {
+				return new MySQLError("Invalid query, " . $stmt2->error);
 			}
 
 			return ($stmt->affected_rows > 0);
@@ -264,7 +265,7 @@
 			}
 
 			$dbs = $this->list_databases();
-			if (false === array_search($db, $dbs)) {
+			if (false === array_search($db, $dbs, true)) {
 				return error("database `%s' does not exist", $db);
 			}
 			$unlink = null;
@@ -278,10 +279,8 @@
 					$c = $line[$i];
 					if ($c == ' ' || $c === '') {
 						continue;
-					} else {
-						if ($c == '/' || $c === '-') {
-							break;
-						}
+					} else if ($c == '/' || $c === '-') {
+						break;
 					}
 					if (0 === strpos($line, "CREATE DATABASE") ||
 						0 === strpos($line, "USE DATABASE")) {
@@ -322,7 +321,7 @@
 			$conn->select_db("mysql");
 			$q = $conn->query("SELECT DISTINCT(REPLACE(db,'\\_','_')) AS db FROM db WHERE db LIKE '" . $prefix . "%' OR user = '" . $this->username . "'");
 			$dbs = array();
-			while (null != ($row = $q->fetch_object())) {
+			while (null !== ($row = $q->fetch_object())) {
 				$dbs[] = $row->db;
 			}
 
@@ -335,7 +334,6 @@
 		 * Create a temporary mysql user
 		 *
 		 * @param string $db
-		 * @param bool   $return_connection
 		 * @return string|object
 		 */
 		private function _create_temp_user($db)
@@ -372,7 +370,7 @@
 			}
 
 			// could be handled via add_mysql_user()
-			$sqldb = self::_connect_root();
+			$sqldb = $this->_connect_root();
 			$q = "SELECT user FROM user WHERE user = '" . $user . "'";
 			$rs = $sqldb->query($q);
 			if ($rs->num_rows > 0) {
@@ -437,17 +435,19 @@
 									 max_connections,
 									 max_user_connections FROM user WHERE user = '" . $this->username . "' OR user LIKE '" . $prefix . "%'");
 			$users = array();
-			while (null !== ($row = $q->fetch_object())) {
-				$users[$row->user][$row->host] = array(
-					'ssl_type'             => $row->ssl_type,
-					'ssl_cipher'           => $row->ssl_cipher,
-					'x509_issuer'          => $row->x509_issuer,
-					'x509_subject'         => $row->x509_subject,
-					'max_questions'        => $row->max_questions,
-					'max_updates'          => $row->max_updates,
-					'max_user_connections' => $row->max_user_connections,
-					'max_connections'      => $row->max_connections,
-					'password'             => $row->password,
+			while (null !== ($row = $q->fetch_array(MYSQLI_ASSOC))) {
+				$row = array_change_key_case($row, CASE_LOWER);
+				$user = $row['user']; $host = $row['host'];
+				$users[$user][$host] = array(
+					'ssl_type'             => $row['ssl_type'],
+					'ssl_cipher'           => $row['ssl_cipher'],
+					'x509_issuer'          => $row['x509_issuer'],
+					'x509_subject'         => $row['x509_subject'],
+					'max_questions'        => $row['max_questions'],
+					'max_updates'          => $row['max_updates'],
+					'max_user_connections' => $row['max_user_connections'],
+					'max_connections'      => $row['max_connections'],
+					'password'             => $row['password'],
 				);
 			}
 
@@ -481,6 +481,9 @@
 			$issuer = '',
 			$subject = ''
 		) {
+			if (!IS_CLI) {
+				return $this->query('mysql_add_user', ...func_get_args());
+			}
 			if (!$user) {
 				return error("no username specified");
 			}
@@ -499,7 +502,7 @@
 			}
 			if (strlen($password) < self::MIN_PASSWORD_LENGTH) {
 				return error("Password must be at least %d characters", self::MIN_PASSWORD_LENGTH);
-			} else if ($ssl != '' && $ssl != 'ANY' && $ssl != 'X509' && $ssl != 'SPECIFIED') {
+			} else if ($ssl !== '' && $ssl != 'ANY' && $ssl != 'X509' && $ssl != 'SPECIFIED') {
 				return error("Invalid SSL type");
 			} else if ($maxconn < 1 || $maxquery < 0 || $maxupdates < 0) {
 				return error("Max connections, queries, and updates must be greater than 0");
@@ -512,52 +515,68 @@
 			}
 			$conn = $this->_connect_root();
 			$prefix = $this->get_prefix();
-			if ($user != $this->getConfig('mysql', 'dbaseadmin') && 0 !== strpos($user, $prefix)) {
+			if ($user !== $this->getConfig('mysql', 'dbaseadmin') && 0 !== strpos($user, $prefix)) {
 				// add the prefix if prefix is not provided, this is to workaround cases where user
 				// is equal to prefixprefixuser
 				$user = $prefix . $user;
 			}
+			if (Opcenter\Database\MySQL::version() >= static::NEW_API_VERSION) {
+				return \Opcenter\Database\MySQL::createUser(
+					$user,
+					$password,
+					$host,
+					[
+						'ssl' => $ssl,
+						'cipher' => $cipher,
+						'issuer' => $issuer,
+						'subject' => $subject
+					],
+					[
+						'connections' => (int)$maxconn,
+						'query' => (int)$maxquery,
+						'updates' => (int)$maxupdates
+					]
+				) ?: error("User creation failed on `%s@%s'", $user, $host);
+			}
 			$pwclause = 'password(?)';
 			// password is encrypted in new pw form or old
-			if ($password[0] == '*' && strlen($password) == 41
-				&& ctype_xdigit(substr($password, 1)) ||
-				strlen($password) == 16 && ctype_xdigit($password)
-			) {
+			if ((\strlen($password) === 16 && ctype_xdigit($password)) ||
+				($password[0] == '*' && \strlen($password) === 41
+				&& ctype_xdigit(substr($password, 1))))
+			{
 				$pwclause = '?';
 			}
 			$needAuth = $conn->columnExists('authentication_string', 'user');
-			$query = "INSERT INTO user
-				(host,
-				 user,
-				 password,
-				 ssl_type,
-				 ssl_cipher,
-				 x509_issuer,
-				 x509_subject,
-				 max_questions,
-				 max_updates,			  
-				 max_user_connections" . ($needAuth ? ', authentication_string' : '') . ')
-			VALUES
-				(?,
-				 ?,
-				 ' . $pwclause . ',
-				 ?,
-				 ?,
-				 ?,
-				 ?,
-				 ?,
-				 ?,
-				 ?' . ($needAuth ? ',""' : '') . ');';
+			$query = 'INSERT INTO user
+					(host,
+					 user,
+					 password,
+					 ssl_type,
+					 ssl_cipher,
+					 x509_issuer,
+					 x509_subject,
+					 max_questions,
+					 max_updates,
+					 max_user_connections' . ($needAuth ? ', authentication_string' : '') . ')
+				VALUES
+					(?,
+					 ?,
+					 ' . $pwclause . ',
+					 ?,
+					 ?,
+					 ?,
+					 ?,
+					 ?,
+					 ?,
+					 ?' . ($needAuth ? ',""' : '') . ');';
 			$stmt = $conn->prepare($query);
-			$stmt->bind_param("sssssssiii", $host, $user, $password, $ssl, $cipher,
+			$stmt->bind_param('sssssssiii', $host, $user, $password, $ssl, $cipher,
 				$issuer, $subject, $maxquery, $maxupdates, $maxconn);
 			$stmt->execute();
 			if ($stmt->error) {
-				return new MySQLError("Invalid query, " . $stmt->error);
+				return new MySQLError('Invalid query, ' . $stmt->error);
 			}
-
-			$conn->query("FLUSH PRIVILEGES;");
-
+			$conn->query('FLUSH PRIVILEGES;');
 			if ($stmt->affected_rows < 1) {
 				return error("user creation `%s@%s' failed", $user, $host);
 			}
@@ -565,13 +584,33 @@
 			return true;
 		}
 
-		public function get_database_charset($db)
+		/**
+		 * Get charset from database
+		 *
+		 * @param $db
+		 * @return null|string
+		 */
+		public function get_database_charset(string $db): ?string
 		{
-			if (!preg_match('/^[a-zA-Z_0-9-]+$/', $db)) {
-				return error("invalid database name `%s'", $db);
+			if ($this->permission_level & (PRIVILEGE_USER|PRIVILEGE_SITE)) {
+				$prefix = $this->getServiceValue('mysql', 'dbaseprefix');
+				if (0 !== strpos($db, $prefix)) {
+					$db = $prefix . $db;
+				}
 			}
+			if (!\in_array($db, $this->list_databases(), true)) {
+				error("Invalid database %s", $db);
+				return null;
+			}
+			$conn = $this->_connect_root();
+			$q = "SELECT default_character_set_name FROM information_schema.SCHEMATA 
+				WHERE schema_name = '" . $conn->escape_string($db). "';";
+			$rs = $conn->query($q);
 
-			$prefix = $this->get_prefix();
+			if (!$rs->num_rows) {
+				return null;
+			}
+			return $rs->fetch_object()->default_character_set_name;
 		}
 
 		/**
@@ -592,7 +631,7 @@
 			$charset = strtolower($charset);
 			$collation = strtolower($collation);
 
-			if (!preg_match('/^[a-zA-Z_0-9-]+$/', $db)) {
+			if (!preg_match(Regex::SQL_DATABASE, $db)) {
 				return error("invalid database name `%s'", $db);
 			}
 			if (!$this->charset_valid($charset)) {
@@ -614,6 +653,14 @@
 			if ($this->database_exists($db)) {
 				return error("database `$db' exists");
 			}
+
+			if (null !== ($limit = $this->getConfig('mysql', 'dbasenum', null)) && $limit >= 0) {
+				$count = \count($this->list_databases());
+				if ($count >= $limit) {
+					return error("Database limit `%d' reached - cannot create additional databases", $limit);
+				}
+			}
+
 			$status = $this->query('mysql_create_database_backend', $db, $charset, $collation);
 			if (!$status) {
 				return $status;
@@ -623,7 +670,6 @@
 			$conn->select_db("mysql");
 			$conn->query("GRANT ALL ON `" . $db . "`.* to '" . $conn->escape_string($this->username) . "'@localhost;");
 			if ($conn->error) {
-				echo "DROPPING";
 				\Opcenter\Database\MySQL::dropDatabase($db);
 
 				return error("failed to create db `%s'. Error while applying grants: `%s' " .
@@ -638,7 +684,7 @@
 
 		}
 
-		public function charset_valid($charset)
+		public function charset_valid($charset): bool
 		{
 			$charset = strtolower($charset);
 			$charsets = $this->get_supported_charsets();
@@ -671,7 +717,7 @@
 		 * @param string $collation
 		 * @return bool
 		 */
-		public function collation_valid($collation)
+		public function collation_valid($collation): bool
 		{
 			$collations = $this->get_supported_collations();
 			$collation = strtolower($collation);
@@ -692,7 +738,7 @@
 			if ($collations) {
 				return $collations;
 			}
-			$collations = array();
+			$collations = [];
 			$db = MySQL::initialize();
 			$q = "SELECT collation_name, character_set_name FROM " .
 				"INFORMATION_SCHEMA.collations WHERE is_compiled = 'Yes'";
@@ -720,10 +766,10 @@
 		 *
 		 * @return bool
 		 */
-		public function collation_compatible($collation, $charset)
+		public function collation_compatible($collation, $charset): bool
 		{
 			$db = MySQL::initialize();
-			$q = "SELECT 1 FROM INFORMATION_SCHEMA.COLLATION_CHARACTER_SET_APPLICABILITY " .
+			$q = 'SELECT 1 FROM INFORMATION_SCHEMA.COLLATION_CHARACTER_SET_APPLICABILITY ' .
 				"WHERE collation_name = '" . $db->escape($collation) . "' AND " .
 				"character_set_name = '" . $db->escape($charset) . "'";
 			$rs = $db->query($q);
@@ -748,7 +794,7 @@
 			if (!$db) {
 				return false;
 			}
-
+			$prefix = '';
 			if ($this->permission_level & (PRIVILEGE_SITE | PRIVILEGE_USER)) {
 				$sqlroot = $this->domain_fs_path() . self::MYSQL_DATADIR;
 				$normal = \Opcenter\Database\MySQL::canonicalize($db);
@@ -758,23 +804,19 @@
 					$db = $prefix . $db;
 				}
 			}
-			if (true === ($exists = Opcenter\Database\MySQL::databaseExists($db))) {
-				return $exists;
+			if (\Opcenter\Database\MySQL::databaseExists($db)) {
+				return true;
 			} else if ($this->permission_level & PRIVILEGE_ADMIN) {
 				// used by db backup routine, in future the task should be
 				// removed from backup, but leave this as it is for now
 				return false;
 			}
-			$conn = $this->_connect_root();
-			$usersafe = $conn->escape_string($this->getConfig('mysql', 'dbaseadmin'));
+			$user = $this->getConfig('mysql', 'dbaseadmin');
 			// double prefix, remove first prefix, then check one last time
 			if (0 === strpos($db, $prefix . $prefix)) {
 				$db = (string)substr($db, strlen($prefix));
 			}
-			$dbsafe = $conn->escape_string($db);
-			$q = $conn->query("SELECT db FROM db WHERE db = '" . $dbsafe . "' AND user = '" . $usersafe . "'");
-
-			return $q && $q->num_rows > 0;
+			return \Opcenter\Database\MySQL::databaseExists($db, $user);
 		}
 
 		/**
@@ -785,31 +827,16 @@
 		{
 			$dboptData = "default-character-set=" . $charset . "\n" .
 				"default-collation=" . $collation;
-			$path = $this->domain_fs_path();
-			if (version_compare(platform_version(), '4.5', '>=')) {
-				/**
-				 * use shadow/ on OverlayFS platforms too. mysqldump
-				 * communicates with mysqld to dump tables, so there's
-				 * no risk of ghosting as seen if we write directly to shadow/
-				 * and query from the composite path fst/
-				 */
-				$path = $this->domain_shadow_path();
+			/**
+			 * use shadow/ on OverlayFS platforms too. mysqldump
+			 * communicates with mysqld to dump tables, so there's
+			 * no risk of ghosting as seen if we write directly to shadow/
+			 * and query from the composite path fst/
+			 */
+			$path = $this->domain_shadow_path();
+			if (!Opcenter\Database\MySQL::prepBackend($path, $db)) {
+				return error("Failed to prepare database backend storage");
 			}
-			$dbcan = \Opcenter\Database\MySQL::canonicalize($db);
-
-			if (file_exists(self::MYSQL_DATADIR . '/' . $dbcan)) {
-				return error("database `%s' exists", $db);
-			}
-			if (!file_exists($path . self::MYSQL_DATADIR)) {
-				return error("base directory for MySQL doesn't exist");
-			}
-			$path .= self::MYSQL_DATADIR . '/' . $dbcan;
-
-			if (!file_exists($path)) {
-				\Opcenter\Filesystem::mkdir($path, 'mysql', $this->group_id, 02750);
-			}
-			clearstatcache(true, self::MYSQL_DATADIR . '/' . $dbcan);
-			symlink($path, self::MYSQL_DATADIR . '/' . $dbcan);
 
 			$fp = fopen($path . '/db.opt', 'w');
 			fwrite($fp, $dboptData);
@@ -817,7 +844,7 @@
 			chown($path . '/db.opt', 'mysql');
 			chgrp($path . '/db.opt', (int)$this->group_id);
 
-			return file_exists(self::MYSQL_DATADIR . '/' . $dbcan) && file_exists($path);
+			return file_exists(self::MYSQL_DATADIR . '/' . Opcenter\Database\MySQL::canonicalize($db)) && file_exists($path);
 		}
 
 		/**
@@ -1089,11 +1116,6 @@
 					'execute'          => false,
 				);
 			}
-			if (version_compare(platform_version(), '4.5', '<')) {
-				unset($priv['event']);
-				unset($priv['trigger']);
-			}
-
 			return $priv;
 		}
 
@@ -1242,9 +1264,11 @@
 		 */
 		public function edit_user(string $user, string $host, array $opts): bool
 		{
+			if (!IS_CLI) {
+				return $this->query('mysql_edit_user', $user, $host, $opts);
+			}
 			$prefix = $this->get_prefix();
-			if ($user != $this->getServiceValue('mysql', 'dbaseadmin') &&
-				0 !== strpos($user, $prefix)) {
+			if ($user !== $this->getServiceValue('mysql', 'dbaseadmin') && 0 !== strpos($user, $prefix)) {
 				$user = $prefix . $user;
 			}
 			if (!is_array($opts)) {
@@ -1316,73 +1340,93 @@
 			if ($stmt->num_rows < 1) {
 				return error("invalid user@host specified: %s@%s", $user, $host);
 			}
+			if (Opcenter\Database\MySQL::version() >= self::NEW_API_VERSION) {
+				return Opcenter\Database\MySQL::alterUser(
+					$user,
+					$host,
+					[
+						'ssl' => $mergeopts['use_ssl'] ?: null,
+						'subject' => $mergeopts['x509_subject'] ?: null,
+						'issuer' => $mergeopts['x509_issuer'] ?: null,
+						'ciper' => $mergeopts['ssl_cipher'] ?: null,
+						'password' => $mergeopts['password'] ?: null,
+						'connections' => (int)($mergeopts['max_user_connections'] ?: 0),
+						'updates' => (int)($mergeopts['max_updates'] ?: 0),
+						'query' => (int)($mergeopts['max_questions'] ?: 0),
+						'host' => $mergeopts['host'] ?: null
+					]
+				);
+			} else {
+				$stmt = $conn->prepare('UPDATE user
+					SET
+						host            = ?,
+						ssl_type        = ?,
+						ssl_cipher      = ?,
+						x509_issuer     = ? ,
+						x509_subject    = ?,
+						max_questions   = ?,
+						max_updates     = ?,
+						max_user_connections = ?
+					WHERE
+							user = ?
+						AND
+							host = ?');
 
-			$stmt = $conn->prepare("UPDATE user
-											SET
-												host            = ?,
-												ssl_type        = ?,
-												ssl_cipher      = ?,
-												x509_issuer     = ? ,
-												x509_subject    = ?,
-												max_questions   = ?,
-												max_updates     = ?,
-												max_user_connections = ?
-											WHERE
-													user = ?
-												AND
-													host = ?");
-
-			$stmt->bind_param("sssssiiiss", $mergeopts['host'],
-				$mergeopts['cipher_type'],
-				$mergeopts['ssl_cipher'],
-				$mergeopts['x509_issuer'],
-				$mergeopts['x509_subject'],
-				$mergeopts['max_questions'],
-				$mergeopts['max_updates'],
-				$mergeopts['max_user_connections'],
-				$user,
-				$host
-			);
-			$stmt->execute();
-			if ($stmt->error) {
-				return new MySQLError("Invalid query, " . $stmt->error);
-			}
-			if ($mergeopts['host'] != $defaults['host']) {
-				$stmt = $conn->prepare("UPDATE db SET host = ? WHERE user = ? AND host = ?");
-				$stmt->bind_param("sss", $mergeopts['host'], $user, $defaults['host']);
+				$stmt->bind_param('sssssiiiss',
+					$mergeopts['host'],
+					$mergeopts['cipher_type'],
+					$mergeopts['ssl_cipher'],
+					$mergeopts['x509_issuer'],
+					$mergeopts['x509_subject'],
+					$mergeopts['max_questions'],
+					$mergeopts['max_updates'],
+					$mergeopts['max_user_connections'],
+					$user,
+					$host
+				);
 				$stmt->execute();
 				if ($stmt->error) {
-					return error("error while updating DB grants, %s", $stmt->error);
+					return new MySQLError("Invalid query, " . $stmt->error);
 				}
-			}
-			/** finally update the password if changed */
-			if ($mergeopts['password']) {
-				$pwclause = 'password(?)';
-				$password = $mergeopts['password'];
-				// password is encrypted in new pw form or old
-				if ($password[0] == '*' && strlen($password) == 41
-					&& ctype_xdigit(substr($password, 1)) ||
-					/** only accept old-style passwords on platforms <v6 */
-					strlen($password) == 16 && ctype_xdigit($password) && version_compare(platform_version(), "6", '<')
-				) {
-					$pwclause = '?';
-				}
-				$stmt2 = $conn->prepare("UPDATE user SET password = " . $pwclause . " WHERE user = ? AND host = ?;");
 
-				$stmt2->bind_param("sss", $password, $user, $mergeopts['host']);
-				$stmt2->execute();
-				if ($stmt2->error) {
-					return new MySQLError("Query error while updating password, " . $stmt2->error);
+				if ($mergeopts['host'] !== $defaults['host']) {
+					$stmt = $conn->prepare("UPDATE db SET host = ? WHERE user = ? AND host = ?");
+					$stmt->bind_param("sss", $mergeopts['host'], $user, $defaults['host']);
+					$stmt->execute();
+					if ($stmt->error) {
+						return error("error while updating DB grants, %s", $stmt->error);
+					}
 				}
-				if ($user == $this->username) {
-					$this->set_option('user', $this->username, 'client');
-					$this->set_option('password',
-						str_replace(array('"'), array('\"'), $password),
-						'client'
-					);
+				/** finally update the password if changed */
+				if ($mergeopts['password']) {
+					$pwclause = 'password(?)';
+					$password = $mergeopts['password'];
+					// password is encrypted in new pw form or old
+					if ($password[0] == '*' && strlen($password) == 41
+						&& ctype_xdigit(substr($password, 1)) ||
+						/** only accept old-style passwords on platforms <v6 */
+						strlen($password) == 16 && ctype_xdigit($password) && version_compare(platform_version(), "6",
+							'<')
+					) {
+						$pwclause = '?';
+					}
+					$stmt2 = $conn->prepare("UPDATE user SET password = " . $pwclause . " WHERE user = ? AND host = ?;");
+
+					$stmt2->bind_param("sss", $password, $user, $mergeopts['host']);
+					$stmt2->execute();
+					if ($stmt2->error) {
+						return new MySQLError("Query error while updating password, " . $stmt2->error);
+					}
+					$conn->query("FLUSH PRIVILEGES");
 				}
 			}
-			$conn->query("FLUSH PRIVILEGES");
+			if ($user === $this->username && $mergeopts['password']) {
+				$this->set_option('user', $this->username, 'client');
+				$this->set_option('password',
+					str_replace(array('"'), array('\"'), $mergeopts['password']),
+					'client'
+				);
+			}
 
 			return true;
 		}
@@ -1432,7 +1476,7 @@
 			}
 
 			$prefix = $this->getServiceValue('mysql', 'dbaseprefix');
-			if (strncmp($db, $prefix, strlen($prefix))) {
+			if (0 !== strpos($db, $prefix)) {
 				$db = $prefix . $db;
 			}
 
@@ -1490,7 +1534,7 @@
 			if (is_null($file)) {
 				$file = $db . '.sql';
 			}
-			if (!in_array($db, $this->list_databases())) {
+			if (!in_array($db, $this->list_databases(), true)) {
 				return error("Invalid database " . $db);
 			}
 			if ($file[0] !== '/' && $file[0] !== '.' && $file[0] !== '~') {

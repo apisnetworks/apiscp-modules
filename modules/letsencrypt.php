@@ -12,12 +12,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Letsencrypt;
+
 	/**
 	 * Let's Encrypt integration utilities
 	 *
 	 * @author Matt Saladna <matt@apisnetworks.com>
 	 */
-	class Letsencrypt_Module extends Module_Support_Letsencrypt implements \Opcenter\Contracts\Hookable
+	class Letsencrypt_Module extends Letsencrypt implements \Opcenter\Contracts\Hookable
 	{
 		const DEPENDENCY_MAP = [
 			'ssl'
@@ -139,7 +141,7 @@
 			}
 
 			$cnreq = array();
-			$myip = $this->common_get_ip_address();
+			$myip = $this->dns_get_public_ip();
 			foreach ((array)$cnames as $c) {
 				if (!is_array($c)) {
 					$c = $this->web_split_host($c);
@@ -472,8 +474,10 @@
 				mkdir($acctdir, 0700, true);
 			}
 
+			$email = $this->admin_get_email() ?: \Crm_Module::FROM_ADDRESS;
+
 			if (!$email) {
-				$email = $this->admin_get_email() ?? \Crm_Module::FROM_ADDRESS;
+				return error("Cannot register Let's Encrypt without an email address. Run 'cpcmd common_set_email newemail' from command-line.");
 			}
 
 			$ret = $this->_exec('setup',

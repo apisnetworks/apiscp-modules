@@ -157,6 +157,22 @@
 		}
 
 		/**
+		 * Add user
+		 *
+		 * @deprecated
+		 *
+		 * @param        $user
+		 * @param        $password
+		 * @param string $gecos
+		 * @param int    $quota
+		 * @param array  $options
+		 */
+		public function add_user($user, $password, $gecos = '', $quota = 0, array $options = [])
+		{
+			deprecated_func('use user_add');
+			return $this->add($user, $password, $gecos, $quota, $options);
+		}
+		/**
 		 * Add new user to account
 		 *
 		 * @link Ftp_Module::jail_user()
@@ -171,14 +187,14 @@
 		 *          ssh      : ssh access enabled
 		 *          shell    : user shell
 		 */
-		public function add_user($user, $password, $gecos = '', $quota = 0, array $options = array())
+		public function add($user, $password, $gecos = '', $quota = 0, array $options = array())
 		{
 			if (!IS_CLI) {
 				if (!IS_SOAP && $user == 'test') {
 					return error("insecure, commonly-exploited username");
 				}
 
-				return $this->query('user_add_user', $user, $password, $gecos, $quota, $options);
+				return $this->query('user_add', $user, $password, $gecos, $quota, $options);
 			}
 
 			$userorig = $user;
@@ -611,21 +627,19 @@
 			if (!IS_CLI) {
 				return $this->query('user_get_quota', $users);
 			}
-			$single = !is_array($users);
+			$formatArray = \is_array($users);
 			if (!$users || ($this->permission_level & PRIVILEGE_USER)) {
 				$users = array($this->username);
 			} else if (!is_array($users)) {
 				$users = array($users);
 			}
 			$do_apache = $this->permission_level & PRIVILEGE_SITE &&
-				in_array('apache', $users);
+				in_array(\Web_Module::WEB_USERNAME, $users, true);
 
-			if ($do_apache) {
-				$quota_sum = array('qused' => 0, 'fused' => 0);
-			}
+			$quota_sum = array('qused' => 0, 'fused' => 0);
 			$uids = array();
 			foreach ($users as $key => $user) {
-				if ($do_apache && $user == 'apache') {
+				if ($do_apache && $user === Web_Module::WEB_USERNAME) {
 					continue;
 				}
 				if (!($uid = $this->get_uid_from_username($user))) {
@@ -635,40 +649,47 @@
 				$uids[$uid] = $user;
 			}
 
-			$uid_list = join(" ", array_keys($uids));
-			$quota_rep = Util_Process::exec('quota -w -v -u ' . $uid_list, array('mute_stderr' => true));
-			preg_match_all(Regex::QUOTA_USRGRP, $quota_rep['output'], $quotas, PREG_SET_ORDER);
-			$quota_stat = array_combine($users, array_fill(0, sizeof($users), null));
+			$quotas = \Opcenter\Filesystem\Quota::getUser(array_keys($uids));
+
+			$quota_stat = [];
 			$max = $this->getServiceValue('diskquota', 'enabled') ?
 				round($this->getConfig('diskquota', 'quota') * 1024) : 0;
-			foreach ($quotas as $quota) {
-				$uid = $quota['uid'];
+
+			$hasFileLimit = null;
+			if (platform_is('7.5')) {
+				$hasFileLimit = $this->getServiceValue('diskquota', 'fquota', null);
+			}
+			foreach ($quotas as $uid => $quota) {
+				if (!isset($uids[$uid])) {
+					warn("Unrecognized UID detected `%d' - continuing", $uid);
+					continue;
+				}
+				if ($quota['qhard'] === 0) {
+					$quota['qhard'] = $max;
+				}
+				if ($hasFileLimit && $quota['fhard'] === 0) {
+					$quota['fhard'] = $hasFileLimit;
+				}
+
 				$user = $uids[$uid];
-				$qhard = $quota['qhard'] > 0 ? $quota['qhard'] : $max;
-				$quota_stat[$user] = array(
-					'qused' => (int)$quota['qused'],
-					'qsoft' => (int)$quota['qsoft'],
-					'qhard' => (int)$qhard,
-					'fused' => (int)$quota['fileused'],
-					'fsoft' => (int)$quota['filesoft'],
-					'fhard' => (int)$quota['filehard']
-				);
+				$quota_stat[$user] = $quota;
+
 				if ($do_apache) {
 					$quota_sum['qused'] += $quota['qused'];
-					$quota_sum['fused'] += $quota['fileused'];
+					$quota_sum['fused'] += $quota['fused'];
 				}
 			}
-
 			if ($do_apache) {
 				$grp = $this->site_get_account_quota();
 				$mysql_qquota = 0;
-				$tmpq = Util_Process::exec("du -s %s/var/lib/mysql",
-					$this->domain_fs_path()
+				$tmpq = Util_Process::exec('du -s %s%s',
+					$this->domain_fs_path(),
+					\Mysql_Module::MYSQL_DATADIR
 				);
 
 				if ($tmpq['success']) {
-					$tmp = explode(" ", $tmpq['output']);
-					$mysql_qquota = intval(array_shift($tmp));
+					$tmp = explode(' ', $tmpq['output']);
+					$mysql_qquota = (int)array_shift($tmp);
 				}
 
 				$ap_qquota = max(-1, $grp['qused'] - $quota_sum['qused'] - $mysql_qquota);
@@ -683,7 +704,7 @@
 				);
 			}
 
-			return $single ? array_pop($quota_stat) : $quota_stat;
+			return $formatArray ? $quota_stat : array_pop($quota_stat);
 		}
 
 		// {{{ change_gecos()
@@ -920,7 +941,7 @@
 					// admin user
 					continue;
 				}
-				$this->delete_user($user);
+				$this->delete($user);
 			}
 		}
 
@@ -973,10 +994,21 @@
 
 		}
 
+		/**
+		 * @deprecated
+		 *
+		 * @param $user
+		 */
 		public function delete_user($user)
 		{
+			deprecated_func('use user_delete');
+			return $this->delete($user);
+		}
+
+		public function delete($user)
+		{
 			if (!IS_CLI) {
-				return $this->query('user_delete_user', $user);
+				return $this->query('user_delete', $user);
 			}
 
 			$users = $this->get_users();

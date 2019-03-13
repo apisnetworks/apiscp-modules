@@ -446,7 +446,6 @@
 			}
 			// remove initial cert returning
 			// resulting chain
-			array_pop($chain);
 
 			return join("\n", $chain);
 
@@ -469,14 +468,12 @@
 
 			if (!isset($info['extensions'])) {
 				return array();
-			} else {
-				if (!isset($info['extensions']['subjectKeyIdentifier'])) {
-					error("missing subjectKeyIdentifier fingerprint!");
-				}
+			} else if (!isset($info['extensions']['subjectKeyIdentifier'])) {
+				error("missing subjectKeyIdentifier fingerprint!");
 			}
 			$fingerprint = $info['extensions']['subjectKeyIdentifier'];
 
-			if (array_search($fingerprint, $seen)) {
+			if (array_search($fingerprint, $seen, true)) {
 				return error("chain loop detected, fingerprint: %s", $fingerprint);
 			}
 			$seen[] = $fingerprint;
@@ -510,12 +507,13 @@
 
 				return array();
 			}
-
 			info("downloaded extra chain `%s'", $url);
-
+			if ($this->_isDer($chainedcrt)) {
+				$chainedcrt = $this->_convertDer2Pem($chainedcrt);
+			}
 			return array_merge(
 				$this->_resolveChain($chainedcrt, $seen),
-				(array)$crt
+				(array)$chainedcrt
 			);
 		}
 
@@ -604,7 +602,7 @@
 			if (!isset($ichain['extensions'])) {
 				return null;
 			}
-			$keyidentifier = $icert['extensions']['authorityKeyIdentifier'];
+			$keyidentifier = array_get($icert, 'extensions.authorityKeyIdentifier', '');
 			if (0 === strpos($keyidentifier, "keyid:")) {
 				$keyidentifier = trim(substr($keyidentifier, 6));
 			}

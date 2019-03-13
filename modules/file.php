@@ -1264,19 +1264,16 @@
 				return error("destination `$dest_parent' does not exist");
 			}
 
-			if (!$optimized) {
-				// ignore dir checks on optimized algo
-				$parent_stat = $this->stat_backend($this->unmake_path($dest_parent));
-				if ($parent_stat instanceof Exception) {
-					print $source . " " . $dest . " - " . $parent_stat->getMessage();
-
-					return $parent_stat;
-				}
-				if ($parent_stat['file_type'] == 'dir' && (!$parent_stat['can_write'] ||
-						!$parent_stat['can_execute'] || !$parent_stat['can_read'])
-				) {
-					return error("accessing `$dest': permission denied");
-				}
+			// perform check on target to prevent copying over a dangerous .bashrc into /root
+			// in a provisioned environment this shouldn't be the case; /root isn't setup
+			$parent_stat = $this->stat_backend($this->unmake_path($dest_parent));
+			if ($parent_stat instanceof Exception) {
+				return $parent_stat;
+			}
+			if ($parent_stat['file_type'] == 'dir' && (!$parent_stat['can_write'] ||
+					!$parent_stat['can_execute'] || !$parent_stat['can_read'])
+			) {
+				return error("accessing `$dest': permission denied");
 			}
 
 			$files_copied = -1; // number of files copied
@@ -3045,12 +3042,8 @@
 				if (false !== strpos($f, "..") || $f[0] !== '/') {
 					// naughty naughty!
 					continue;
-				} else {
-					if (!isset($f[1])) {
-						// evaluate out to . or root
-						$f = "..";
-						continue;
-					}
+				} else if (!isset($f[1])) {
+					$f = '/.';
 				}
 				if ($isUser) {
 					$stat = $this->stat($f);

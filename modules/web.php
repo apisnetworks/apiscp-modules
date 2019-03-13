@@ -37,7 +37,12 @@
 
 		protected $pathCache = [];
 		protected $service_cache;
-
+		protected $exportedFunctions = [
+			'*'                 => PRIVILEGE_SITE,
+			'add_subdomain_raw' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
+			'host_html_dir'     => PRIVILEGE_SITE | PRIVILEGE_USER,
+			'reload'            => PRIVILEGE_SITE | PRIVILEGE_ADMIN
+		];
 		/**
 		 * void __construct(void)
 		 *
@@ -46,12 +51,14 @@
 		public function __construct()
 		{
 			parent::__construct();
-			$this->exportedFunctions = array(
-				'*'                 => PRIVILEGE_SITE,
-				'add_subdomain_raw' => PRIVILEGE_SITE | PRIVILEGE_SERVER_EXEC,
-				'host_html_dir'     => PRIVILEGE_SITE | PRIVILEGE_USER,
-				'reload'            => PRIVILEGE_SITE | PRIVILEGE_ADMIN
-			);
+
+			if (!DAV_APACHE) {
+				$this->exportedFunctions += [
+					'bind_dav' => PRIVILEGE_NONE,
+					'unbind_dav' => PRIVILEGE_NONE,
+					'list_dav_locations' => PRIVILEGE_NONE,
+				];
+			}
 
 		}
 
@@ -696,6 +703,29 @@
 		}
 
 		/**
+		 * Decompose a path into its hostname/path components
+		 *
+		 * @param string $docroot
+		 * @return null|array
+		 */
+		public function extract_components_from_path(string $docroot): ?array
+		{
+			$path = [];
+			do {
+				if (null !== ($hostname = $this->get_hostname_from_docroot($docroot))) {
+					return [
+						'hostname' => $hostname,
+						'path' => implode('/', $path)
+					];
+				}
+				array_unshift($path, \basename($docroot));
+				$docroot = \dirname($docroot);
+			} while ($docroot);
+
+			return null;
+		}
+
+		/**
 		 * Assign a path as a DAV-aware location
 		 *
 		 * @param string $location filesystem location
@@ -710,14 +740,17 @@
 
 			if (!$this->verco_svn_enabled() && (strtolower($provider) == 'svn')) {
 				return error("Cannot use Subversion provider when not enabled");
-			} else {
-				if ($location[0] != '/') {
-					return error("DAV location `%s' is not absolute", $location);
-				} else {
-					if (!file_exists($this->domain_fs_path() . $location)) {
-						return error('DAV location `%s\' does not exist', $location);
-					}
-				}
+			} else if (!\in_array($provider, ['on', 'dav', 'svn'])) {
+				return error("Unknown dav provider `%s'", $provider);
+			}
+			if ($provider === 'dav') {
+				$provider = 'on';
+			}
+			if ($location[0] != '/') {
+				return error("DAV location `%s' is not absolute", $location);
+			}
+			if (!file_exists($this->domain_fs_path() . $location)) {
+				return error('DAV location `%s\' does not exist', $location);
 			}
 
 			$stat = $this->file_stat($location);
@@ -727,34 +760,67 @@
 
 			if ($stat['file_type'] != 'dir') {
 				return error("bind_dav: `$location' is not directory");
-			} else {
-				if (!$stat['can_write']) {
-					return error("`%s': cannot write to directory", $location);
-				}
+			} else if (!$stat['can_write']) {
+				return error("`%s': cannot write to directory", $location);
 			}
 
 			$this->query('file_fix_apache_perms_backend', $location);
 			$file = $this->site_config_dir() . '/dav';
-			if (file_exists($file) &&
-				preg_match('}' . $this->domain_fs_path() . $location . '"?[/\s]*>}', file_get_contents($file))
-			) {
-				return warn("DAV path `%s' already set", $location);
-			}
-			$dav_config = '';
-			if (file_exists($file)) {
-				$dav_config = trim(file_get_contents($file)) . "\n";
-			}
-			$dav_config .= '<Directory "' . $this->domain_fs_path() . rtrim($location, '/') . '">' . "\n" .
-				"\t" . 'Dav ' . ($provider == 'svn' ? 'svn' : 'On') . "\n" .
-				'</Directory>' . "\n";
-			$needs_define = stristr($dav_config, 'IfDefine !SLAVE');
-			if ($needs_define) {
-				$dav_config = '<IfDefine !SLAVE>' . "\n" .
-					$dav_config . '</IfDefine>' . "\n";
-			}
-			file_put_contents($file, $dav_config);
 
-			return true;
+			$locations = $this->parse_dav($file);
+			if (null !== ($chk = $locations[$location] ?? null) && $chk === $provider) {
+				return warn("DAV already enabled for `%s'", $location);
+			}
+			$locations[$location] = $provider;
+
+			return $this->write_dav($file, $locations);
+		}
+
+		/**
+		 * Parse DAV configuration
+		 *
+		 * @param string $path
+		 * @return array
+		 */
+		private function parse_dav(string $path): array
+		{
+			$locations = [];
+			if (!file_exists($path)) {
+				return [];
+			}
+			$dav_config = trim(file_get_contents($path));
+
+			if (preg_match_all(\Regex::DAV_CONFIG, $dav_config, $matches, PREG_SET_ORDER)) {
+				foreach ($matches as $match) {
+					$cfgpath = $this->file_unmake_path($match['path']);
+					$locations[$cfgpath] = $match['provider'];
+				}
+			}
+			return $locations;
+		}
+
+		/**
+		 * Convert DAV to text representation
+		 *
+		 * @param string $path
+		 * @param array  $cfg
+		 * @return bool
+		 */
+		private function write_dav(string $path, array $cfg): bool
+		{
+			if (!$cfg) {
+				if (file_exists($path)) {
+					unlink($path);
+				}
+				return true;
+			}
+			$template = (new \Opcenter\Provisioning\ConfigurationWriter('apache.dav-provider',
+				\Opcenter\SiteConfiguration::import($this->getAuthContext())))
+				->compile([
+					'prefix'    => $this->domain_fs_path(),
+					'locations' => $cfg
+				]);
+			return file_put_contents($path, $template) !== false;
 		}
 
 		public function site_config_dir()
@@ -820,56 +886,27 @@
 				return $this->query('web_unbind_dav', $location);
 			}
 			$file = $this->site_config_dir() . '/dav';
-			$dav_config = file_get_contents($file);
-			$lines = explode("\n", $dav_config);
-			$i = 0;
-			$found = false;
-			while ($i < count($lines)) {
-				$line = $lines[$i];
-				if (preg_match('!' . $this->domain_fs_path() . $location . '"?/?(?:>|\s)!', $line)) {
-					$found = true;
-					do {
-						unset($lines[$i]);
-						$i++;
-					} while (false === stripos($lines[$i], '</Directory>') && ($i < count($lines)));
-					unset($lines[$i]);
-					break;
-				}
-				$i++;
+			$locations = $this->parse_dav($file);
+			if (!isset($locations[$location])) {
+				return warn("DAV not enabled for `%s'", $location);
 			}
-			file_put_contents($file, implode("\n", $lines));
+			unset($locations[$location]);
 
-			return $found;
+			return $this->write_dav($file, $locations);
 
 		}
 
 		public function list_dav_locations()
 		{
-			$dav_locations = array();
 			$file = $this->site_config_dir() . '/dav';
-			if (!file_exists($file)) {
-				return $dav_locations;
+			$locations = [];
+			foreach ($this->parse_dav($file) as $path => $type) {
+				$locations[] = [
+					'path' => $path,
+					'provider' => $type === 'on' ? 'dav' : $type
+				];
 			}
-			$fp = fopen($file, 'r');
-			$idx = 0;
-			$inside = 0;
-			while (false !== ($line = fgets($fp))) {
-				if (preg_match('}' . $this->domain_fs_path() . '(/[^>]+(?!["/>]).)}', $line, $match)) {
-					$inside = 1;
-					$dav_locations[$idx] = array('path' => $match[1], 'provider' => 'dav');
-
-				} else if ($inside && preg_match('/Dav\s+([\S]+)/i', $line, $match)) {
-					$match[1] = strtolower($match[1]);
-					$dav_locations[$idx]['provider'] = ($match[1] == 'on' ? 'dav' : $match[1]);
-
-				} else if (false !== stripos($line, '</Directory>')) {
-					$inside = 0;
-					$idx++;
-				}
-			}
-			fclose($fp);
-
-			return $dav_locations;
+			return $locations;
 		}
 
 		public function _edit()
@@ -1014,12 +1051,14 @@
 				return $this->query('web_remove_subdomain', $subdomain);
 			}
 
-			$subdomain = strtolower($subdomain);
+			$subdomain = strtolower((string)$subdomain);
 			if (!preg_match(Regex::SUBDOMAIN, $subdomain)) {
-				return error($subdomain . ": invalid subdomain");
-			} else if (!$this->subdomain_exists($subdomain)) {
-				return warn($subdomain . ": subdomain does not exist");
+				return error('%s: invalid subdomain', $subdomain);
 			}
+			if (!$this->subdomain_exists($subdomain)) {
+				return warn('%s: subdomain does not exist', $subdomain);
+			}
+
 			$this->map_subdomain('delete', $subdomain);
 			$path = $this->domain_fs_path() . '/var/subdomain/' . $subdomain;
 			if (is_link($path)) {
@@ -1042,8 +1081,34 @@
 			}
 			closedir($dh);
 			rmdir($path);
+			if (!$this->dns_configured()) {
+				return true;
+			}
+			$hostcomponents = [
+				'subdomain' => $subdomain,
+				'domain' => ''
+			];
+			if (false !== strpos($subdomain, '.')) {
+				$hostcomponents = $this->split_host($subdomain);
+			}
+			if (!$hostcomponents['subdomain']) {
+				return true;
+			}
+			if (!$hostcomponents['domain']) {
+				$hostcomponents['domain'] = array_keys($this->list_domains());
+			}
+			$ret = true;
 
-			return true;
+			foreach ((array)$hostcomponents['domain'] as $domain) {
+				foreach (['', 'www'] as $component) {
+					$subdomain = ltrim("${component}." . $hostcomponents['subdomain'], '.');
+					if ($this->dns_record_exists($domain, $subdomain, 'A', $this->dns_get_public_ip())) {
+						$ret &= $this->dns_remove_record($domain, $subdomain, 'A', $this->dns_get_public_ip());
+					}
+				}
+			}
+
+			return (bool)$ret;
 		}
 
 		/**
@@ -1135,7 +1200,7 @@
 			if (!IS_CLI) {
 				return $this->query('web_add_subdomain', $subdomain, $docroot);
 			}
-			$subdomain = strtolower(trim($subdomain));
+			$subdomain = strtolower(trim((string)$subdomain));
 			if ($subdomain === 'www') {
 				return error("illegal subdomain name");
 			}
@@ -1210,34 +1275,18 @@
 			}
 
 			foreach ($recs_to_add as $record) {
-				if (!$this->dns_zone_exists($record['domain'])) {
-					warn("DNS zone `%s' does not exist, skipping", $record['domain']);
-					continue;
-				}
-				if (!$this->dns_record_exists($record['domain'], $record['subdomain'], 'A')) {
-					$ret = $this->dns_add_record($record['domain'],
-						$record['subdomain'],
-						'A',
-						$this->common_get_ip_address());
-					if (!$ret) {
-						error($record['subdomain'] . '.' . $record['domain'] . ": DNS master returned bad value");
-					}
-				}
-
-				if ($record['subdomain'] != '*' &&
-					!$this->dns_record_exists($record['domain'], 'www.' . $record['subdomain'], 'A')
-				) {
-					$ret = $this->dns_add_record($record['domain'],
+				// @TODO IPv6
+				$this->dns_add_record_conditionally($record['domain'], $record['subdomain'], 'A', $this->dns_get_public_ip());
+				if ($record['subdomain'] !== '*') {
+					$this->dns_add_record_conditionally(
+						$record['domain'],
 						'www.' . $record['subdomain'],
 						'A',
-						$this->common_get_ip_address());
-					if (!$ret) {
-						error("%s.%s: DNS master returned bad value",
-							$record['subdomain'], $record['domain']);
-					}
+						$this->dns_get_public_ip()
+					);
 				}
-
 			}
+
 			/**
 			 * Home directories without subdomains explicitly enabled
 			 * are created with 700.  This bears the side-effect of Apache
@@ -1377,7 +1426,7 @@
 				if (!preg_match('!^/home/' . preg_quote($user, '!') . '(/|$)!', (string)$dir)) {
 					continue;
 				}
-				$ret &= $this->web_remove_subdomain($subdomain);
+				$ret &= $this->remove_subdomain($subdomain);
 			}
 
 			return (bool)$ret;

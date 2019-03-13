@@ -12,12 +12,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Aliases;
+
 	/**
 	 * Aliases and shared domains
 	 *
 	 * @package core
 	 */
-	class Aliases_Module extends Module_Support_Aliases
+	class Aliases_Module extends Aliases
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
@@ -100,7 +102,7 @@
 			if (!$this->map_domain('add', $domain, $path, $user)) {
 				return error("failed to map domain `%s' in http configuration", $domain);
 			}
-			$ip = $this->common_get_ip_address();
+			$ip = $this->dns_get_public_ip();
 			$this->removeBypass($domain);
 
 			return $this->dns_add_zone_backend($domain, $ip);
@@ -513,9 +515,9 @@
 				return error("Invalid domain");
 			}
 
-			$aliases = (array)$this->getServiceValue('aliases', 'aliases');
+			$aliases = (array)array_get($this->getNewServices('aliases'), 'aliases', $this->getServiceValue('aliases', 'aliases'));
 
-			$key = array_search($alias, $aliases);
+			$key = array_search($alias, $aliases, true);
 			if ($key === false) {
 				return error("domain `$alias' not found");
 			}
@@ -604,7 +606,7 @@
 					$hash,
 					self::DNS_VERIFICATION_RECORD,
 					$domain,
-					$this->common_get_ip_address()
+					$this->dns_get_public_ip()
 				);
 			}
 
@@ -636,7 +638,7 @@
 			if (!$ip) {
 				return true;
 			}
-			$myip = $this->common_get_ip_address();
+			$myip = $this->dns_get_public_ip();
 
 			if ($ip === $myip) {
 				// domain is on this server and would appear in db lookup check
@@ -799,7 +801,7 @@
 			$time = $cache->get('aliases.sync');
 			$aliases = array_keys($this->list_shared_domains());
 			if (version_compare(platform_version(), '7.5', '<')) {
-				$this->setConfigJournal('aliases', 'enabled', intval(count($aliases) > 0));
+				$this->setConfigJournal('aliases', 'enabled', (int)(count($aliases) > 0));
 			}
 			$this->setConfigJournal('aliases', 'aliases', $aliases);
 

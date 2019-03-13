@@ -12,13 +12,15 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Auth;
+
 	/**
 	 * Provides site administrator-specific functionality
 	 *
 	 * @package core
 	 *
 	 */
-	class Site_Module extends Module_Support_Auth
+	class Site_Module extends Auth
 		implements Opcenter\Contracts\Hookable
 	{
 		use ImpersonableTrait;
@@ -225,7 +227,7 @@
 			}
 			parent::sendNotice('email', [
 				'email' => $oldemail,
-				'ip'    => Auth::client_ip()
+				'ip'    => \Auth::client_ip()
 			]);
 
 			return true;
@@ -262,9 +264,7 @@
 		 */
 		public function ip_address()
 		{
-			$addr = $this->getServiceValue('ipinfo', 'namebased') ?
-				$this->getServiceValue('ipinfo', 'nbaddrs') :
-				$this->getServiceValue('ipinfo', 'ipaddrs');
+			$addr = $this->common_get_ip_address();
 
 			return is_array($addr) ? array_pop($addr) : $addr;
 		}
@@ -308,34 +308,7 @@
 			if (!IS_CLI) {
 				return $this->query('site_get_account_quota');
 			}
-			// occasionally a stale .socket mountpoint is reflected in quota
-			// and emits stderr, squelch this
-			$quota_rep = Util_Process::exec('quota -w -g ' . $this->group_id,
-				array('mute_stderr' => true)
-			);
-			if (false !== strpos($quota_rep['output'], ': none')) {
-				$quota = [
-					'qused'    => 0,
-					'qsoft'    => 0,
-					'qhard'    => 0,
-					'fileused' => 0,
-					'filesoft' => 0,
-					'filehard' => 0
-				];
-			} else if (!preg_match(Regex::QUOTA_USRGRP, $quota_rep['output'], $quota)) {
-				warn("quota output error");
-
-				return array();
-			}
-
-			return array(
-				'qused' => (int)$quota['qused'],
-				'qsoft' => (int)$quota['qsoft'],
-				'qhard' => (int)$quota['qhard'],
-				'fused' => (int)$quota['fileused'],
-				'fsoft' => (int)$quota['filesoft'],
-				'fhard' => (int)$quota['filehard']
-			);
+			return \Opcenter\Filesystem\Quota::getGroup($this->group_id);
 		}
 
 		/**

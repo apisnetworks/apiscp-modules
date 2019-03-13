@@ -12,12 +12,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Auth;
+
 	/**
 	 * Provides authorization mechanisms and management
 	 *
 	 * @package core
 	 */
-	class Auth_Module extends Module_Support_Auth implements \Opcenter\Contracts\Hookable
+	class Auth_Module extends Auth implements \Opcenter\Contracts\Hookable
 	{
 		const DEPENDENCY_MAP = [
 			'siteinfo',
@@ -442,8 +444,8 @@
 			// don't display all IP addresses for security
 			if ($this->is_demo()) {
 				$logins[] = array(
-					'ip' => Auth::client_ip(),
-					'ts' => Auth::login_time()
+					'ip' => \Auth::client_ip(),
+					'ts' => \Auth::login_time()
 				);
 
 				return $logins;
@@ -492,7 +494,7 @@
 						'domain',
 						[
 							'email' => $this->getConfig('siteinfo', 'email'),
-							'ip'    => Auth::client_ip()
+							'ip'    => \Auth::client_ip()
 						]
 					);
 					$this->_purgeLoginKey($this->username, $olddomain);
@@ -515,7 +517,7 @@
 			if (!preg_match(Regex::DOMAIN, $domain)) {
 				return error("`%s': invalid domain", $domain);
 			}
-			if (!is_debug() && $this->dns_domain_hosted($domain, true)) {
+			if ($this->dns_domain_hosted($domain, true)) {
 				// permit user to rehost a previously hosted domain if it is on the same account
 				return error("`%s': cannot add domain - hosted on another " .
 					"account elsewhere", $domain);
@@ -528,7 +530,7 @@
 				return error("cannot promote subdomain `%s' to domain", $domain);
 			}
 			if (!$this->aliases_bypass_exists($domain) &&
-				$this->dns_gethostbyname_t($domain) != $this->common_get_ip_address() &&
+				$this->dns_gethostbyname_t($domain) != $this->dns_get_public_ip() &&
 				$this->dns_get_records_external('', 'any', $domain) &&
 				!$this->dns_domain_uses_nameservers($domain) // whois check in the future
 			) {
@@ -584,7 +586,7 @@
 						'username',
 						[
 							'email' => $email,
-							'ip'    => Auth::client_ip()
+							'ip'    => \Auth::client_ip()
 						]
 					);
 					$this->_purgeLoginKey($olduser, $this->domain);
@@ -612,13 +614,13 @@
 				while (false !== ($line = fgets($fp))) {
 					$lines[] = explode(':', rtrim($line));
 				}
-				if (false !== ($pos = array_search($user, array_column($lines, 0)))) {
+				if (false !== ($pos = array_search($user, array_column($lines, 0), true))) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
 
 					return error("user `%s' already exists", $user);
 				}
-				if (false === ($pos = array_search($this->username, array_column($lines, 0)))) {
+				if (false === ($pos = array_search($this->username, array_column($lines, 0), true))) {
 					flock($fp, LOCK_UN);
 					fclose($fp);
 
@@ -636,6 +638,18 @@
 					return join(':', $a);
 				}, $lines)));
 
+				// @todo extract to Support\Common module?
+				$oldprefs = implode(DIRECTORY_SEPARATOR,
+					[\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $this->username]);
+				$newprefs = implode(DIRECTORY_SEPARATOR,
+					[\Admin_Module::ADMIN_HOME, \Admin_Module::ADMIN_CONFIG, $user]);
+				if (file_exists($oldprefs)) {
+					if (file_exists($newprefs)) {
+						unlink($newprefs);
+					}
+					rename($oldprefs, $newprefs) || warn("failed to rename preferences from `%s' to `%s'", $oldprefs, $newprefs);
+				}
+				\apnscpSession::invalidate_by_user(null, $this->username);
 				return flock($fp, LOCK_UN) && fclose($fp);
 			}
 			// make sure user list is not cached
@@ -678,7 +692,7 @@
 		private function _username_unique($user)
 		{
 			$user = strtolower($user);
-			if (Auth::get_admin_from_site_id($user)) {
+			if (\Auth::get_admin_from_site_id($user)) {
 				return 0;
 			}
 
@@ -733,21 +747,21 @@
 			}
 
 			if (substr($site, 0, 4) !== "site") {
-				$tmp = Auth::get_site_id_from_domain($site);
+				$tmp = \Auth::get_site_id_from_domain($site);
 				if (!$tmp) {
 					return error("domain `%s' not found on server", $site);
 				}
 				$site = 'site' . $tmp;
 			} else {
-				$tmp = Auth::get_domain_from_site_id(substr($site, 4));
+				$tmp = \Auth::get_domain_from_site_id(substr($site, 4));
 				if (!$tmp) {
 					return error("site `%s' not found on server", $site);
 				}
 			}
 
 			$site_id = substr($site, 4);
-			$domain = Auth::get_domain_from_site_id($site_id);
-			$user = Auth::get_admin_from_site_id($site_id);
+			$domain = \Auth::get_domain_from_site_id($site_id);
+			$user = \Auth::get_admin_from_site_id($site_id);
 			$crypted = $this->crypt($password);
 			$oldcrypted = $this->_get_site_admin_shadow($site_id);
 			$args = array(
@@ -830,7 +844,7 @@
 			$site = 'site' . (int)$site_id;
 			$base = FILESYSTEM_VIRTBASE . "/${site}/fst";
 			$file = '/etc/shadow';
-			$admin = Auth::get_admin_from_site_id($site_id);
+			$admin = \Auth::get_admin_from_site_id($site_id);
 			if (!file_exists($base . $file)) {
 				fatal("shadow not found for `%s'", $site);
 			}
@@ -854,7 +868,7 @@
 
 		public function _create()
 		{
-			$this->rebuildMap();
+			static::rebuildMap();
 		}
 
 		public function _edit()
@@ -865,7 +879,7 @@
 				'old' => $conf_old['siteinfo']['admin_user'],
 				'new' => $conf_new['siteinfo']['admin_user']
 			);
-			$this->rebuildMap();
+			static::rebuildMap();
 			if ($user['old'] === $user['new']) {
 				return;
 			}
@@ -1100,7 +1114,7 @@
 		public function _housekeeping()
 		{
 			// convert domain map over to TokyoCabinet
-			$this->rebuildMap();
+			static::rebuildMap();
 			// check if we need reissue
 			if (\Opcenter\License::get()->needsReissue()) {
 				info("Attempting to renew apnscp license");

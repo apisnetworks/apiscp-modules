@@ -249,7 +249,7 @@
 						'branch'    => 'v' . $opts['version']
 					]);
 				$wrapper->ruby_make_default(self::DEFAULT_RUBY, $docroot);
-				$wrapper->ruby_do('', $docroot, 'gem install --no-rdoc --no-ri passenger bundler');
+				$wrapper->ruby_do('', $docroot, 'gem install -E --no-document passenger bundler:"< 2"');
 				$wrapper->ruby_do('', $docroot, 'bundle install -j' . max(4, (int)NPROC + 1));
 				foreach (['pg_trgm', 'hstore'] as $extension) {
 					$this->pgsql_add_extension($db, $extension);
@@ -443,7 +443,7 @@
 			if (!$wrapper->ruby_installed($version) && !$wrapper->ruby_install($version)) {
 				return error('failed to install Ruby %s', $version);
 			}
-			$ret = $wrapper->ruby_do($version, null, 'gem install passenger rake --no-ri --no-rdoc');
+			$ret = $wrapper->ruby_do($version, null, 'gem install --no-document -E passenger rake');
 			if (!$ret['success']) {
 				return error('failed to install Passenger gem: %s', $ret['stderr'] ?? 'UNKNOWN ERROR');
 			}
@@ -487,7 +487,7 @@
 		 */
 		public function valid(string $hostname, string $path = ''): bool
 		{
-			if ($hostname[0] === '/') {
+			if (0 === strpos($hostname, '/')) {
 				if (!($path = realpath($this->domain_fs_path($hostname)))) {
 					return false;
 				}
@@ -700,8 +700,8 @@
 			if (!$approot = $this->getAppRoot($hostname, $path)) {
 				return false;
 			}
-
-			return \Module\Support\Webapps\Passenger::instantiateContexted($this->getAuthContext(),
+			$user = $this->getDocrootUser($approot);
+			return \Module\Support\Webapps\Passenger::instantiateContexted(\Auth::context($user, $this->site),
 				[$approot, 'ruby'])->restart();
 		}
 
@@ -948,7 +948,7 @@
 				$this->migrate($approot);
 			}
 
-			if ($version !== ($newver = $wrapper->discourse_get_version($hostname, $path))) {
+			if ($version !== ($newver = $this->get_version($hostname, $path))) {
 				report("Upgrade failed, reported version `%s' is not requested version `%s'", $newver, $version);
 			}
 			parent::setInfo($this->getDocumentRoot($hostname, $path), [
@@ -960,7 +960,7 @@
 				return error("failed to update Discourse");
 			}
 
-			return $wrapper->discourse_restart($hostname, $path);
+			return $this->restart($hostname, $path);
 		}
 
 		/**

@@ -23,7 +23,6 @@
 		const DEPENDENCY_MAP = [
 			'apache'
 		];
-		const MAX_MEMORY = 16384;
 		const DEFAULT_MEMORY = 512;
 		const DEFAULT_CPU = 10240;
 		/** in MB */
@@ -187,8 +186,11 @@
 		{
 			$stats['limit'] = self::DEFAULT_MEMORY;
 			$stats = \Opcenter\System\Cgroup::get_memory($this->site);
-			if ($this->permission_level & PRIVILEGE_ADMIN) {
+			if ($this->permission_level & PRIVILEGE_ADMIN || $stats['limit'] === null) {
 				$stats['limit'] = \Opcenter\System\Memory::stats()['memtotal'] * 1024;
+			}
+			if ($stats['free'] === null) {
+				$stats['free'] = \Opcenter\System\Memory::stats()['memfree'] * 1024;
 			}
 
 			return $this->_fillUsage(

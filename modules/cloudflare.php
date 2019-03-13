@@ -188,8 +188,8 @@
 						$myresolve_to);
 
 				}
-				$ip = $this->common_get_ip_address();
-				if (!$this->dns_add_record($zone, $myresolve_to, 'A', $this->common_get_ip_address(), 43200)) {
+				$ip = $this->dns_get_public_ip();
+				if (!$this->dns_add_record($zone, $myresolve_to, 'A', $ip, 43200)) {
 					return error("failed to set secure resolve_to from `%s' to `%s'",
 						$myresolve_to,
 						$ip

@@ -58,7 +58,7 @@
 				];
 			}
 
-			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg('cd %(_RUBY_PWD)s' . ' && rbenv exec ' . $command),
+			$ret = $this->pman_run('/bin/bash -ic -- ' . escapeshellarg('cd %(_RUBY_PWD)s' . ' && rbenv rehash && rbenv exec ' . $command),
 				...$args);
 			if (!$ret['success']) {
 				// no job control warning

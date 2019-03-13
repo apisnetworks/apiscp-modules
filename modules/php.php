@@ -13,12 +13,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Php;
+
 	/**
 	 * Class Php_Module
 	 *
 	 * @package core
 	 */
-	class Php_Module extends Module_Support_Php implements \Opcenter\Contracts\Hookable
+	class Php_Module extends Php implements \Opcenter\Contracts\Hookable
 	{
 		const COMPOSER_LOCATION = '/usr/bin/composer.phar';
 

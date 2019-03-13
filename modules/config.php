@@ -40,6 +40,12 @@
 			if (!$c) {
 				return error("Unknown admin setting `%s'", $name);
 			}
+			if (!\array_key_exists(0, $val)) {
+				return error("`config_set %s' requires one or more values. See `config_info %s' for more information",
+					$name,
+					$name
+				);
+			}
 
 			return (new $c)->set(...$val);
 		}

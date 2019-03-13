@@ -561,13 +561,25 @@
 		/**
 		 * IP address of domain
 		 *
-		 * @return string
+		 * @return string|array
 		 */
 		public function get_ip_address()
 		{
-			return ($this->getServiceValue("ipinfo", "namebased") == 1) ?
+			return $this->getServiceValue("ipinfo", "namebased") ?
 				$this->getServiceValue("ipinfo", "nbaddrs") :
 				$this->getServiceValue("ipinfo", "ipaddrs");
+		}
+
+		/**
+		 * IPv6 address of domain
+		 *
+		 * @return string|array
+		 */
+		public function get_ip6_address()
+		{
+			return $this->getServiceValue("ipinfo6", "namebased") ?
+				$this->getServiceValue("ipinfo6", "nbaddrs") :
+				$this->getServiceValue("ipinfo6", "ipaddrs");
 		}
 
 		/**

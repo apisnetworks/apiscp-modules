@@ -273,7 +273,13 @@
 		 */
 		public function permitted(): bool
 		{
-			return $this->ssh_enabled() && $this->getServiceValue('crontab', 'permit');
+			if (!$this->ssh_enabled()) {
+				return false;
+			}
+			if (!platform_is('7.5')) {
+				return true;
+			}
+			return (bool)$this->getServiceValue('crontab', 'permit');
 		}
 
 		/**

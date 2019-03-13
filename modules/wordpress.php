@@ -823,7 +823,9 @@
 			}
 
 			$status = 1;
-			$allthemeinfo = $this->theme_status($hostname, $path);
+			if (false === ($allthemeinfo = $this->theme_status($hostname, $path))) {
+				return false;
+			}
 			$themes = $themes ?: array_keys($allthemeinfo);
 			foreach ($themes as $theme) {
 				$version = null;
@@ -863,7 +865,7 @@
 		 * @param string $type
 		 * @return array
 		 */
-		public function getSkiplist(string $docroot, string $type)
+		protected function getSkiplist(string $docroot, string $type)
 		{
 			$skipfile = $this->domain_fs_path($docroot . '/' . self::ASSET_SKIPLIST);
 			$skiplist = [];
@@ -918,7 +920,9 @@
 			}
 
 			$status = 1;
-			$allplugininfo = $this->plugin_status($hostname, $path);
+			if (false === ($allplugininfo = $this->plugin_status($hostname, $path))) {
+				return false;
+			}
 			$plugins = $plugins ?: array_keys($allplugininfo);
 			foreach ($plugins as $plugin) {
 				$version = null;
@@ -1050,7 +1054,7 @@
 
 			$ret = $this->_exec($docroot, 'theme status');
 			if (!$ret['success']) {
-				return error('failed to get theme status');
+				return error('failed to get theme status: %s', coalesce($ret['stderr'], $ret['stdout']));
 			}
 
 			if (!preg_match_all(Regex::WORDPRESS_PLUGIN_STATUS, $ret['output'], $matches, PREG_SET_ORDER)) {

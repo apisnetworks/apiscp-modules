@@ -83,6 +83,7 @@
 				'create_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'remove_maildir'          => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'user_enabled'            => PRIVILEGE_SITE | PRIVILEGE_USER,
+				'get_mail_ip'             => PRIVILEGE_SITE | PRIVILEGE_USER,
 				'get_records'             => PRIVILEGE_SITE,
 				'*'                       => PRIVILEGE_SITE,
 				'get_provider'            => PRIVILEGE_ALL
@@ -106,7 +107,7 @@
 		 */
 		public function get_provider(): string
 		{
-			return $this->getServiceValue('mail', 'provider', 'builtin');
+			return $this->getServiceValue('mail', 'provider', MAIL_PROVIDER_DEFAULT ?? 'builtin');
 		}
 
 
@@ -457,14 +458,10 @@
 			$type = strtolower($type);
 			if ($type == 'l' || $type == self::MAILBOX_USER) {
 				$type = self::MAILBOX_USER;
-			} else {
-				if ($type == 'f' || $type == self::MAILBOX_FORWARD) {
-					$type = self::MAILBOX_FORWARD;
-				} else {
-					if ($type != '') {
-						return error("unknown address type `%s'", $type);
-					}
-				}
+			} else if ($type == 'f' || $type == self::MAILBOX_FORWARD) {
+				$type = self::MAILBOX_FORWARD;
+			} else if ($type != '') {
+				return error("unknown address type `%s'", $type);
 			}
 			/**
 			 * otherwise we can clog up an mqueue pretty fast
@@ -950,7 +947,7 @@
 			if (null === $keepdns) {
 				// do an intelligent lookup to see if MX is default
 				$split = $this->web_split_host($domain);
-				$myip = $this->site_ip_address();
+				$myip = $this->get_mail_ip();
 				if ($this->dns_record_exists($split['domain'], $split['subdomain'], 'MX')) {
 					// record exists, confirm MX value
 					$hostname = ltrim($split['subdomain'] . "." . $split['domain'], ".");
@@ -960,13 +957,12 @@
 						Error_Reporter::report("unable to remove record for `%s'", $hostname);
 
 						return $ok;
-					} else {
-						if (!count($rec)) {
-							// MX record exists remotely but not on the server
-							info("no MX records found for hostname `%s'", $hostname);
+					}
+					if (!count($rec)) {
+						// MX record exists remotely but not on the server
+						info("no MX records found for hostname `%s'", $hostname);
 
-							return $ok;
-						}
+						return $ok;
 					}
 					// check just first record
 					$rec = array_pop($rec);
@@ -1007,30 +1003,36 @@
 		 */
 		public function get_records(string $domain): array
 		{
-			$myip = $this->site_ip_address();
 			$ttl = $this->dns_get_default('ttl');
-
-			return [
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'mail', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+			$recs = [
 				new \Opcenter\Dns\Record($domain,
 					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '10 mail.' . $domain]),
 				new \Opcenter\Dns\Record($domain,
 					['name' => '', 'ttl' => $ttl, 'rr' => 'mx', 'parameter' => '20 mail.' . $domain]),
 				new \Opcenter\Dns\Record($domain,
 					['name' => '', 'ttl' => $ttl, 'rr' => 'txt', 'parameter' => '"v=spf1 a mx ~all"']),
-				/* webmail */
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'horde', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
-				new \Opcenter\Dns\Record($domain,
-					['name' => 'roundcube', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
 			];
+			$myips = $this->get_mail_ip();
+			foreach ((array)$myips as $myip) {
+				$newrecs = [
+					new \Opcenter\Dns\Record($domain,
+						['name' => 'mail', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+
+					/* webmail */
+					new \Opcenter\Dns\Record($domain,
+						['name' => 'horde', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+					new \Opcenter\Dns\Record($domain,
+						['name' => 'roundcube', 'ttl' => $ttl, 'rr' => 'a', 'parameter' => $myip]),
+				];
+				$recs = array_merge($recs, $newrecs);
+			}
+			return $recs;
 		}
 
 		public function add_virtual_transport($domain, $subdomain = '')
 		{
 			$aliases = $this->aliases_list_aliases();
-			if (($domain != $this->domain) && !in_array($domain, $aliases)) {
+			if (($domain !== $this->domain) && !in_array($domain, $aliases, true)) {
 				return error("domain `%s' not owned by site", $domain);
 			}
 			$transport = ($subdomain ? $subdomain . '.' : '') . $domain;
@@ -1052,7 +1054,7 @@
 				return error("failed to add e-mail transport `%s'", $transport);
 			}
 			// default record
-			$myip = $this->site_ip_address();
+			$myip = $this->get_mail_ip();
 			$mymailrec = rtrim('mail.' . $subdomain, '.');
 
 			if (!$this->dns_domain_uses_nameservers($domain)) {
@@ -1199,107 +1201,76 @@
 			return $pgdb->affected_rows() > 0;
 		}
 
+		public function get_mail_ip(): string
+		{
+			return $this->dns_get_public_ip();
+		}
+
 		public function set_webmail_location($app, $subdomain)
 		{
 			if (!IS_CLI) {
 				return $this->query('email_set_webmail_location', $app, $subdomain);
 			}
 
-			if (!array_key_exists($app, $this->webmail_apps())) {
+			$webmailInstance = \Opcenter\Mail\Services\Webmail::instantiateContexted($this->getAuthContext());
+			if (!$webmailInstance->exists($app)) {
 				return error("unknown webmail app `%s'", $app);
 			}
 
 			$subdomain = strtolower($subdomain);
 			$locations = $this->webmail_apps();
 			$oldsubdomain = $locations[$app];
-			if ($oldsubdomain == $subdomain) {
-				// no-op
+			if ($oldsubdomain === $subdomain) {
 				return true;
-			} else {
-				if (!preg_match(Regex::SUBDOMAIN, $subdomain)) {
-					return error("invalid subdomain `%s'", $subdomain);
-				} else {
-					if ($this->web_subdomain_exists($subdomain)) {
-						return error("subdomain `%s' already exists - cannot overwrite", $subdomain);
-					}
-				}
+			}
+			if (!preg_match(Regex::SUBDOMAIN, $subdomain)) {
+				return error("invalid subdomain `%s'", $subdomain);
 			}
 
+			if ($this->web_subdomain_exists($subdomain)) {
+				return error("subdomain `%s' already exists - cannot overwrite", $subdomain);
+			}
 
 			// system-default webmail locations won't appear in subdomain_exists() query
 			if ($this->web_subdomain_exists($oldsubdomain) && !$this->web_remove_subdomain($oldsubdomain)) {
 				warn("cannot remove old webmail location `%s'", $oldsubdomain);
 			}
-			$paths = $this->_webmailPaths();
-			$fspath = $paths[$app];
-			$this->web_add_subdomain_raw($subdomain, $fspath);
-			$locations[$app] = $subdomain;
-			$cache = Cache_Account::spawn($this->getAuthContext());
-			$cache->set('em.webmail', $locations);
-
-			$file = $this->_customWebmailFile();
-			file_put_contents($file, Util_Conf::build_ini($locations));
-			if (!$this->dns_record_exists($this->domain, $subdomain, 'A')) {
-				$ip = $this->common_get_ip_address();
-				$this->dns_add_record($this->domain, $subdomain, 'A', $ip);
-				info("added DNS for %s.%s to `%s'", $subdomain, $this->domain, $ip);
+			if (!$webmailInstance->set($app, $subdomain)) {
+				return false;
 			}
 
+			$fspath = $webmailInstance->getPathFromApp($app);
+			if (!$this->web_add_subdomain($subdomain, $fspath)) {
+				error("Failed to map webmail `%s' to `%s'", $app, $fspath);
+				$webmailInstance->forget($app);
+			}
+
+			$cache = Cache_Account::spawn($this->getAuthContext());
+			$cache->delete(\Opcenter\Mail\Services\Webmail::CACHE_KEY);
+
 			return info("webmail location changed from `%s.%s' to `%s.%s'",
-					$oldsubdomain, $this->domain, $subdomain, $this->domain) || true;
+					$oldsubdomain, $this->domain, $subdomain, $this->domain);
 		}
 
 		public function webmail_apps()
 		{
 			if (!IS_CLI) {
 				$cache = Cache_Account::spawn($this->getAuthContext());
-				if (false !== ($webmail = $cache->get('em.webmail'))) {
+				if (false !== ($webmail = $cache->get(\Opcenter\Mail\Services\Webmail::CACHE_KEY))) {
 					return $webmail;
 				}
 				$apps = $this->query('email_webmail_apps');
-				$cache->set('em.webmail', $apps);
+				$cache->set(\Opcenter\Mail\Services\Webmail::CACHE_KEY, $apps);
 
 				return $apps;
 			}
-
-			return array_merge($this->_webmailSubdomains(), $this->_loadCustomWebmail());
-		}
-
-		private function _webmailSubdomains()
-		{
-			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
-				return $v['subdomain'];
-			}, $this->_webmail));
-		}
-
-		private function _loadCustomWebmail()
-		{
-			$file = $this->_customWebmailFile();
-			$apps = array();
-			if (!file_exists($file)) {
-				return $apps;
-			}
-			$apps = array_merge($apps, Util_Conf::parse_ini($file));
-
-			return $apps;
-		}
-
-		private function _customWebmailFile()
-		{
-			return $this->domain_info_path() . '/webmail';
-		}
-
-		private function _webmailPaths()
-		{
-			return array_combine(array_keys($this->_webmail), array_map(function ($v) {
-				return $v['path'];
-			}, $this->_webmail));
+			return \Opcenter\Mail\Services\Webmail::instantiateContexted($this->getAuthContext())->getAll();
 		}
 
 		public function get_webmail_location($app)
 		{
 			$cache = Cache_Account::spawn($this->getAuthContext());
-			if (false !== ($webmail = $cache->get('em.webmail'))) {
+			if (false !== ($webmail = $cache->get(\Opcenter\Mail\Services\Webmail::CACHE_KEY))) {
 				return $webmail[$app];
 			}
 			$webmail = $this->query('email_webmail_apps');
@@ -1381,20 +1352,31 @@
 				// build HAProxy template
 
 				// update ssl certs
-				Util_Process::exec('/sbin/service dovecot restart');
+				Util_Process::exec('/sbin/service dovecot restart', null, [0,5 /* service not found */]);
 				// restart necessary to load new cert
 				Util_Process::exec('/sbin/service postfix restart');
-			} else if ($why == "adduser") {
+				return true;
+			}
+
+			if ($why == "adduser") {
 				// just flush auth cache
 				if (platform_is('6')) {
+					if (!file_exists('/usr/bin/doveadm')) {
+						return warn(
+							"Dovecot appears to not be installed. Mail provider other than 'null' selected. Switch " .
+							"provider module to `null' from `%s' to avoid unexpected side-effects.", $this->get_provider()
+						);
+					}
 					$cmd = 'doveadm auth cache flush';
 				} else if (platform_is('5')) {
 					$cmd = 'dovecot reload';
 				} else {
 					$cmd = '/sbin/service dovecot reload';
 				}
-				Util_Process::exec($cmd);
+				return Util_Process::exec($cmd);
 			}
+
+			return true;
 		}
 
 		/**

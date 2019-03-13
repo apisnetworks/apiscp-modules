@@ -763,6 +763,9 @@
 			$this->file_chmod($approot, 705);
 
 			$oldversion = $this->get_version($hostname, $path);
+			if ($oldversion === $version) {
+				return info("Ghost is already at current version `%s'", $version);
+			}
 			if (\Opcenter\Versioning::asMajor($version) !== \Opcenter\Versioning::asMajor($oldversion)) {
 				info("Major upgrade detected - updating ghost-cli, relaxing permissions");
 				// Permission requirements are insanely insecure... otherwise Ghost vomits.

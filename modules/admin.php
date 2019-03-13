@@ -133,7 +133,7 @@
 			}
 			$ini = $this->_get_admin_config();
 
-			return $ini['adminemail'] ?? $ini['email'] ?? null;
+			return $ini['adminemail'] ?? ($ini['email'] ?? null);
 		}
 
 		protected function _get_admin_config()
@@ -168,30 +168,37 @@
 		public function set_email($email)
 		{
 			if (!IS_CLI) {
+				// @TODO move preferences to Redis
+				if (!$this->inContext()) {
+					// commit pending preferences before updating with results
+					\Preferences::reload();
+				}
+
 				return $this->query('admin_set_email', $email);
 			}
+
 			if (!preg_match(Regex::EMAIL, $email)) {
 				return error("invalid email `%s'", $email);
 			}
-			$ini = $this->_get_admin_config();
-			$ini['adminemail'] = $email;
-			$data = '[DEFAULT]' . "\n" . implode("\n", array_key_map(function ($k, $v) {
-					return $k . ' = ' . $v;
-				}, $ini)) . "\n";
+
 			$prefs = \Preferences::factory($this->getAuthContext())->unlock($this->getApnscpFunctionInterceptor());
 			$prefs['email'] = $email;
 			if (platform_is('7.5')) {
 				$cfg = new \Opcenter\Admin\Bootstrapper\Config();
 				// only update if set
-				if ($cfg['apnscp_admin_email']) {
+				if ($cfg['apnscp_admin_email'] && $email !== $cfg['apnscp_admin_email']) {
+					// prevent double-firing during setup
 					$cfg['apnscp_admin_email'] = $email;
+					$cfg->sync();
 					\Opcenter\Admin\Bootstrapper::run('apnscp/create-admin', 'software/etckeeper');
 				}
-				unset($cfg);
-
+				return $prefs->sync();
 			}
 
-			return (bool)file_put_contents($this->getAdminConfigFile(), $data);
+			$ini = $this->_get_admin_config();
+			$ini['adminemail'] = $email;
+			$data = '[DEFAULT]' . "\n" . \Util_Conf::build_ini($ini);
+			return (bool)file_put_contents($this->getAdminConfigFile(), $data) && $prefs->sync();
 		}
 
 		public function _housekeeping()
@@ -272,6 +279,64 @@
 			return (bool)$launcher->run();
 		}
 
+		/**
+		 * List all failed webapps
+		 *
+		 * @param null|string $site restrict list to site
+		 * @return array
+		 */
+		public function list_failed_webapps($site = null): array
+		{
+			$failed = [];
+			if ($site) {
+				if (! ($sites = (array)\Auth::get_site_id_from_anything($site))) {
+					warn("Unknown site `%s'", $site);
+					return [];
+				}
+				$sites = array_map(function ($s) { return 'site' . $s; }, $sites);
+			} else {
+				$sites = \Opcenter\Account\Enumerate::active();
+			}
+			$getLatest = function($app) {
+				static $index;
+				if (!isset($index[$app])) {
+					$instance = \Module\Support\Webapps\App\Loader::factory($app, null);
+					$versions = \apnscpFunctionInterceptor::init()->call($instance->getClassMapping() . '_get_versions');
+					$version = $versions ? array_pop($versions) : null;
+					$index[$app] = $version;
+				}
+				return $index[$app];
+			};
+
+			foreach ($sites as $site) {
+				if (!\Auth::get_domain_from_site_id($site)) {
+					continue;
+				}
+				$auth = Auth::context(null, $site);
+				$finder = new \Module\Support\Webapps\Finder($auth);
+				$apps = $finder->getApplications(function ($appmeta) {
+					return !empty($appmeta['failed']);
+				});
+				if (!$apps) {
+					continue;
+				}
+				$list = [];
+				foreach ($apps as $path => $app) {
+					$type = $app['type'] ?? null;
+					$latest = $type ? $getLatest($app['type']) : null;
+					$list[$path] = [
+						'type'     => $type,
+						'version'  => $app['version'] ?? null,
+						'hostname' => $app['hostname'] ?? null,
+						'path'     => $app['path'] ?? '',
+						'latest'   => $latest
+					];
+				}
+				$failed[$site] = $list;
+			}
+			return $failed;
+
+		}
 		/**
 		 * Reset failed apps
 		 *
@@ -371,6 +436,9 @@
 
 			$ret = \Util_Process_Safe::exec(INCLUDE_PATH . '/bin/DeleteDomain --output=json %s', $site);
 			\Error_Reporter::merge_json($ret['stdout']);
+			if (!\Error_Reporter::merge_json($ret['stdout'])) {
+				return warn('Failed to read response - output received: %s', $ret['stdout']);
+			}
 
 			return $ret['success'];
 		}
@@ -390,14 +458,19 @@
 			}
 			array_set($opts, 'siteinfo.admin_user', $admin);
 			array_set($opts, 'siteinfo.domain', $domain);
-			$cmd = implode(' ', array_key_map(function ($key, $val) {
-				return '-c ' . escapeshellarg(str_replace_first('.', ',',
-						$key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
-			}, array_dot($opts)));
-			$cmd = INCLUDE_PATH . "/bin/AddDomain --output=json ${cmd}";
+			$plan = array_pull($opts, 'siteinfo.plan');
+			$args = \Opcenter\CliParser::commandifyConfiguration($opts);
+
+			if ($plan) {
+				$args = '--plan=' . escapeshellarg($plan) . ' ' . $args;
+			}
+
+			$cmd = INCLUDE_PATH . "/bin/AddDomain --output=json ${args}";
 			info("AddDomain command: $cmd");
 			$ret = \Util_Process_Safe::exec($cmd);
-			\Error_Reporter::merge_json($ret['stdout']);
+			if (!\Error_Reporter::merge_json($ret['stdout'])) {
+				return error('Failed to read response - output received: %s', $ret['stdout']);
+			}
 
 			return $ret['success'];
 		}
@@ -415,14 +488,18 @@
 				return $this->query('admin_edit_site', $site, $opts);
 			}
 
-			$args = implode(' ', array_key_map(function ($key, $val) {
-				return '-c ' . escapeshellarg(str_replace_first('.', ',',
-						$key)) . '=' . escapeshellarg((string)\Util_Conf::build_ini($val));
-			}, array_dot($opts)));
+			$plan = array_pull($opts, 'siteinfo.plan');
+			$args = \Opcenter\CliParser::commandifyConfiguration($opts);
+
+			if ($plan) {
+				$args = '--plan=' . escapeshellarg($plan) . ' ' . $args;
+			}
 			$cmd = INCLUDE_PATH . "/bin/EditDomain --output=json ${args} %s";
 			info("Edit command: $cmd", $site);
 			$ret = \Util_Process_Safe::exec($cmd, $site);
-			\Error_Reporter::merge_json($ret['stdout']);
+			if (!\Error_Reporter::merge_json($ret['stdout'])) {
+				return error('Failed to read response - output received: %s', $ret['stdout']);
+			}
 
 			return $ret['success'];
 		}

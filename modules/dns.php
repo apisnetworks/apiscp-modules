@@ -12,12 +12,14 @@
 	 *  +------------------------------------------------------------+
 	 */
 
+	use Module\Support\Dns;
+
 	/**
 	 * Provides DNS functions to apnscp.
 	 *
 	 * @package core
 	 */
-	class Dns_Module extends Module_Support_Dns
+	class Dns_Module extends Dns
 	{
 		use NamespaceUtilitiesTrait;
 
@@ -115,6 +117,8 @@
 
 			$this->exportedFunctions = array(
 				'*'                      => PRIVILEGE_SITE,
+				'get_public_ip'          => PRIVILEGE_SITE|PRIVILEGE_USER,
+				'get_public_ip6'         => PRIVILEGE_SITE|PRIVILEGE_USER,
 				'configured'             => PRIVILEGE_ALL,
 				'get_whois_record'       => PRIVILEGE_ALL,
 				'get_records_by_rr'      => PRIVILEGE_SITE | PRIVILEGE_ADMIN,
@@ -148,7 +152,6 @@
 			if ($provider === 'builtin') {
 				return $this;
 			}
-
 			return \Module\Provider::get('dns', $provider, $this->getAuthContext());
 		}
 
@@ -159,7 +162,7 @@
 		 */
 		public function get_provider(): string
 		{
-			return $this->getServiceValue('dns', 'provider', 'builtin');
+			return $this->getServiceValue('dns', 'provider', DNS_PROVIDER_DEFAULT ?? 'builtin');
 		}
 
 		/**
@@ -327,6 +330,7 @@
 			}
 			$data = Util_Process::exec("dig -t AXFR -y '%s' @%s %s",
 				$this->getTsigKey($domain), static::MASTER_NAMESERVER, $domain, [-1, 0]);
+
 			// AXFR can fail yet return a success RC
 			if (false !== strpos($data['output'], '; Transfer failed.')) {
 				return null;
@@ -417,7 +421,6 @@
 
 				return null;
 			}
-
 			if (null === ($data = $this->zoneAxfr($domain))) {
 				return $data;
 			}
@@ -706,28 +709,37 @@
 			return [];
 		}
 
+		/**
+		 * Check zone data with bind
+		 *
+		 * @param string $zone
+		 * @param Record[]  $recs
+		 * @return bool
+		 */
 		public function check_zone(string $zone, array $recs = []): bool
 		{
 			if (empty(static::AUTHORITATIVE_NAMESERVERS)) {
 				return warn('No authoritative nameservers set - cannot check zone');
 			}
-			$tmpfile = tempnam('/tmp', 'f');
-			Util_Process_Safe::exec('dig +authority +multiline +noquestion +nostats +noadditional +nocmd  -t AXFR -y ' .
-				'%s @%s %s > %s',
-				self::$dns_key,
-				array_random(static::AUTHORITATIVE_NAMESERVERS),
-				$zone,
-				$tmpfile,
-				array('mute_stderr' => true)
-			);
-			if ($recs) {
-				$str = '';
-				foreach ($recs as $rec) {
-					$str .= $rec[0] . ' ' . $rec[1] . ' ' . $rec[2] . ' ' . $rec[3] . "\n";
-				}
-				file_put_contents($tmpfile, $str, FILE_APPEND);
+			if (!file_exists('/usr/sbin/named-checkzone')) {
+				return warn("bind package is not installed - cannot check zone");
 			}
-			$status = Util_Process_Safe::exec('/usr/sbin/named-checkzone ' . $zone . ' ' . $tmpfile);
+			$tmpfile = tempnam('/tmp', 'f');
+			if (null === ($axfr = $this->zoneAxfr($zone))) {
+				return error("Failed to transfer zone `%s' - cannot check", $zone);
+			}
+
+			if ($recs) {
+				$axfr .= "\n" . implode("\n", array_filter(array_map(function ($r) {
+					if (!$r instanceof \Opcenter\Dns\Record) {
+						return $r[0] . ' ' . $r[1] . ' ' . $r[2] . ' ' . $r[3];
+					}
+					return (string)$r;
+				})));
+
+			}
+			file_put_contents($tmpfile, $axfr);
+			$status = Util_Process_Safe::exec('/usr/sbin/named-checkzone %s %s', [$zone, $tmpfile]);
 			unlink($tmpfile);
 
 			return $status['success'];
@@ -898,6 +910,48 @@
 		}
 
 		/**
+		 * Add a DNS record to a domain if no other record exists
+		 *
+		 * Purposed for Lararia\Jobs\SimpleCommandJob
+		 *
+		 * @param string $zone      zone name (normally domain name)
+		 * @param string $subdomain name of the record to add
+		 * @param string $rr        resource record type [MX, A, AAAA, CNAME, NS, TXT, DNAME]
+		 * @param string $param     parameter value
+		 * @param int    $ttl       TTL value, default value 86400
+		 *
+		 * @return bool
+		 */
+		public function add_record_conditionally(
+			string $zone,
+			string $subdomain,
+			string $rr,
+			string $param,
+			int $ttl = self::DNS_TTL
+		): bool
+		{
+			if (!$this->owned_zone($zone)) {
+				return error('%s not owned by account', $zone);
+			}
+			if (!$this->configured()) {
+				return info('DNS not configured for account - cannot add record');
+			}
+			if (!$this->zone_exists($zone)) {
+				return warn("DNS zone `%s' does not exist, skipping", $zone);
+			}
+			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param, $ttl)) {
+				return false;
+			}
+			if ($this->record_exists($zone, $subdomain, $rr)) {
+				return warn("Record %s%s already exists - not overwriting", ltrim($subdomain . '.', '.'), $zone);
+			}
+			if (!$this->add_record($zone, $subdomain, $rr, $param)) {
+				return error('%s%s: DNS master returned bad value', ltrim($subdomain . '.', '.'), $zone);
+			}
+			return true;
+		}
+
+		/**
 		 * Fixup a DNS record before submitting
 		 *
 		 * @param string $zone
@@ -916,8 +970,13 @@
 		): bool {
 
 			$rr = strtoupper($rr);
-			if ($rr == 'CNAME' && !$subdomain && $this->hasCnameApexRestriction()) {
-				return error('CNAME record cannot coexist with zone root, see RFC 1034 section 3.6.2');
+			if ($rr == 'CNAME') {
+				if (!$subdomain && $this->hasCnameApexRestriction()) {
+					return error('CNAME record cannot coexist with zone root, see RFC 1034 section 3.6.2');
+				}
+				if (0 === strpos($subdomain, 'http:') || 0 === strpos($subdomain, 'https:')) {
+					return error('CNAME must be a hostname. A protocol was specified (http://, https://)');
+				}
 			}
 
 			if ($rr === 'NS' && !$subdomain) {
@@ -997,7 +1056,7 @@
 				return error($zone . ': not owned by account');
 			}
 
-			$ttl = (int)self::DNS_TTL;
+			$ttl = (int)$this->get_default('ttl');
 			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $parameter, $ttl)) {
 				return false;
 			}
@@ -1088,8 +1147,12 @@
 			if (static::record2const($rr) < 1) {
 				return error("unknown RR class `%s'", $rr);
 			}
+			$hostingns = $this->get_hosting_nameservers($zone);
+			if (!$hostingns) {
+				return warn("No hosting nameservers configured for `%s', cannot determine if record exists", $zone);
+			}
 			$status = Util_Process::exec('dig +time=3 +tcp +short @%s %s %s',
-				array_random(static::AUTHORITATIVE_NAMESERVERS),
+				array_random($hostingns),
 				escapeshellarg($record),
 				array_key_exists($rr, static::$rec_2_const) ? $rr : 'ANY'
 			);
@@ -1125,10 +1188,6 @@
 		 */
 		public function add_zone_backend(string $domain, string $ip): bool
 		{
-			if (is_debug()) {
-				return info("not creating DNS zone for `%s' in development mode", $domain);
-			}
-
 			if (!static::MASTER_NAMESERVER) {
 				return error("rndc not configured in config.ini. Cannot add zone `%s'", $domain);
 			}
@@ -1337,7 +1396,7 @@
 			if (!$this->owned_zone($zone)) {
 				return error($zone . ': not owned by account');
 			}
-			$ttl = self::DNS_TTL;
+			$ttl = $this->get_default('ttl');
 			if (!$this->canonicalizeRecord($zone, $subdomain, $rr, $param)) {
 				return false;
 			}
@@ -1434,37 +1493,38 @@
 			$conf_new = $this->getAuthContext()->conf('ipinfo', 'new');
 			$domainold = \array_get($this->getAuthContext()->conf('siteinfo', 'old'), 'domain');
 			$domainnew = \array_get($this->getAuthContext()->conf('siteinfo', 'new'), 'domain');
-			if (\array_get($this->getAuthContext()->conf('dns', 'old'),
-					'provider') !== array_get($this->getAuthContext()->conf('dns', 'new'), 'provider')) {
+			if (\array_get($this->getAuthContext()->conf('dns', 'old'), 'provider') !== array_get($this->getAuthContext()->conf('dns', 'new'), 'provider'))
+			{
 				$this->_create();
 			}
 			// domain name change via auth_change_domain()
 			if ($domainold !== $domainnew) {
-				$ip = $conf_new['namebased'] ? array_pop($conf_new['nbaddrs']) :
-					array_pop($conf_new['ipaddrs']);
+				$ip = (array)$this->publicIpWrapper('new', 4);
 				$this->remove_zone($domainold);
-				$this->add_zone($domainnew, $ip);
+				$this->add_zone($domainnew, $ip[0]);
 				// domain name changed
 				if (!$conf_new['namebased']) {
-					$this->__changePTR($ip, $domainnew, $domainold);
+					$this->__changePTR($ip[0], $domainnew, $domainold);
 				}
 			}
-
-			if ($conf_new === $conf_old) {
+			// enable ip hosting
+			if ($conf_new === $conf_old && $this->getAuthContext()->conf('dns', 'old') === $this->getAuthContext('dns', 'new')) {
 				return;
 			}
-			$ipadd = $ipdel = array();
 
+			$ipadd = $ipdel = [];
+			$ipnew = $this->publicIpWrapper('new', 4, 'ipaddrs');
+			$ipold = $this->publicIpWrapper('old', 4, 'ipaddrs');
 			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// enable ip hosting
-				$ipadd = $conf_new['ipaddrs'];
+				$ipadd = $ipnew;
 			} else if (!$conf_old['namebased'] && $conf_new['namebased']) {
 				// disable ip hosting
-				$ipdel = $conf_old['ipaddrs'];
+				$ipdel = $ipold;
 			} else {
 				// add/remove ip hosting
-				$ipdel = array_diff((array)$conf_old['ipaddrs'], (array)$conf_new['ipaddrs']);
-				$ipadd = array_diff((array)$conf_new['ipaddrs'], (array)$conf_old['ipaddrs']);
+				$ipdel = array_diff((array)$ipold, (array)$ipnew);
+				$ipadd = array_diff((array)$ipnew, (array)$ipold);
 			}
 
 			foreach ($ipdel as $ip) {
@@ -1476,16 +1536,32 @@
 				$this->__addIP($ip, $domainnew);
 			}
 
-			$domains = array_keys($this->web_list_domains());
+			// update nbaddrs
+			$ipnew = $this->publicIpWrapper('new', 4, 'nbaddrs');
+			$ipold = $this->publicIpWrapper('old', 4, 'nbaddrs');
 			if ($conf_old['namebased'] && !$conf_new['namebased']) {
 				// added ip-based hosting
-				$ipdel = $conf_old['nbaddrs'];
+				$ipadd = $this->publicIpWrapper('new', 4, 'ipaddrs');
+				$ipdel = $ipold;
 			} else if (!$conf_old['namebased'] && $conf_new['namebased']) {
 				// removed ip-based hosting
-				$ipadd = $conf_new['nbaddrs'];
+				$ipdel = $this->publicIpWrapper('old', 4, 'ipaddrs');
+				$ipadd = $ipnew;
+			} else if ($conf_old['namebased'] === $conf_new['namebased'] && $conf_new['namebased']) {
+				// no namebased change
+				$ipdel = array_diff(
+					(array)$this->publicIpWrapper('old', 4, 'nbaddrs'),
+					(array)$this->publicIpWrapper('new', 4, 'nbaddrs')
+				);
+				$ipadd = array_diff(
+					(array)$this->publicIpWrapper('new', 4, 'nbaddrs'),
+					(array)$this->publicIpWrapper('old', 4, 'nbaddrs')
+				);
 			}
+
 			// change DNS
 			// there will always be a 1:1 pairing for IP addresses
+			$domains = array_keys($this->web_list_domains());
 			foreach ($ipadd as $newip) {
 				$oldip = array_pop($ipdel);
 				$newparams = array('ttl' => static::DNS_TTL, 'parameter' => $newip);
@@ -1518,11 +1594,14 @@
 			$ipinfo = $this->getAuthContext()->conf('ipinfo');
 			$siteinfo = $this->getAuthContext()->conf('siteinfo');
 			$domain = $siteinfo['domain'];
-			$ip = $ipinfo['namebased'] ? $ipinfo['nbaddrs'] : $ipinfo['ipaddrs'];
+			$ip = (array)$this->publicIpWrapper('cur');
 			$this->add_zone($domain, $ip[0]);
 
 			if (!$ipinfo['namebased']) {
-				$this->__addIP($ip[0], $siteinfo['domain']);
+				$ips = array_merge($ip, (array)$ipinfo['ipaddrs']);
+				foreach(array_unique($ips) as $ip) {
+					$this->__addIP($ip, $siteinfo['domain']);
+				}
 			}
 			if (!$this->domain_uses_nameservers($domain)) {
 				warn("Domain `%s' doesn't use assigned nameservers. Change nameservers to %s",
@@ -1531,6 +1610,35 @@
 			}
 
 			return true;
+		}
+
+		/**
+		 * Helper function to fetch IP address from config
+		 *
+		 * @param string      $which
+		 * @param int         $class
+		 * @param string|null $svcvar class
+		 * @return string
+		 */
+		protected function publicIpWrapper(string $which = 'cur', int $class = 4, string $svcvar = null)
+		{
+			if ($class !== 4 && $class !== 6) {
+				fatal("Unknown IP class `%s'", $class);
+			}
+			if ($which === 'current') {
+				$which = 'cur';
+			}
+			$confctx = $this->getAuthContext()->conf('dns', $which);
+			$proxyvar = 'proxy' . ($class === 4 ? '' : '6') . 'addr';
+			if ($info = ($confctx[$proxyvar] ?? null)) {
+				return $info;
+			}
+			$svccls = 'ipinfo' . ($class === 6 ? '6' : '');
+			$confctx = $this->getAuthContext()->conf($svccls, $which);
+			if (null === $svcvar) {
+				$svcvar = $confctx['namebased'] ? 'nbaddrs' : 'ipaddrs';
+			}
+			return $confctx[$svcvar];
 		}
 
 		/**
@@ -1560,6 +1668,7 @@
 			}
 
 			// verify zone present; this is often async
+			// @todo extend or exponential backoff?
 			$data = null;
 			for ($i = 0; $i < 10; $i++) {
 				if (null !== ($data = $this->zoneAxfr($domain))) {
@@ -1590,6 +1699,26 @@
 		}
 
 		/**
+		 * Get public IPv4 address
+		 *
+		 * @return string|array
+		 */
+		public function get_public_ip()
+		{
+			return $this->getServiceValue('dns','proxyaddr') ?: $this->common_get_ip_address();
+		}
+
+		/**
+		 * Get public IPv6 address
+		 *
+		 * @return string|array
+		 */
+		public function get_public_ip6()
+		{
+			return $this->getServiceValue('dns', 'proxy6addr') ?: $this->common_get_ip_address();
+		}
+
+		/**
 		 * Get provisioning DNS records to setup automatically
 		 *
 		 * @param string $zone zone name
@@ -1597,19 +1726,23 @@
 		 */
 		public function provisioning_records(string $zone): array
 		{
-			$myip = $this->site_ip_address();
+			$ips = $this->get_public_ip();
+			$records = [];
+			foreach ((array)$ips as $myip) {
+				$newrecs = [
+					static::createRecord($zone,
+						['name' => '', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+					static::createRecord($zone,
+						['name' => 'www', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+					static::createRecord($zone,
+						['name' => 'ftp', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
+				];
+				$records = array_merge($records, $newrecs);
+			}
 
-			$records = [
-				static::createRecord($zone,
-					['name' => '', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
-				static::createRecord($zone,
-					['name' => 'www', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
-				static::createRecord($zone,
-					['name' => 'ftp', 'ttl' => static::DNS_TTL, 'rr' => 'a', 'parameter' => $myip]),
-			];
-
-			if (($this->email_enabled() && $this->getServiceValue('mail',
-						'provider') !== 'builtin') || $this->email_transport_exists($zone)) {
+			if (($this->email_enabled() && $this->getServiceValue('mail', 'provider') !== 'builtin') ||
+				$this->email_transport_exists($zone))
+			{
 				$records = array_merge($records, $this->email_get_records($zone));
 			}
 

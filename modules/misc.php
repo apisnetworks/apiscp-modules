@@ -25,15 +25,19 @@
 			'procfs' => '/proc'
 		);
 
-		/**
-		 * void __construct(void)
-		 *
-		 * @ignore
-		 */
-		public function __construct()
-		{
-			parent::__construct();
-		}
+		protected $exportedFunctions =
+			[
+				'*'                      => PRIVILEGE_SITE,
+				'flush_cp_version'       => PRIVILEGE_ADMIN,
+				'cp_version'             => PRIVILEGE_ALL,
+				'platform_version'       => PRIVILEGE_ALL,
+				'dashboard_memory_usage' => PRIVILEGE_ALL,
+				'lservice_memory_usage'  => PRIVILEGE_ALL,
+				'changelog'              => PRIVILEGE_ALL,
+				'run'                    => PRIVILEGE_SITE,
+				'notify_installed'       => PRIVILEGE_ADMIN,
+				'list_commands'          => PRIVILEGE_ALL
+			];
 
 		/**
 		 * Current control panel version
@@ -45,24 +49,13 @@
 			return \Opcenter::versionData($field);
 		}
 
+		public function flush_cp_version() {
+			return Opcenter::forgetVersion();
+		}
+
 		public function platform_version()
 		{
 			return platform_version();
-		}
-
-		public function _init()
-		{
-			$this->exportedFunctions = array(
-				'*'                      => PRIVILEGE_SITE,
-				'cp_version'             => PRIVILEGE_ALL,
-				'platform_version'       => PRIVILEGE_ALL,
-				'dashboard_memory_usage' => PRIVILEGE_ALL,
-				'lservice_memory_usage'  => PRIVILEGE_ALL,
-				'changelog'              => PRIVILEGE_ALL,
-				'run'                    => PRIVILEGE_SITE,
-				'notify_installed'       => PRIVILEGE_ADMIN,
-				'list_commands'          => PRIVILEGE_ALL
-			);
 		}
 
 		/**
@@ -288,6 +281,9 @@
 
 			dlog("Updating browscap");
 			\Util_Browscap::update();
+			if (Opcenter::updateTags()) {
+				dlog("Release tags updated");
+			}
 			return true;
 		}
 
